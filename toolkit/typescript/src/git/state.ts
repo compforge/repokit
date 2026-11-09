@@ -138,6 +138,9 @@ export interface CheckoutInfo {
 
 /** Shared metadata may not identify the original checkout of a separate Git directory. */
 export function checkoutInfo(repo: string): CheckoutInfo {
+  return checkoutWithEntries(repo, listWorktrees(repo));
+}
+function checkoutWithEntries(repo: string, entries: readonly WorktreeEntry[]): CheckoutInfo {
   const query = (path: string, flag: string): string => {
     const result = runGit(path, ["rev-parse", "--path-format=absolute", flag], 5_000, true);
     if (!result.ok || !result.stdout) throw new Error(result.stderr || `cannot resolve ${flag}`);
@@ -147,7 +150,7 @@ export function checkoutInfo(repo: string): CheckoutInfo {
   if (!existsSync(join(root, ".git"))) throw new Error("Git metadata directory is not a checkout");
   const gitDir = query(repo, "--git-dir");
   const commonDir = query(repo, "--git-common-dir");
-  const first = listWorktrees(repo)[0];
+  const first = entries[0];
   let mainRoot: string | undefined;
   if (first) {
     try {
@@ -168,9 +171,10 @@ export interface CheckoutEntry {
 
 /** Checkout locations, preserving unknown primary paths; excludes bare registrations. */
 export function listCheckouts(repo: string): readonly CheckoutEntry[] {
-  const info = checkoutInfo(repo);
+  const entries = listWorktrees(repo);
+  const info = checkoutWithEntries(repo, entries);
   const main = info.linked ? info.mainRoot : info.root;
-  return listWorktrees(repo).flatMap((entry, index) => {
+  return entries.flatMap((entry, index) => {
     if (!entry.sha) return []; // Bare repository metadata has no checkout HEAD.
     const path = index === 0 ? main : entry.path;
     return [{ ...(path === undefined ? {} : { path }), sha: entry.sha,
@@ -190,12 +194,14 @@ export function worktreeMetadata(repo: string): { readonly linked: boolean; read
 }
 
 export function localBranches(repo: string): ReadonlyMap<string, string> {
-  const result = runGit(repo, ["for-each-ref", "--sort=refname", "--format=%(refname:short)%00%(objectname)", "refs/heads"]);
+  const result = runGit(repo, ["for-each-ref", "--sort=refname", "--format=%(refname)%00%(objectname)", "refs/heads"]);
   const branches = new Map<string, string>();
   if (!result.ok) throw new Error(result.stderr || "cannot list local branches");
   for (const line of result.stdout.split("\n")) {
     const [name, sha] = line.split("\0");
-    if (name && sha) branches.set(name, sha);
+    if (!line) continue;
+    if (!name?.startsWith("refs/heads/") || !sha) throw new Error("Invalid branch inventory");
+    branches.set(name.slice("refs/heads/".length), sha);
   }
   return branches;
 }

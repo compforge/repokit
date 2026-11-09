@@ -152,3 +152,17 @@ Python Git 能力集中在 `repokit/git/`：包入口导出显式操作，`opera
 `repokit.git.state`、`repokit.git.index`、`repokit.git.stash`、`repokit.git.remote`；调用方直接迁移导入。
 TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出，包根 API 保持不变，
 `catalog.ts` 仍为内部实现。仓库观察和 Forge 保持各自边界，不放进 Git 目录。
+
+## Repository 本地信息
+
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
+
+显式 checkout Git 操作过滤继承的 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_INDEX_FILE`、object store 与
+命令级配置覆盖，避免 hook/agent 上下文把操作指向其他 checkout。认证、传输、作者配置保留；
+显式临时 index 在过滤后应用。通用 subprocess 和无 checkout 的 global Git 操作不套用此规则。
+验证/依赖准备的默认继承环境同样清理 Git checkout override；显式 validation environment 保留调用方契约。
+此改动不复制 `node_modules`、`.venv` 等依赖目录，不引入 reflink 或跨 worktree 的依赖继承。
+
+继承的 `GIT_CONFIG_COUNT/KEY_*/VALUE_*` 与 `GIT_CONFIG_PARAMETERS` 按配置项过滤：
+保留 HTTP、credential、URL rewrite、SSH/代理及用户身份配置，重新编码后传给 Git；
+`core.worktree`、include 等可能改变仓库定位或引入额外配置的覆盖不继承。显式每次调用的覆盖仍最后应用。

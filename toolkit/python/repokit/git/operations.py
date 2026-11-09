@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from .._git_environment import checkout_environment
+
 if TYPE_CHECKING:
     from .index import IndexView
 
@@ -32,7 +34,9 @@ def git(
     raw: bool = False,
     index_file: Path | None = None,
 ) -> GitResult:
-    env = {**os.environ, "GIT_INDEX_FILE": str(index_file.absolute())} if index_file else None
+    env = checkout_environment()
+    if index_file is not None:
+        env["GIT_INDEX_FILE"] = str(index_file.absolute())
     return _run(["git", "-C", str(repo_dir), *args], timeout, raw=raw, env=env)
 
 
@@ -145,7 +149,13 @@ def abort_rebase(repo: str | Path) -> GitResult:
 
 
 def add_worktree(
-    repo: str | Path, path: str | Path, ref: str, *, branch: str | None = None, detach: bool = False
+    repo: str | Path,
+    path: str | Path,
+    ref: str,
+    *,
+    branch: str | None = None,
+    detach: bool = False,
+    state_dir: str | Path | None = None,
 ) -> GitResult:
     if branch is not None and detach:
         raise ValueError("branch and detach are mutually exclusive")
@@ -164,17 +174,25 @@ def add_worktree(
                 created = Path(path) if Path(path).is_absolute() else Path(repo) / path
                 try:
                     record_creation(created)
+                    if state_dir is not None:
+                        from ..state import RepositoryState
+
+                        RepositoryState(state_dir).observe(repo)
                 except (OSError, ValueError) as exc:
                     # The checkout exists; never report the creation as safely retryable.
-                    return GitResult(result.rc, result.out, f"creation time unavailable: {exc}")
+                    return GitResult(
+                        result.rc, result.out, f"checkout created; metadata unavailable: {exc}"
+                    )
             return result
     except OSError as exc:
         return GitResult(-1, "", str(exc))
 
 
-def remove_worktree(repo: str | Path, path: str | Path, *, force: bool = False) -> GitResult:
+def remove_worktree(
+    repo: str | Path, path: str | Path, *, force: bool = False, state_dir: str | Path | None = None
+) -> GitResult:
     """Default removal preserves dirty and locked worktrees."""
-    return git(
+    result = git(
         repo,
         "worktree",
         "remove",
@@ -183,6 +201,17 @@ def remove_worktree(repo: str | Path, path: str | Path, *, force: bool = False) 
         str(path),
         timeout=30,
     )
+
+    if result.ok and state_dir is not None:
+        from ..state import RepositoryState
+
+        try:
+            RepositoryState(state_dir).observe(repo, reconcile=True)
+        except (OSError, ValueError) as exc:
+            return GitResult(
+                result.rc, result.out, f"checkout removed; metadata unavailable: {exc}"
+            )
+    return result
 
 
 def prune_worktrees(repo: str | Path) -> GitResult:

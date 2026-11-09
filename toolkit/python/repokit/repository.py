@@ -8,9 +8,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import git
+from ._state_paths import local_key, repository_key
 from .forge.model import Forge, ForgeError
 from .forge.observation.store import ObservationStore, digest
 from .git import state as git_state
+from .git.remote import parse_remote_url
 
 logger = logging.getLogger(__name__)
 
@@ -45,10 +47,20 @@ def default_branch(
         raise OSError(f"cannot read origin identity: {remote.err}")
     # Include remote configuration so repointing origin never reuses another repository's fact.
     store = ObservationStore(state_dir or Path.home() / ".repocli")
-    path = store.root / "repositories" / digest([info.common_dir, remote.out]) / "metadata.json"
+    identity = parse_remote_url(remote.out.strip()) if remote.ok else None
+    key = (
+        repository_key(
+            {"github.com": "github", "gitlab.com": "gitlab"}.get(identity.host, identity.host),
+            identity.path,
+        )
+        if identity
+        else local_key(info.common_dir)
+    )
+    path = store.root / "repositories" / key / "metadata.json"
+    legacy = store.root / "repositories" / digest([info.common_dir, remote.out]) / "metadata.json"
 
     def read() -> DefaultBranch:
-        value = store.read(path)
+        value = store.read(path) or store.read(legacy)
         if value is None:
             return DefaultBranch(None, 0, False)
         branch, at = value.get("default_branch"), value.get("observed_at")
@@ -56,10 +68,11 @@ def default_branch(
             raise OSError("invalid default-branch observation")
         return DefaultBranch(branch, float(at), 0 <= time.time() - at < max_age)
 
-    cached = read()
-    if cached.fresh:
-        return cached
     with store.locked(path) as assert_owned:
+        if store.read(path) is None:
+            old = store.read(legacy)
+            if old is not None:
+                store.write(path, old, assert_owned)
         cached = read()
         if cached.fresh:
             return cached

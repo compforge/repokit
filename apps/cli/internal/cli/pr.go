@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"os"
 	"strconv"
+	"time"
 )
 
 type forgeOptions struct {
@@ -34,7 +35,7 @@ func (o *forgeOptions) validate(opts *options) error {
 	}
 	return nil
 }
-func (o *forgeOptions) context(ctx context.Context, repo string) (*forge.Context, error) {
+func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot string) (*forge.Context, error) {
 	identity, err := forge.RepositoryIdentity(ctx, repo)
 	if err != nil {
 		return nil, err
@@ -63,7 +64,11 @@ func (o *forgeOptions) context(ctx context.Context, repo string) (*forge.Context
 	if token == "" {
 		return nil, fmt.Errorf("no %s credential", provider)
 	}
-	client, err := forge.NewClient(forge.Config{Host: host, Provider: provider, APIHost: o.apiHost, Token: token})
+	stateDir, err := repositoryStateDir(stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	client, err := forge.NewClient(forge.Config{Host: host, Provider: provider, APIHost: o.apiHost, Token: token, StateDir: stateDir})
 	if err != nil {
 		return nil, err
 	}
@@ -77,10 +82,14 @@ func newPRCommand(opts *options) *cobra.Command {
 	for _, operation := range []string{"create", "show", "list", "update", "close", "merge"} {
 		var title, bodyFile, sourceBranch, targetBranch, state, expectedSHA, method string
 		var draft bool
+		var maxAge time.Duration
 		command := &cobra.Command{Use: operation, Args: cobra.NoArgs}
 		if operation == "show" || operation == "update" || operation == "close" || operation == "merge" {
 			command.Use += " <number>"
 			command.Args = cobra.ExactArgs(1)
+		}
+		if operation == "show" {
+			command.Flags().DurationVar(&maxAge, "max-age", time.Minute, "maximum age of cached PR metadata; 0 forces refresh")
 		}
 		command.RunE = func(cmd *cobra.Command, args []string) error {
 			if err := connection.validate(opts); err != nil {
@@ -123,7 +132,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 			defer cancel()
-			prContext, err := connection.context(ctx, opts.repository)
+			prContext, err := connection.context(ctx, opts.repository, opts.stateDir)
 			if err != nil {
 				return executionError{err}
 			}
@@ -132,7 +141,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			var result any
 			switch operation {
 			case "show":
-				result, err = prContext.Client.Get(ctx, target, number)
+				result, err = prContext.Client.Load(ctx, target, number, maxAge)
 			case "list":
 				result, err = prContext.Client.List(ctx, target, state, "", sourceBranch)
 			case "create":

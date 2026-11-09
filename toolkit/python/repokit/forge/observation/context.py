@@ -9,6 +9,7 @@ from typing import cast
 
 from harness_common import Repository
 
+from ..._state_paths import name_part, repository_key
 from ...budget import operation
 from ...git import state as git_state
 from ...git.remote import remote
@@ -66,7 +67,9 @@ class PullRequestContext:
         try:
             issues.extend(self.observer.maintain())
             rows = self.local_branches()
-            maintenance = clean_worktrees(self.checkout, context=self, inventory=rows)
+            maintenance = clean_worktrees(
+                self.checkout, context=self, inventory=rows, state_dir=self.observer.store.root
+            )
         except Exception as exc:
             logger.warning(
                 "PR lifecycle maintenance failed checkout=%s error=%s", self.checkout, exc
@@ -141,13 +144,25 @@ class PullRequestContext:
             branch,
             [repository_json(repo) for repo in self.targets],
         ]
-        return observer.store.root / "associations" / f"{digest(identity)}.json"
+        return (
+            observer.store.root
+            / "repositories"
+            / repository_key(self.source.forge.name, self.source.path)
+            / "branches"
+            / name_part(branch)
+            / "associations"
+            / f"{digest(identity)}.json"
+        )
 
     def _keys(self, branch: str, *, verify: bool) -> tuple[PullRequestKey, ...]:
         observer = self.observer
         path = self._association_path(branch)
         with observer.store.locked(path) as owned:
             record = observer.store.read(path)
+            if record is None:
+                record = observer.store.read(observer.store.root / "associations" / path.name)
+                if record is not None:
+                    observer.store.write(path, record, owned)
             if record and (
                 record.get("version") != 1
                 or not record.get("error")
@@ -205,15 +220,26 @@ class PullRequestContext:
             )
             return unique
 
-    def _branch(self, branch: str, *, verify: bool = False) -> BranchPullRequests:
+    def _branch(
+        self,
+        branch: str,
+        *,
+        verify: bool = False,
+        inventory: tuple[dict[str, str], list[git_state.CheckoutEntry]] | None = None,
+    ) -> BranchPullRequests:
         with operation(timeout=self.observer.timeout, cancel=self.observer._stop):
-            heads = dict(git_state.list_local_branches(self.checkout))
+            heads, entries = (
+                inventory
+                if inventory is not None
+                else (
+                    dict(git_state.list_local_branches(self.checkout)),
+                    git_state.list_checkouts(self.checkout),
+                )
+            )
             if branch not in heads:
                 raise ValueError(f"local branch does not exist: {branch}")
             head = heads[branch]
-            checkouts = tuple(
-                entry for entry in git_state.list_checkouts(self.checkout) if entry.branch == branch
-            )
+            checkouts = tuple(entry for entry in entries if entry.branch == branch)
             candidates: list[PullRequest] = []
             errors: list[str] = []
             try:
@@ -273,6 +299,7 @@ class PullRequestContext:
         if limit < 1:
             raise ValueError("limit must be positive")
         branches = git_state.list_local_branches(self.checkout)
+        heads = dict(branches)
         checkouts = git_state.list_checkouts(self.checkout)
         due = {}
         unavailable: dict[str, str] = {}
@@ -302,7 +329,7 @@ class PullRequestContext:
                     elif branch not in selected and due[branch] <= self.observer.now():
                         error = "association discovery pending"
                     else:
-                        results.append(self.get_branch(branch))
+                        results.append(self._branch(branch, inventory=(heads, checkouts)))
                         continue
                 except TimeoutError:
                     error = "association round timed out"

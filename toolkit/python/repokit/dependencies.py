@@ -17,6 +17,7 @@ from typing import Literal
 import yaml
 
 from . import _process
+from ._git_environment import checkout_environment
 from ._inspect import inspect
 from .budget import current_budget, operation
 from .model import InspectReport, owner
@@ -337,7 +338,7 @@ def _prepare_dependencies(
                 current, "unsupported", reason=current.reason or "No supported locked installation"
             )
         # uv must not inherit a path that redirects this checkout's editable installation.
-        env = dict(os.environ)
+        env = checkout_environment()
         if current.manager == "uv":
             env.pop("VIRTUAL_ENV", None)
             env.pop("UV_PROJECT_ENVIRONMENT", None)

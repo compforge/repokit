@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -44,6 +45,7 @@ func worktreeGit(ctx context.Context, repo string, timeout time.Duration, args .
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...)
+	cmd.Env = gitenv.ForCheckout(os.Environ())
 	cmd.WaitDelay = time.Second
 	gitProcessGroup(cmd)
 	var out, stderr bytes.Buffer
@@ -88,9 +90,8 @@ func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
 	return entries, nil
 }
 
-// Checkout observes the current checkout and shared metadata. Separate Git dirs
-// need not retain a backlink to their original checkout, so MainRoot may be empty.
-func Checkout(ctx context.Context, repo string) (CheckoutInfo, error) {
+// checkoutLocal resolves checkout paths without enumerating registered worktrees.
+func checkoutLocal(ctx context.Context, repo string) (CheckoutInfo, error) {
 	query := func(path, flag string) (string, error) {
 		result := worktreeGit(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
 		if result.Err != nil {
@@ -113,9 +114,30 @@ func Checkout(ctx context.Context, repo string) (CheckoutInfo, error) {
 		return info, err
 	}
 	info.Linked = info.GitDir != info.CommonDir
+	return info, nil
+}
+
+// Checkout observes the current checkout and shared metadata.
+// Separate Git directories never invent a conventional primary checkout.
+func Checkout(ctx context.Context, repo string) (CheckoutInfo, error) {
 	entries, err := ListWorktrees(ctx, repo)
 	if err != nil {
+		return CheckoutInfo{}, err
+	}
+	return checkoutWithEntries(ctx, repo, entries)
+}
+
+func checkoutWithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (CheckoutInfo, error) {
+	info, err := checkoutLocal(ctx, repo)
+	if err != nil {
 		return info, err
+	}
+	query := func(path, flag string) (string, error) {
+		result := worktreeGit(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
+		if result.Err != nil {
+			return "", result.Err
+		}
+		return filepath.EvalSymlinks(strings.TrimSuffix(result.Stdout, "\n"))
 	}
 	if len(entries) > 0 {
 		if candidate, err := query(entries[0].Path, "--show-toplevel"); err == nil {
@@ -141,11 +163,11 @@ type CheckoutEntry struct {
 
 // ListCheckouts retains unknown locations and excludes bare metadata registrations.
 func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
-	info, err := Checkout(ctx, repo)
+	entries, err := ListWorktrees(ctx, repo)
 	if err != nil {
 		return nil, err
 	}
-	entries, err := ListWorktrees(ctx, repo)
+	info, err := checkoutWithEntries(ctx, repo, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +193,9 @@ func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
 // AddWorktreeOptions chooses a new branch or a detached checkout. Both empty
 // leaves Git's normal branch selection intact. Naming and ownership are caller policy.
 type AddWorktreeOptions struct {
-	Branch string
-	Detach bool
+	Branch   string
+	Detach   bool
+	StateDir string
 }
 
 // AddWorktree creates a checkout at an explicit path. It never replaces an existing branch.
@@ -220,11 +243,19 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
 		}
 	}
+	if result.Err == nil && options.StateDir != "" {
+		if _, err := Observe(ctx, repo, options.StateDir, false); err != nil {
+			result.Stderr += fmt.Sprintf("\ncheckout created; metadata unavailable: %v", err)
+		}
+	}
 	return result
 }
 
 // RemoveWorktreeOptions requires explicit force to remove dirty or locked checkouts.
-type RemoveWorktreeOptions struct{ Force bool }
+type RemoveWorktreeOptions struct {
+	Force    bool
+	StateDir string
+}
 
 // RemoveWorktree defaults to Git's protection of dirty and locked checkouts.
 // It retains branch refs and does not choose which worktrees are eligible for removal.
@@ -233,5 +264,11 @@ func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktr
 	if options.Force {
 		args = append(args, "--force", "--force")
 	}
-	return worktreeGit(ctx, repo, 30*time.Second, append(args, "--", path)...)
+	result := worktreeGit(ctx, repo, 30*time.Second, append(args, "--", path)...)
+	if result.Err == nil && options.StateDir != "" {
+		if _, err := Observe(ctx, repo, options.StateDir, true); err != nil {
+			result.Stderr += fmt.Sprintf("\ncheckout removed; metadata unavailable: %v", err)
+		}
+	}
+	return result
 }

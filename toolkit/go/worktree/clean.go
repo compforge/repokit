@@ -93,6 +93,7 @@ type WorktreeCleanOptions struct {
 	Policy       *WorktreePolicy
 	DryRun       bool
 	PullRequests WorktreePullRequests
+	StateDir     string
 }
 
 type retentionEntry struct {
@@ -150,7 +151,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		e := &retentionEntry{CheckoutEntry: entry}
 		candidates = append(candidates, e)
-		reason, observeErr := worktreeProtection(ctx, repo, info.Root, entry)
+		reason, observeErr := protectionInInventory(ctx, info.Root, entry, entries)
 		if observeErr == nil {
 			e.environments, e.unmanaged, observeErr = worktreeEnvironments(ctx, e.Path, *policy, !options.DryRun)
 		}
@@ -160,7 +161,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			failure(e, "retain", observeErr)
 			continue
 		}
-		metadata, observeErr := Checkout(ctx, e.Path)
+		metadata, observeErr := checkoutLocal(ctx, e.Path)
 		if observeErr == nil {
 			var data []byte
 			data, observeErr = os.ReadFile(filepath.Join(metadata.GitDir, "repokit-created.json"))
@@ -335,6 +336,11 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if known {
 		report.RemainingPrepared = &countPrepared
 	}
+	if options.StateDir != "" && !options.DryRun {
+		if _, err := Observe(ctx, repo, options.StateDir, true); err != nil {
+			report.Errors = append(report.Errors, "repository observation: "+err.Error())
+		}
+	}
 	return report, nil
 }
 
@@ -351,13 +357,21 @@ func worktreeProtection(ctx context.Context, repo, current string, entry Checkou
 	if err != nil {
 		return "", err
 	}
+	return protectionInInventory(ctx, current, entry, entries)
+}
+
+// Inventory reuse is limited to planning. The mutation gate calls worktreeProtection again.
+func protectionInInventory(ctx context.Context, current string, entry CheckoutEntry, entries []CheckoutEntry) (string, error) {
+	if entry.Path == "" || entry.Primary || entry.Path == current {
+		return "primary_or_current_checkout", nil
+	}
 	if !slices.Contains(entries, entry) {
 		return "checkout_identity_changed", nil
 	}
 	if entry.Branch == "" {
 		return "detached_checkout", nil
 	}
-	info, err := Checkout(ctx, entry.Path)
+	info, err := checkoutLocal(ctx, entry.Path)
 	if err != nil {
 		return "", err
 	}

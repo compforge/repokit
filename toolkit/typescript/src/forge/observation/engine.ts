@@ -1,3 +1,4 @@
+import { repositoryKey } from "../../state-paths.js";
 import { pullRequestId } from "@compforge/harness-common";
 import { setTimeout as delay } from "node:timers/promises";
 import { assertPullRequestKey, pullRequestKey } from "../key.js";
@@ -40,8 +41,8 @@ export class ObservationEngine {
     this.#timeout = positive("requestTimeoutMs", options.requestTimeoutMs ?? 20_000);
   }
   #time(): number { const time = this.#now().getTime(); if (!Number.isSafeInteger(time) || time < 0) throw new Error("Invalid observation clock"); return time; }
-  #repo(key: PullRequestKey): string { return digest([key.repository.forge.name, key.repository.path]); }
-  #path(key: PullRequestKey): string { return this.#store.path("repositories", this.#repo(key), "prs", String(key.number), "observation.json"); }
+  #repo(key: PullRequestKey): string { return repositoryKey(key.repository.forge.name, key.repository.path); }
+  #path(key: PullRequestKey): string { return this.#store.path("repositories", this.#repo(key), "prs", String(key.number), "observations", this.#connection+".json"); }
   #scope(scope: PullRequestScope): string { return digest([this.#connection, scopeKey(scope, this.reader.forge)]); }
   async #stored(path: string): Promise<StoredObservation | undefined> {
     const record = await this.#store.read<StoredObservation>(path);
@@ -50,10 +51,15 @@ export class ObservationEngine {
     }
     return record?.connection === this.#connection ? record : undefined;
   }
+  async #inventory(path: string): Promise<StoredObservation | undefined> {
+    const record = await this.#stored(path);
+    if (record && path !== this.#path(record.observation.key) && await this.#stored(this.#path(record.observation.key))) return undefined;
+    return record;
+  }
   #fresh(record: StoredObservation, age: number): boolean {
     const observation = record.observation;
-    return observation.snapshot?.state === "merged" || Boolean(observation.snapshot && observation.observedAt &&
-      !observation.lastError && this.#time() - Date.parse(observation.observedAt) <= age);
+    return !observation.lastError && (observation.snapshot?.state === "merged" || Boolean(observation.snapshot && observation.observedAt &&
+      !observation.lastError && this.#time() - Date.parse(observation.observedAt) <= age));
   }
   async #request<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
     const requestSignal = AbortSignal.any([signal, AbortSignal.timeout(this.#timeout)]);
@@ -78,7 +84,14 @@ export class ObservationEngine {
     const signal = query.signal ?? new AbortController().signal;
     const path = this.#path(key);
     return this.#store.locked(path, signal, async assertOwned => {
-      const previous = await this.#stored(path);
+      let previous = await this.#stored(path);
+      if (!previous) {
+        for (const repository of [this.#repo(key), digest([key.repository.forge.name, key.repository.path])]) {
+          const legacy = this.#store.path("repositories", repository, "prs", String(key.number), "observation.json");
+          previous = await this.#stored(legacy);
+          if (previous) { await this.#store.write(path, previous, assertOwned); break; }
+        }
+      }
       if (previous && pullRequestId(previous.observation.key) !== pullRequestId(key)) throw new ObservationStorageError(`PR identity mismatch at ${path}`);
       const scopeIds = [...new Set([...(previous?.scopeIds ?? []), ...(scopeId ? [scopeId] : [])])];
       if (previous && !query.refresh && (this.#fresh(previous, age) ||
@@ -122,8 +135,8 @@ export class ObservationEngine {
     const keys = new Map((watch.keys ?? []).map(key => { assertPullRequestKey(key, this.reader.forge); return [pullRequestId(key), key]; }));
     const due = new Map<string, { key: PullRequestKey; at: number }>();
     for (const key of keys.values()) due.set(pullRequestId(key), { key, at: 0 });
-    for (const path of await this.#store.observations()) {
-      const record = await this.#stored(path);
+    for (const path of await this.#store.observations(this.#connection)) {
+      const record = await this.#inventory(path);
       if (!record) continue;
       const observation = record.observation, id = pullRequestId(observation.key);
       const selected = keys.has(id) || record.scopeIds.some(id => scopeIds.has(id)) || (watch.keys === undefined && watch.scopes === undefined);
@@ -168,8 +181,8 @@ export class ObservationEngine {
       issues.push(...result.issues);
     }
     // Persisted refresh errors remain visible even during backoff, without causing tight retry loops.
-    for (const path of await this.#store.observations()) {
-      const record = await this.#stored(path);
+    for (const path of await this.#store.observations(this.#connection)) {
+      const record = await this.#inventory(path);
       if (record?.observation.lastError && (keys.has(pullRequestId(record.observation.key)) || record.scopeIds.some(id => scopeIds.has(id)) ||
           (watch.keys === undefined && watch.scopes === undefined))) issues.push(record.observation.lastError);
     }

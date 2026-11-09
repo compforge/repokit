@@ -14,6 +14,7 @@ import (
 
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
+	"github.com/compforge/repokit/toolkit/go/internal/repostate"
 	"github.com/tidwall/wal"
 )
 
@@ -40,31 +41,46 @@ func Open(ctx context.Context, base, checkout string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	var name string
+	var name, legacy string
+	part := func(s string) string { return strings.ReplaceAll(url.PathEscape(s), "-", "%2D") }
 	if identity := project.FromOrigin(origin); identity != nil {
+		name = repostate.RepositoryKey(identity.Forge.Name, identity.Path)
 		parts := append([]string{identity.Forge.Name}, strings.Split(identity.Path, "/")...)
-		for i, part := range parts {
-			parts[i] = namePart(part)
+		for i, p := range parts {
+			parts[i] = part(p)
 		}
-		name = strings.Join(parts, "--")
+		legacy = strings.Join(parts, "--")
 	} else {
 		common, err := repo.CommonDir(ctx)
 		if err != nil {
 			return nil, err
 		}
+		name = repostate.LocalKey(common)
 		label := filepath.Base(common)
 		if label == ".git" {
 			label = filepath.Base(filepath.Dir(common))
 		}
-		digest := sha256.Sum256([]byte(common))
-		name = fmt.Sprintf("local--%s--%x", namePart(label), digest[:8])
+		sum := sha256.Sum256([]byte(common))
+		legacy = fmt.Sprintf("local--%s--%x", part(label), sum[:8])
+	}
+	// Existing WAL identity is retained; no copying a live writer's files or abandoning history.
+	if legacy != name && len(legacy) <= 255 {
+		entries, err := os.ReadDir(base)
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return nil, err
+		}
+		for _, entry := range entries {
+			if entry.Name() != legacy {
+				continue
+			}
+			if _, err := os.Stat(filepath.Join(base, legacy, "history")); err == nil {
+				return newStore(base, legacy, checkout), nil
+			} else if !errors.Is(err, os.ErrNotExist) {
+				return nil, err
+			}
+		}
 	}
 	return newStore(base, name, checkout), nil
-}
-
-func namePart(part string) string {
-	// Escape the separator as well as path characters to keep distinct identities distinct.
-	return strings.ReplaceAll(url.PathEscape(part), "-", "%2D")
 }
 
 // WAL caches file offsets and sequence numbers. Hold the OS lock over its entire

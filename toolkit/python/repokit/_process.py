@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from threading import Event
 
+from ._git_environment import checkout_environment
+
 
 class Budget:
     def __init__(self, timeout: float, cancel: Event | None):
@@ -42,6 +44,7 @@ def run(
         ["git", "-C", str(root), *args],
         budget,
         input=input,
+        env=checkout_environment(),
         allow_missing=allow_missing,
         max_output=max_output,
     ).stdout

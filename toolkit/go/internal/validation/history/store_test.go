@@ -453,3 +453,26 @@ func TestHistoryCompletionOrder(t *testing.T) {
 		t.Fatalf("%+v %v", state, err)
 	}
 }
+
+func TestLegacyCaseSensitiveHistoryRemainsReadable(t *testing.T) {
+	root := t.TempDir()
+	base := t.TempDir()
+	ctx := context.Background()
+	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://github.com/Owner/Repo.git"}} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%s %v", out, err)
+		}
+	}
+	legacy := newStore(base, "github--Owner--Repo", root)
+	if err := legacy.Append(ctx, testEvents(time.Now().UTC())); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, base, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := reopened.Read(ctx)
+	if err != nil || state.Summary.Checks[". lint"].Passed != 1 || reopened.dir != legacy.dir {
+		t.Fatalf("%+v %v", state, err)
+	}
+}

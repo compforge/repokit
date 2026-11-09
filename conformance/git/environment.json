@@ -1,0 +1,58 @@
+{
+  "removed": [
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_IMPLICIT_WORK_TREE",
+    "GIT_GRAFT_FILE",
+    "GIT_SHALLOW_FILE",
+    "GIT_PREFIX",
+    "GIT_NAMESPACE",
+    "GIT_NO_REPLACE_OBJECTS",
+    "GIT_REPLACE_REF_BASE",
+    "GIT_CONFIG",
+    "GIT_CONFIG_PARAMETERS",
+    "GIT_CONFIG_COUNT",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
+    "GIT_SUPER_PREFIX"
+  ],
+  "preserved": [
+    "PATH",
+    "GIT_SSH_COMMAND",
+    "GIT_ASKPASS",
+    "GIT_AUTHOR_NAME",
+    "GIT_CONFIG_GLOBAL"
+  ],
+  "configurations": [
+    {
+      "input": {
+        "GIT_CONFIG_COUNT": "3",
+        "GIT_CONFIG_KEY_0": "core.worktree",
+        "GIT_CONFIG_VALUE_0": "/wrong",
+        "GIT_CONFIG_KEY_1": "http.extraHeader",
+        "GIT_CONFIG_VALUE_1": "X-Test: a'b c",
+        "GIT_CONFIG_KEY_2": "url.https://example.invalid/.insteadOf",
+        "GIT_CONFIG_VALUE_2": "fixture:"
+      },
+      "output": {
+        "GIT_CONFIG_COUNT": "2",
+        "GIT_CONFIG_KEY_0": "http.extraHeader",
+        "GIT_CONFIG_VALUE_0": "X-Test: a'b c",
+        "GIT_CONFIG_KEY_1": "url.https://example.invalid/.insteadOf",
+        "GIT_CONFIG_VALUE_1": "fixture:"
+      }
+    },
+    {
+      "input": {
+        "GIT_CONFIG_PARAMETERS": "'core.worktree'='/wrong' 'http.extraHeader'='X-Test: a'\\''b c' 'user.name=Fixture'"
+      },
+      "output": {
+        "GIT_CONFIG_PARAMETERS": "'http.extraHeader=X-Test: a'\\''b c' 'user.name=Fixture'"
+      }
+    }
+  ]
+}

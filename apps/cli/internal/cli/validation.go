@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/worktree"
 	"os"
 	"path/filepath"
 
@@ -45,14 +46,14 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			defer cancel()
 			// +spec=Optional history must not prevent planning or executing checks
 			if historyDir == "" && !planOnly {
-				home, err := os.UserHomeDir()
+				stateDir, err := repositoryStateDir(opts.stateDir)
 				if err != nil {
 					if showHistory {
 						return executionError{fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err)}
 					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
 				} else {
-					historyDir = filepath.Join(home, ".repocli", "repositories")
+					historyDir = filepath.Join(stateDir, "repositories")
 				}
 			}
 			if showHistory {
@@ -96,6 +97,11 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			report, err := repokit.Validate(ctx, request)
 			if err != nil {
 				return executionError{err}
+			}
+			if stateDir, stateErr := repositoryStateDir(opts.stateDir); stateErr == nil {
+				if _, stateErr = worktree.Observe(ctx, opts.repository, stateDir, false); stateErr != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
+				}
 			}
 			if output != "" {
 				if err := writeValidationReport(output, report); err != nil {

@@ -189,3 +189,15 @@ def test_output_budget_and_prestart_cancellation(tmp_path: Path) -> None:
         cancel.set()
         with pytest.raises(InterruptedError):
             execute_validation(plan)
+
+
+def test_inherited_git_context_does_not_redirect_make(tmp_path, monkeypatch):
+    other = tmp_path / "other"
+    other.mkdir()
+    root = fixture(tmp_path / "target", "test:\n\t@git rev-parse --show-toplevel > actual.out\n")
+    subprocess.run(["git", "init", "-q", str(other)], check=True)
+    monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+    monkeypatch.setenv("GIT_WORK_TREE", str(other))
+    report = validate(root, checks=("test",))
+    assert report.passed
+    assert (root / "actual.out").read_text().strip() == str(root)

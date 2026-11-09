@@ -16,6 +16,7 @@ import (
 var Version = "dev"
 
 type options struct {
+	stateDir   string
 	repository string
 	json       bool
 	timeout    time.Duration
@@ -83,6 +84,7 @@ func newRootCommand(opts *options) *cobra.Command {
 		SilenceUsage:  true,
 	}
 	flags := root.PersistentFlags()
+	flags.StringVar(&opts.stateDir, "state-dir", "", "RepoKit state root (default ~/.repocli)")
 	flags.StringVar(&opts.repository, "repo", ".", "repository directory")
 	flags.BoolVar(&opts.json, "json", false, "write structured JSON to stdout")
 	flags.DurationVar(&opts.timeout, "timeout", 2*time.Minute, "command deadline")

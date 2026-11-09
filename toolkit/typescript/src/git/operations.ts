@@ -1,3 +1,4 @@
+import { checkoutEnvironment } from "./environment.js";
 import { spawnSync } from "node:child_process";
 
 export interface GitResult {
@@ -11,7 +12,7 @@ export interface GitResult {
 /** A timed-out write may have taken effect; inspect before retrying it. */
 export function runGit(repo: string, args: readonly string[], timeoutMs = 5_000, raw = false): GitResult {
   const result = spawnSync("git", ["-C", repo, ...args], {
-    encoding: "utf8", timeout: timeoutMs, maxBuffer: 16 << 20,
+    env: checkoutEnvironment(), encoding: "utf8", timeout: timeoutMs, maxBuffer: 16 << 20,
   });
   const code = result.status ?? -1;
   return { code, stdout: (raw || result.stdout?.includes("\0")) ? (result.stdout ?? "") : (result.stdout ?? "").trim(),
