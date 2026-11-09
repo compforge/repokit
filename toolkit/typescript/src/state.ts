@@ -22,6 +22,7 @@ function location(repo: string) {
   const forge = remote ? ({ "github.com":"github", "gitlab.com":"gitlab" }[remote.host] ?? remote.host) : "";
   return { info, key: remote ? repositoryKey(forge,remote.path) : localKey(info.commonDir), identity: remote ? {forge:{name:forge},path:remote.path} : {local:info.commonDir} };
 }
+class IncompleteObservation extends Error {}
 /** Repository-local observations share storage with Forge facts and execution history.
  * @spec One clone never replaces another clone's branch heads or checkout records.
  * Persisted topology is not authority to mutate Git resources.
@@ -43,17 +44,21 @@ export class RepositoryState {
       for (const checkout of observed.checkouts) {
         if (!/^[0-9a-f]{32}$/.test(checkout)) throw new Error("Invalid checkout observation key");
         const row = await this.store.read<CheckoutRecord>(join(directory,"checkouts",checkout,"observation.json"));
-        if (!row || row.version !== 1 || row.clone !== clone || row.branch !== branch || row.observedAt !== observed.observedAt) throw new Error("Incomplete checkout observation; observe the repository again");
+        if (!row || row.version !== 1 || row.clone !== clone || row.branch !== branch || row.observedAt !== observed.observedAt) throw new IncompleteObservation("Incomplete checkout observation");
         checkouts.push({path:row.path,sha:row.head,branch,primary:row.primary});
       }
       return {complete:observed.complete === true,branch,head:observed.head,checkouts,observedAt:observed.observedAt,source};
     });
-    const cached = await read("cache");
+    let cached: BranchObservation | undefined;
+    if(maxAge>0) {try {cached=await read("cache");} catch(error) {if(!(error instanceof IncompleteObservation))throw error;}}
     if (cached && Date.now()-cached.observedAt*1000 >= 0 && Date.now()-cached.observedAt*1000 < maxAge) return cached;
-    await this.observe(repo,{signal});
+    await this.observeBranch(repo,{signal},branch);
     return read("git");
   }
   async observe(repo: string, options: {reconcile?: boolean; signal?: AbortSignal} = {}): Promise<string> {
+    return this.observeBranch(repo,options);
+  }
+  private async observeBranch(repo: string, options: {reconcile?: boolean; signal?: AbortSignal}, selectedBranch?: string): Promise<string> {
     const {key,info,identity} = location(repo), directory = this.store.path("repositories",key), clone = pathDigest(info.commonDir);
     const signal = options.signal ?? new AbortController().signal;
     await this.store.locked(join(directory,"topology"),signal,async owned => {
@@ -62,9 +67,9 @@ export class RepositoryState {
         try{return {...entry,path:realpathSync(entry.path)};}catch(error){if(missing(error))return entry;throw error;}
       }), at = Date.now()/1000;
       if (location(repo).key !== key) throw new Error("Repository identity changed during observation");
-      const rows = new Map<string,CheckoutRecord>(entries.filter(e => e.path).map(e => [pathDigest(e.path!), {version:1,clone,commonDir:info.commonDir,path:e.path!,head:e.sha,branch:e.branch ?? null,primary:e.primary,observedAt:at}]));
+      const rows = new Map<string,CheckoutRecord>(entries.filter(e => e.path && (selectedBranch === undefined || e.branch === selectedBranch)).map(e => [pathDigest(e.path!), {version:1,clone,commonDir:info.commonDir,path:e.path!,head:e.sha,branch:e.branch ?? null,primary:e.primary,observedAt:at}]));
       const previous = new Map<string,CheckoutRecord>();
-      for (const checkout of await children(join(directory,"checkouts"))) {
+      for (const checkout of selectedBranch === undefined ? await children(join(directory,"checkouts")) : []) {
         const row = await this.store.read<CheckoutRecord>(join(directory,"checkouts",checkout,"observation.json"));
         if (row?.clone === clone) previous.set(checkout,row);
       }
@@ -74,8 +79,8 @@ export class RepositoryState {
         await this.store.write(join(root,"observation.json"),row,owned);
         await this.link(join(root,"path"),row.path,owned);
       }
-      const names = new Set(branches.keys()), known = new Set([...previous.keys(),...rows.keys()]);
-      for (const name of await children(join(directory,"branches"))) {
+      const names = new Set(selectedBranch === undefined ? branches.keys() : [selectedBranch]), known = new Set([...previous.keys(),...rows.keys()]);
+      for (const name of selectedBranch === undefined ? await children(join(directory,"branches")) : []) {
         const record = await this.store.read<BranchRecord>(join(directory,"branches",name,"observation.json"));
         if (record?.clones[clone]) names.add(record.branch);
       }
@@ -83,11 +88,13 @@ export class RepositoryState {
         const root = join(directory,"branches",namePart(branch)), path = join(root,"observation.json");
         const record = await this.store.read<BranchRecord>(path) ?? {version:1,branch,clones:{}};
         if (record.version !== 1 || record.branch !== branch) throw new Error("Branch identity collision");
+        const branchKnown = new Set([...known,...(record.clones[clone]?.checkouts ?? [])]);
         const checkouts = [...rows].filter(([,row])=>row.branch===branch).map(([key])=>key).sort();
         if (branches.has(branch)) record.clones[clone] = {complete:entries.filter(e=>e.branch===branch).every(e=>e.path !== undefined),head:branches.get(branch)!,commonDir:info.commonDir,observedAt:at,checkouts};
         else delete record.clones[clone];
         await this.store.write(path,record,owned);
-        for (const checkout of known) {
+        for (const checkout of branchKnown) {
+          if(!/^[0-9a-f]{32}$/.test(checkout))throw new Error("Invalid checkout observation key");
           const link = join(root,"worktrees",checkout);
           if (checkouts.includes(checkout)) await this.link(link,"../../../checkouts/"+checkout,owned);
           else { try { if ((await lstat(link)).isSymbolicLink()) { owned(); await unlink(link); } } catch(error) { if(!missing(error)) throw error; } }

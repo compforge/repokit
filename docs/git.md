@@ -162,3 +162,7 @@ TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出�
 显式临时 index 在过滤后应用。通用 subprocess 和无 checkout 的 global Git 操作不套用此规则。
 验证/依赖准备的默认继承环境同样清理 Git checkout override；显式 validation environment 保留调用方契约。
 此改动不复制 `node_modules`、`.venv` 等依赖目录，不引入 reflink 或跨 worktree 的依赖继承。
+
+继承的 `GIT_CONFIG_COUNT/KEY_*/VALUE_*` 与 `GIT_CONFIG_PARAMETERS` 按配置项过滤：
+保留 HTTP、credential、URL rewrite、SSH/代理及用户身份配置，重新编码后传给 Git；
+`core.worktree`、include 等可能改变仓库定位或引入额外配置的覆盖不继承。显式每次调用的覆盖仍最后应用。

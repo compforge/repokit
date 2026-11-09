@@ -48,6 +48,10 @@ class BranchObservation:
     source: str
 
 
+class _IncompleteObservation(OSError):
+    """A rebuildable projection is incomplete; Git absence has not been established."""
+
+
 class RepositoryState:
     """Own read-through local observations and disposable checkout projections.
 
@@ -62,17 +66,30 @@ class RepositoryState:
     def branch(
         self, repo: str | Path, branch: str, *, max_age: float = 0
     ) -> BranchObservation | None:
-        """Load an acceptable observation or refresh from Git. Zero requests a live read."""
+        """Load or repair one branch observation; zero requests a live Git read.
+
+        @spec Partial publication triggers repair without reading unrelated branch records.
+        @case tests/test_repository_state.py
+        """
         if not math.isfinite(max_age) or max_age < 0:
             raise ValueError("max_age must be finite and nonnegative")
         key, info, _ = repository_location(repo)
         directory = self.store.root / "repositories" / key
         clone = digest_path(info.common_dir)
-        with self.store.locked(directory / "topology"):
-            cached = self._branch(directory, clone, branch, "cache")
-            if cached and 0 <= time.time() - cached.observed_at < max_age:
-                return cached
-        self.observe(repo)
+        if max_age > 0:
+            with self.store.locked(directory / "topology"):
+                try:
+                    cached = self._branch(directory, clone, branch, "cache")
+                except _IncompleteObservation:
+                    logger.info(
+                        "Repairing incomplete branch observation repository=%s branch=%s",
+                        key,
+                        branch,
+                    )
+                    cached = None
+                if cached and 0 <= time.time() - cached.observed_at < max_age:
+                    return cached
+        self._observe(repo, branch=branch)
         with self.store.locked(directory / "topology"):
             return self._branch(directory, clone, branch, "git")
 
@@ -99,7 +116,7 @@ class RepositoryState:
                 or row.get("branch") != branch
                 or row.get("observedAt") != observed["observedAt"]
             ):
-                raise OSError("incomplete checkout observation; observe the repository again")
+                raise _IncompleteObservation("incomplete checkout observation")
             entries.append(
                 git_state.CheckoutEntry(
                     str(row["path"]), str(row["head"]), branch, bool(row["primary"])
@@ -120,6 +137,11 @@ class RepositoryState:
         @spec Detached checkouts have records but no branch link. Checkout reclamation
         never deletes source directories or execution history, and never crosses clones.
         """
+        return self._observe(repo, reconcile=reconcile)
+
+    def _observe(
+        self, repo: str | Path, *, reconcile: bool = False, branch: str | None = None
+    ) -> Path:
         key, info, identity = repository_location(repo)
         directory = self.store.root / "repositories" / key
         clone = digest_path(info.common_dir)
@@ -130,9 +152,15 @@ class RepositoryState:
             if repository_location(repo)[0] != key:
                 raise OSError("repository identity changed during observation")
             at = time.time()
-            rows = {digest_path(entry.path): entry for entry in entries if entry.path}
+            rows = {
+                digest_path(entry.path): entry
+                for entry in entries
+                if entry.path and (branch is None or entry.branch == branch)
+            }
             previous: dict[str, JSON] = {}
-            for path in (directory / "checkouts").glob("*/observation.json"):
+            for path in (
+                (directory / "checkouts").glob("*/observation.json") if branch is None else ()
+            ):
                 row = self.store.read(path)
                 if row and row.get("clone") == clone:
                     previous[path.parent.name] = row
@@ -155,8 +183,10 @@ class RepositoryState:
                 )
                 self._link(root / "path", str(entry.path), owned)
             known = set(previous) | set(rows)
-            names = set(branches)
-            for path in (directory / "branches").glob("*/observation.json"):
+            names = set(branches) if branch is None else {branch}
+            for path in (
+                (directory / "branches").glob("*/observation.json") if branch is None else ()
+            ):
                 record = self.store.read(path)
                 if record and clone in cast(JSON, record.get("clones", {})):
                     names.add(str(record["branch"]))
@@ -167,6 +197,9 @@ class RepositoryState:
                 if record.get("version") != 1 or record.get("branch") != branch:
                     raise OSError("branch identity collision")
                 clones = cast(JSON, record["clones"])
+                branch_known = known | set(
+                    cast(list[str], cast(JSON, clones.get(clone, {})).get("checkouts", []))
+                )
                 links = {k: e for k, e in rows.items() if e.branch == branch}
                 if branch in branches:
                     clones[clone] = {
@@ -179,7 +212,9 @@ class RepositoryState:
                 else:
                     clones.pop(clone, None)
                 self.store.write(path, record, owned)
-                for checkout in known:
+                for checkout in branch_known:
+                    if not re.fullmatch(r"[0-9a-f]{32}", checkout):
+                        raise OSError("invalid checkout observation key")
                     link = root / "worktrees" / checkout
                     if checkout in links:
                         self._link(link, "../../../checkouts/" + checkout, owned)

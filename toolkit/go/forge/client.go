@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/compforge/quality-harness/sdks/go/common"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
@@ -421,6 +422,9 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (PullRequest, erro
 	if err != nil {
 		return pr, &OutcomeUnknown{err}
 	}
+	if _, err := c.mutate(ctx, pr.Key, func() (PullRequest, error) { return pr, nil }); err != nil {
+		slog.WarnContext(ctx, "PR cache unavailable after successful creation", "repository", pr.Key.Repository.Path, "number", pr.Key.Number, "error", err)
+	}
 	return pr, nil
 }
 
@@ -454,19 +458,21 @@ func (c *Client) change(ctx context.Context, key Key, payload any) (PullRequest,
 	if key.Number <= 0 || key.Repository != c.Repository(key.Repository.Path) {
 		return PullRequest{}, errors.New("invalid PR identity")
 	}
-	method := "PATCH"
-	if c.config.Provider == "gitlab" {
-		method = "PUT"
-	}
-	var data json.RawMessage
-	if err := c.request(ctx, method, c.prPath(key.Repository.Path, key.Number), payload, &data); err != nil {
-		return PullRequest{}, err
-	}
-	pr, err := c.decodePR(ctx, key.Repository.Path, data)
-	if err != nil {
-		return pr, &OutcomeUnknown{err}
-	}
-	return pr, nil
+	return c.mutate(ctx, key, func() (PullRequest, error) {
+		method := "PATCH"
+		if c.config.Provider == "gitlab" {
+			method = "PUT"
+		}
+		var data json.RawMessage
+		if err := c.request(ctx, method, c.prPath(key.Repository.Path, key.Number), payload, &data); err != nil {
+			return PullRequest{}, err
+		}
+		pr, err := c.decodePR(ctx, key.Repository.Path, data)
+		if err != nil {
+			return pr, &OutcomeUnknown{err}
+		}
+		return pr, nil
+	})
 }
 func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string) (PullRequest, error) {
 	if expectedSHA == "" || key.Number <= 0 || key.Repository != c.Repository(key.Repository.Path) {
@@ -475,29 +481,31 @@ func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string)
 	if !slices.Contains([]string{"merge", "squash", "rebase"}, method) {
 		return PullRequest{}, errors.New("invalid merge method")
 	}
-	payload := map[string]any{"sha": expectedSHA, "merge_method": method}
-	if c.config.Provider == "gitlab" {
-		if method == "rebase" {
-			return PullRequest{}, errors.New("GitLab rebase must complete before merging")
+	return c.mutate(ctx, key, func() (PullRequest, error) {
+		payload := map[string]any{"sha": expectedSHA, "merge_method": method}
+		if c.config.Provider == "gitlab" {
+			if method == "rebase" {
+				return PullRequest{}, errors.New("GitLab rebase must complete before merging")
+			}
+			payload = map[string]any{"sha": expectedSHA, "squash": method == "squash", "should_remove_source_branch": false}
 		}
-		payload = map[string]any{"sha": expectedSHA, "squash": method == "squash", "should_remove_source_branch": false}
-	}
-	var data json.RawMessage
-	if err := c.request(ctx, "PUT", c.prPath(key.Repository.Path, key.Number)+"/merge", payload, &data); err != nil {
-		return PullRequest{}, err
-	}
-	if c.config.Provider == "github" {
-		var result struct{ Merged bool }
-		if err := json.Unmarshal(data, &result); err != nil {
-			return PullRequest{}, &OutcomeUnknown{err}
+		var data json.RawMessage
+		if err := c.request(ctx, "PUT", c.prPath(key.Repository.Path, key.Number)+"/merge", payload, &data); err != nil {
+			return PullRequest{}, err
 		}
-		if !result.Merged {
-			return PullRequest{}, errors.New("PR was not merged")
+		if c.config.Provider == "github" {
+			var result struct{ Merged bool }
+			if err := json.Unmarshal(data, &result); err != nil {
+				return PullRequest{}, &OutcomeUnknown{err}
+			}
+			if !result.Merged {
+				return PullRequest{}, errors.New("PR was not merged")
+			}
 		}
-	}
-	pr, err := c.Get(ctx, key.Repository.Path, key.Number)
-	if err != nil {
-		return pr, &OutcomeUnknown{err}
-	}
-	return pr, nil
+		pr, err := c.Get(ctx, key.Repository.Path, key.Number)
+		if err != nil {
+			return pr, &OutcomeUnknown{err}
+		}
+		return pr, nil
+	})
 }

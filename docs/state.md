@@ -18,7 +18,7 @@
     checkouts/<checkout-key>/
       observation.json                  # path、commonDir、head、branch、primary、observedAt
       path -> /absolute/source/path
-    prs/<number>/observation.json
+    prs/<number>/observations/<connection-key>.json  # 该连接的快照、刷新与发现状态
     history/                            # 验证 WAL，独立保留策略
     inputs/
     logs/
@@ -49,15 +49,19 @@
 
 查询者不自己实现“读文件、判断是否过期、再调 Forge”的第二套逻辑。Go `worktree.LoadBranch`、
 Python `RepositoryState.branch`、TS `RepositoryState.branch` 负责 read-through，并返回来源、观测时间与 checkout 位置完整性 `complete`。
-无法定位的注册 checkout 不会伪装成完整的空集合；缺失或不一致的 checkout 记录返回错误，重新 observe 可修复部分发布。
+无法定位的注册 checkout 不会伪装成完整的空集合；缺失或版本不一致的 checkout 投影由读取流程按分支从 Git 重建。
+单分支读取只发布该分支和相关 checkout，不依赖其他分支的状态文件。恢复失败仍返回错误，不伪造不存在。
 缺失或过期记录由 RepoKit 刷新。读取失败与不存在分开；JSON 损坏、权限错误、Git 查询失败不会转成空集合。
 观测不提供 Git 全局事务快照：一次规划共用一份 inventory，实际写操作继续重新验证。
 同名 tag 不改变 branch 身份，分支名从完整 `refs/heads/` 读取。
 
 Go `forge.Client.Load(ctx, repo, number, maxAge)` 在显式 `Config.StateDir` 下持久化 PR 信息；
 `maxAge=0` 强制远端读取，`Get` 始终实时，供写操作与 cleanup 验证。CLI `pr show` 默认最多复用一分钟，
-`--max-age 0` 强制刷新。Go 缓存 scope 包含 provider、endpoint 与 credential 摘要；Python/TS 保留既有
-连接 scope 契约。不同 scope 的记录不能互相授权或复用；相同路径通过共享 record lease 串行发布。
+`--max-age 0` 强制刷新。三种语言对等价的 provider、Forge、endpoint 和 credential 使用相同连接摘要，契约由共享语料验证。
+不同连接分别保存快照、scopeIds、重试和刷新进度；一个连接的读取不能覆盖另一个连接的观察任务。
+相同连接通过共享 record lease 串行发布，并保留 discovery membership。生命周期快照缺少完整 PR 字段时，
+Go 会补查 Forge，不把缺失字段当空值返回。Go 成功写入与缓存刷新共用记录锁，随后发布返回事实；
+发布失败尝试失效旧缓存并记录 diagnostic，不能把已经成功的远端写入变成可重试失败。
 
 Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer 的 `refresh: true`
 允许刷新 merged 后的可变元数据。刷新失败不推进成功观测时间，也不抹掉既有终态；需要当前元数据的
@@ -76,7 +80,7 @@ checkout 消失连带删除历史。仓库根保留信息不会触发全量 Forg
 
 Python/Go worktree 创建、移除和清理接受显式 state directory，并在成功操作后观察/对账。
 CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同一入口。Python/TS PR context
-读取 branch 时顺带更新 topology，不删除源文件。CLI validation 在执行后尽力更新 repository 观测；
+查询 branch PR 时使用 Git 当前 inventory，不把 topology 发布作为读取前置条件。CLI validation 在执行后尽力更新 repository 观测；
 观测失败单独报告，不改变检查结果。纯分析与 validation plan 不隐式写入此目录。
 
 ```sh
@@ -92,9 +96,9 @@ Toolkit 的新状态 API 使用显式 state root；CLI 默认 `~/.repocli`，统
 
 记录通过临时文件、fsync 和 rename 发布；权限为目录 0700、记录 0600。topology 按 repository
 持有共享 lease，PR/关联按记录持有 lease；Go/Python/TypeScript 使用兼容的 `.lock` 目录协议。
-失败可能留下部分最新投影，下次完整观察修复；因此它不是动作日志，也不能代替操作前重新验证。
+失败可能留下部分最新投影，下次分支读取或显式观察修复；因此它不是动作日志，也不能代替操作前重新验证。
 
-旧哈希 PR 目录、旧关联目录、旧默认分支缓存按需读取并写入新位置，不批量扫描搬迁、不删除旧文件。
+旧单连接 PR 文件、旧哈希 PR 目录、旧关联目录、旧默认分支缓存按需读取并写入新位置，不批量扫描搬迁、不删除旧文件。
 轮询遇到同 scope 的新旧记录时优先新记录。已有验证 WAL 如使用旧的大写/特殊字符目录编码，继续在原位
 读写，避免复制活跃 WAL 或静默丢失历史；普通小写 repo key 保持原目录不变。
 旧 `~/.repocli/checkouts/` 中的历史兼容资产保持独立，不作为新的 checkout registry，也不被本次回收删除。
@@ -105,5 +109,6 @@ Toolkit 的新状态 API 使用显式 state root；CLI 默认 `~/.repocli`，统
 - 两个 clone 的同名 branch 有不同 head，观察一个不能覆盖另一个。
 - detached、分支无 checkout、失败 inventory、保留源码与历史、回收失效链接。
 - Python 与 TS 互读拓扑，并竞争同一个 lease；Go 验证取消、原子写和 lease 互斥。
-- PR cache scope、旧路径迁移、merged 可变 metadata 显式刷新及终态防回退。
+- PR 连接身份、跨连接观察任务共存、写后读取、完整字段补查、旧路径迁移与 merged 终态防回退。
+- 部分发布后读取自动修复；无关分支损坏不阻断单分支读取；真实取消和 lease 替换禁止发布。
 - 继承另一个 checkout 的 Git 环境时，查询与 Make 验证仍操作显式目标。

@@ -56,5 +56,27 @@
       "name": "中文",
       "key": "%E4%B8%AD%E6%96%87"
     }
+  ],
+  "connections": [
+    {
+      "host": "github.com",
+      "provider": "github",
+      "apiHost": null,
+      "goAPIHost": null,
+      "forge": "github",
+      "token": "fixture<&token",
+      "identity": "82893648bc037f28ae4469452197b2b597a7847e35b40344a3c1fddb69935a95",
+      "connection": "7b6762c6db53f2f64375be010a63a3ebc159f5fe82fd95d5e26f012d87ea9d1e"
+    },
+    {
+      "host": "git.example.invalid",
+      "provider": "gitlab",
+      "apiHost": "api.example.invalid",
+      "goAPIHost": "https://api.example.invalid/api/v4",
+      "forge": "git.example.invalid",
+      "token": "fixture",
+      "identity": "f5a2e6b1e69a1c0946b2f34e6f3d03692fc696a22559002f98b8ba899b44c8b6",
+      "connection": "fe2dc48496a242b079a3ff3230ce7e90837f4cdd9d7e3eef387abd370f83cfd5"
+    }
   ]
 }

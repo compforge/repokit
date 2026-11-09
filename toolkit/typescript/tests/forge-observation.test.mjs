@@ -1,3 +1,4 @@
+import { digest } from "../dist/storage.js";
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, mkdir, rm, appendFile } from 'node:fs/promises';
@@ -63,7 +64,7 @@ test('concurrent observer instances share one remote refresh',async t=>{
   assert.equal(f.calls(),1);assert.deepEqual(new Set(results.map(r=>r.source)),new Set(['remote','cache']));
   const repos=await readdir(join(f.stateDir,'repositories'));
   const dir=join(f.stateDir,'repositories',repos[0],'prs','1');
-  assert((await readdir(dir)).includes('observation.json'));
+  assert((await readdir(join(dir,'observations'))).includes(digest(['fixture','account-a'])+'.json'));
 });
 
 test('separate processes serialize refresh and reread the winning observation',async t=>{
@@ -93,7 +94,7 @@ test('observation write failure rejects and never advances the discovery checkpo
   const f=await fixture(t);f.setListed([key()]);
   f.reader.getPullRequest=async k=>{
     const repos=await readdir(join(f.stateDir,'repositories'));
-    await mkdir(join(f.stateDir,'repositories',repos[0],'prs','1','observation.json'));
+    await mkdir(join(f.stateDir,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json'));
     return {...k,state:'merged'};
   };
   await assert.rejects(f.observer.poll({scopes:[{kind:'repository',repository}]}),ObservationStorageError);
@@ -153,7 +154,7 @@ test('a stale lock from an exited process is recovered',async t=>{
   const {utimes}=await import('node:fs/promises');
   const f=await fixture(t);await f.observer.get(key());
   const repos=await readdir(join(f.stateDir,'repositories'));
-  const lock=join(f.stateDir,'repositories',repos[0],'prs','1','observation.json.lock');
+  const lock=join(f.stateDir,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json.lock');
   await mkdir(lock);await utimes(lock,new Date(0),new Date(0));
   assert.equal((await f.observer.get(key())).source,'cache');
   await assert.rejects(readFile(lock),{code:'ENOENT'});
@@ -168,7 +169,7 @@ test('foreground cancellation does not save a late remote result',async t=>{
   assert(release);controller.abort();await rejection;release();
   await new Promise(r=>setTimeout(r,5));
   const repos=await readdir(join(f.stateDir,'repositories'));
-  await assert.rejects(readFile(join(f.stateDir,'repositories',repos[0],'prs','1','observation.json')),{code:'ENOENT'});
+  await assert.rejects(readFile(join(f.stateDir,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json')),{code:'ENOENT'});
 });
 
 // Model a cooperative provider: work remains active until its scoped signal aborts.
@@ -232,4 +233,14 @@ test('observer close stops cooperative discovery list work without saving a chec
     assert.equal(service.health.running, false);
     assert.equal((await readdir(join(f.stateDir, 'scans'))).filter(name => name.endsWith('.json')).length, 0);
   } finally { await service.close(); }
+});
+
+test('connections retain independent discovery membership and refresh inventory',async t=>{
+ const f=await fixture(t);f.setListed([key()]);
+ const watch={scopes:[{kind:'repository',repository}]};
+ await f.observer.poll(watch);
+ const other=new PullRequestObserver(f.reader,{...f.options,connection:'account-b'});
+ await other.get(key());f.advance(11);f.setListed([]);
+ assert.equal((await f.observer.poll({refresh:true})).observations.length,1);
+ assert.equal((await other.poll()).observations.length,1);
 });

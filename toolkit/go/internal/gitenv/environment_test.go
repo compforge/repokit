@@ -3,6 +3,7 @@ package gitenv
 import (
 	"encoding/json"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -12,9 +13,26 @@ func TestSharedEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var fixture struct{ Removed, Preserved []string }
+	var fixture struct {
+		Removed, Preserved []string
+		Configurations     []struct{ Input, Output map[string]string }
+	}
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatal(err)
+	}
+	for _, row := range fixture.Configurations {
+		env := []string{}
+		for k, v := range row.Input {
+			env = append(env, k+"="+v)
+		}
+		result := map[string]string{}
+		for _, entry := range ForCheckout(env) {
+			k, v, _ := strings.Cut(entry, "=")
+			result[k] = v
+		}
+		if !reflect.DeepEqual(result, row.Output) {
+			t.Fatalf("got %v want %v", result, row.Output)
+		}
 	}
 	var input []string
 	for _, k := range append(fixture.Removed, fixture.Preserved...) {

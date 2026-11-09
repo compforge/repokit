@@ -76,8 +76,10 @@ func stateLocation(ctx context.Context, repo, stateDir string) (string, Checkout
 	return filepath.Join(stateDir, "repositories", key), info, record, nil
 }
 
+var errIncompleteObservation = errors.New("incomplete checkout observation")
+
 // LoadBranch uses a local observation only within maxAge; zero requests current Git facts.
-// +spec=`Missing or stale observations are refreshed by RepoKit. Failed current reads never return stale data as current.`
+// +spec=`Missing, stale or partially published observations are refreshed for the requested branch only. Failed current reads never return stale data as current.`
 // +link=component://docs/state.md
 func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.Duration) (*BranchObservation, error) {
 	if maxAge < 0 {
@@ -114,15 +116,21 @@ func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.
 					return err
 				}
 				if !found || row.Version != 1 || row.Clone != clone || row.Branch != branch || row.ObservedAt != observed.ObservedAt {
-					return errors.New("incomplete checkout observation; observe the repository again")
+					result = nil
+					return errIncompleteObservation
 				}
 				result.Checkouts = append(result.Checkouts, CheckoutEntry{Path: row.Path, SHA: row.Head, Branch: branch, Primary: row.Primary})
 			}
 			return owned()
 		})
 	}
-	if err := read("cache"); err != nil {
-		return nil, err
+	if maxAge > 0 {
+		if err := read("cache"); err != nil {
+			if !errors.Is(err, errIncompleteObservation) {
+				return nil, err
+			}
+			slog.InfoContext(ctx, "repairing incomplete branch observation", "repository", filepath.Base(directory), "branch", branch)
+		}
 	}
 	if result != nil {
 		age := time.Duration((float64(time.Now().UnixNano())/1e9 - result.ObservedAt) * 1e9)
@@ -130,7 +138,7 @@ func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.
 			return result, nil
 		}
 	}
-	if _, err := Observe(ctx, repo, stateDir, false); err != nil {
+	if _, err := observeBranch(ctx, repo, stateDir, false, &branch); err != nil {
 		return nil, err
 	}
 	result = nil
@@ -145,6 +153,10 @@ func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.
 // +spec=`Failed inventory never means absence. Observations are not authority to delete Git resources. History survives checkout reclamation.`
 // +link=component://docs/state.md
 func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string, error) {
+	return observeBranch(ctx, repo, stateDir, reconcile, nil)
+}
+
+func observeBranch(ctx context.Context, repo, stateDir string, reconcile bool, selectedBranch *string) (string, error) {
 	directory, info, identity, err := stateLocation(ctx, repo, stateDir)
 	if err != nil {
 		return "", err
@@ -181,6 +193,9 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 		rows := map[string]checkoutObservation{}
 		complete := true
 		for _, e := range entries {
+			if selectedBranch != nil && e.Branch != *selectedBranch {
+				continue
+			}
 			if e.Path == "" {
 				complete = false
 				continue
@@ -199,6 +214,9 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 			return err
 		}
 		for _, path := range paths {
+			if selectedBranch != nil {
+				break
+			}
 			var row checkoutObservation
 			found, err := repostate.Read(path, &row)
 			if err != nil {
@@ -222,8 +240,12 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 		}
 		names := map[string]bool{}
 		known := map[string]bool{}
-		for name := range branches {
-			names[name] = true
+		if selectedBranch != nil {
+			names[*selectedBranch] = true
+		} else {
+			for name := range branches {
+				names[name] = true
+			}
 		}
 		for key := range rows {
 			known[key] = true
@@ -236,6 +258,9 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 			return err
 		}
 		for _, path := range paths {
+			if selectedBranch != nil {
+				break
+			}
 			var record branchRecord
 			found, err := repostate.Read(path, &record)
 			if err != nil {
@@ -256,6 +281,13 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 			}
 			if record.Version != 1 || record.Branch != branch || record.Clones == nil {
 				return errors.New("branch observation identity mismatch")
+			}
+			branchKnown := map[string]bool{}
+			for key := range known {
+				branchKnown[key] = true
+			}
+			for _, key := range record.Clones[clone].Checkouts {
+				branchKnown[key] = true
 			}
 			links := []string{}
 			for key, row := range rows {
@@ -278,7 +310,10 @@ func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string
 			if err := repostate.Write(path, record, owned); err != nil {
 				return err
 			}
-			for key := range known {
+			for key := range branchKnown {
+				if _, err := hex.DecodeString(key); err != nil || len(key) != 32 {
+					return errors.New("invalid checkout observation key")
+				}
 				link := filepath.Join(root, "worktrees", key)
 				if row, ok := rows[key]; ok && row.Branch == branch {
 					if err := stateLink(link, "../../../checkouts/"+key, owned); err != nil {

@@ -1,4 +1,3 @@
-import { RepositoryState } from "../../state.js";
 import { repositoryKey, namePart } from "../../state-paths.js";
 import { basename } from "node:path";
 import { remote, type Remote } from "../../git/remote.js";
@@ -127,7 +126,6 @@ export class PullRequestContext {
       ...(matching.length === 1 && !errors.length ? { selected: matching[0] } : {}), ...(errors.length ? { error: errors.join("; ") } : {}) };
   }
   async getBranch(branch: string, options: { signal?: AbortSignal } = {}): Promise<BranchPullRequests> {
-    await new RepositoryState(this.options.stateDir).observe(this.options.checkout, options);
     return this.#branch(branch, false, options.signal);
   }
   async getCheckout(options: { signal?: AbortSignal } = {}): Promise<BranchPullRequests | undefined> {
@@ -137,7 +135,6 @@ export class PullRequestContext {
   async localBranches(options: { limit?: number } = {}): Promise<readonly BranchPullRequests[]> {
     const limit = options.limit ?? 20;
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid discovery limit");
-    await new RepositoryState(this.options.stateDir).observe(this.options.checkout, {signal:this.#controller.signal});
     const branches = localBranches(this.options.checkout), checkouts = listCheckouts(this.options.checkout);
     const due = new Map<string, number>(), unavailable = new Map<string, string>();
     for (const [branch] of branches) {

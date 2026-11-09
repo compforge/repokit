@@ -284,9 +284,6 @@ class PullRequestContext:
             )
 
     def get_branch(self, branch: str) -> BranchPullRequests:
-        from ...state import RepositoryState
-
-        RepositoryState(self.observer.store.root).observe(self.checkout)
         return self._branch(branch)
 
     def get_checkout(self) -> BranchPullRequests | None:
@@ -301,9 +298,6 @@ class PullRequestContext:
         """
         if limit < 1:
             raise ValueError("limit must be positive")
-        from ...state import RepositoryState
-
-        RepositoryState(self.observer.store.root).observe(self.checkout)
         branches = git_state.list_local_branches(self.checkout)
         heads = dict(branches)
         checkouts = git_state.list_checkouts(self.checkout)

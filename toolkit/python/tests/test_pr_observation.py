@@ -358,3 +358,22 @@ def test_legacy_pr_record_migrates_and_merged_metadata_refreshes(tmp_path):
     with pytest.raises(ForgeError):
         service.get_pull_request(KEY, refresh=True)
     assert service.get_pull_request(KEY).state == "merged"
+
+
+def test_connections_keep_independent_refresh_inventory(tmp_path):
+    reader = Reader()
+    clock = [1000.0]
+    first = observer(tmp_path, reader, now=lambda: clock[0])
+    second = PullRequestObserver(
+        cast(Forge, reader),
+        forge="github",
+        state_dir=tmp_path,
+        connection="other",
+        now=lambda: clock[0],
+    )
+    first.get_pull_request(KEY)
+    second.get_pull_request(KEY)
+    assert first.path(KEY) != second.path(KEY)
+    clock[0] += 61
+    assert first.maintain() == () and second.maintain() == ()
+    assert len(reader.calls) == 4

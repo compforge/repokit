@@ -91,7 +91,8 @@ class PullRequestObserver:
             / repository_key(self.forge, key.repository.path)
             / "prs"
             / str(key.number)
-            / "observation.json"
+            / "observations"
+            / f"{self.connection}.json"
         )
 
     def _stored(self, path: Path) -> JSON | None:
@@ -112,17 +113,22 @@ class PullRequestObserver:
             with self.store.locked(path) as owned:
                 previous = self._stored(path)
                 if previous is None:
-                    legacy = (
-                        self.store.root
-                        / "repositories"
-                        / digest([self.forge, key.repository.path])
-                        / "prs"
-                        / str(key.number)
-                        / "observation.json"
-                    )
-                    previous = self._stored(legacy)
-                    if previous is not None:
-                        self.store.write(path, previous, owned)
+                    for repository in (
+                        repository_key(self.forge, key.repository.path),
+                        digest([self.forge, key.repository.path]),
+                    ):
+                        legacy = (
+                            self.store.root
+                            / "repositories"
+                            / repository
+                            / "prs"
+                            / str(key.number)
+                            / "observation.json"
+                        )
+                        previous = self._stored(legacy)
+                        if previous is not None:
+                            self.store.write(path, previous, owned)
+                            break
                 old = cast(JSON, previous["observation"]) if previous else {}
                 if old and old.get("key") != key_json(key):
                     raise ObservationStorageError(f"PR identity mismatch at {path}")
@@ -209,7 +215,7 @@ class PullRequestObserver:
                     "failures": failures,
                 }
                 self.store.write(
-                    path.parent.parent.parent / "repository.json",
+                    path.parents[3] / "repository.json",
                     repository_json(key.repository),
                     owned,
                 )
@@ -250,7 +256,11 @@ class PullRequestObserver:
             raise ValueError("limit must be positive")
         due: list[tuple[float, PullRequestKey]] = []
         issues: list[str] = []
-        for path in self.store.root.glob("repositories/*/prs/*/observation.json"):
+        paths = list(self.store.root.glob("repositories/*/prs/*/observation.json"))
+        paths.extend(
+            self.store.root.glob(f"repositories/*/prs/*/observations/{self.connection}.json")
+        )
+        for path in paths:
             try:
                 record = self._stored(path)
                 if not record:

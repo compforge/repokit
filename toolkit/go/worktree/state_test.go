@@ -38,8 +38,8 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	if err := os.Remove(recordPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := LoadBranch(ctx, root, "feature/a", state, time.Hour); err == nil {
-		t.Fatal("missing checkout became an empty inventory")
+	if repaired, err := LoadBranch(ctx, root, "feature/a", state, time.Hour); err != nil || repaired == nil || repaired.Source != "git" || len(repaired.Checkouts) != 1 {
+		t.Fatalf("partial publication not repaired: %+v %v", repaired, err)
 	}
 	if _, err := Observe(ctx, root, state, false); err != nil {
 		t.Fatal(err)
@@ -111,5 +111,42 @@ func TestRepositoryStateClonesAndIsolation(t *testing.T) {
 	after, _ := os.ReadFile(filepath.Join(directory, "branches", "topic", "observation.json"))
 	if string(data) != string(after) {
 		t.Fatal("failed read changed observations")
+	}
+}
+
+func TestBranchReadRepairsPartialPublicationWithoutOtherBranches(t *testing.T) {
+	repo, git := worktreeFixture(t)
+	git("branch", "other")
+	branch := strings.TrimSpace(git("symbolic-ref", "--short", "HEAD"))
+	state := t.TempDir()
+	ctx := context.Background()
+	directory, err := Observe(ctx, repo, state, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	records, _ := filepath.Glob(filepath.Join(directory, "checkouts", "*", "observation.json"))
+	if len(records) != 1 {
+		t.Fatal(records)
+	}
+	var row checkoutObservation
+	if _, err := repostate.Read(records[0], &row); err != nil {
+		t.Fatal(err)
+	}
+	row.ObservedAt++
+	if err := repostate.Write(records[0], row, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	unrelated := filepath.Join(directory, "branches", "other", "observation.json")
+	if err := os.WriteFile(unrelated, []byte("{"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, age := range []time.Duration{time.Hour, 0} {
+		got, err := LoadBranch(ctx, repo, branch, state, age)
+		if err != nil || got == nil || got.Source != "git" || len(got.Checkouts) != 1 {
+			t.Fatalf("%+v %v", got, err)
+		}
+	}
+	if data, _ := os.ReadFile(unrelated); string(data) != "{" {
+		t.Fatal("unrelated state changed")
 	}
 }

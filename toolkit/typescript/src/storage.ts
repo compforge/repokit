@@ -53,7 +53,7 @@ export class ObservationStore {
     try { assertOwned(); return await operation(assertOwned); }
     finally { await release(); }
   }
-  async observations(): Promise<string[]> {
+  async observations(connection: string): Promise<string[]> {
     const directories = async (path: string) => {
       try { return (await readdir(path, { withFileTypes: true })).filter(entry => entry.isDirectory()).map(entry => entry.name); }
       catch (error) { if (missing(error)) return []; throw error; }
@@ -61,7 +61,10 @@ export class ObservationStore {
     const paths: string[] = [];
     for (const repo of await directories(this.path("repositories"))) {
       for (const number of await directories(this.path("repositories", repo, "prs"))) {
-        if (/^[1-9][0-9]*$/.test(number)) paths.push(this.path("repositories", repo, "prs", number, "observation.json"));
+        if (/^[1-9][0-9]*$/.test(number)) {
+          paths.push(this.path("repositories", repo, "prs", number, "observation.json"));
+          paths.push(this.path("repositories", repo, "prs", number, "observations", connection+".json"));
+        }
       }
     }
     return paths;

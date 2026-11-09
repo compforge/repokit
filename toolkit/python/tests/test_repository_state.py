@@ -15,11 +15,22 @@ from repokit.state import RepositoryState
 def test_shared_identity_and_environment():
     base = Path(__file__).parents[3] / "conformance"
     cases = json.loads((base / "repository-state.json").read_text())
+    from repokit._storage import digest
+    from repokit.forge.connection import ForgeConnection
+
+    for row in cases["connections"]:
+        connection = ForgeConnection(
+            row["host"], row["token"], provider=row["provider"], api_host=row["apiHost"]
+        )
+        assert connection.identity == row["identity"]
+        assert digest([connection.name, connection.identity]) == row["connection"]
     for row in cases["repositories"]:
         assert repository_key(row["forge"], row["path"]) == row["key"]
     for row in cases["branches"]:
         assert name_part(row["name"]) == row["key"]
     env = json.loads((base / "git/environment.json").read_text())
+    for row in env["configurations"]:
+        assert checkout_environment(row["input"]) == row["output"]
     source = dict.fromkeys(env["removed"] + env["preserved"], "value")
     source.update(GIT_CONFIG_KEY_0="core.worktree", GIT_CONFIG_VALUE_0="wrong")
     assert checkout_environment(source) == dict.fromkeys(env["preserved"], "value")
@@ -36,9 +47,8 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     cached = state.branch(repo, "feature/a", max_age=3600)
     assert cached.source == "cache" and cached.complete and len(cached.checkouts) == 1
     (directory / "checkouts" / key / "observation.json").unlink()
-    with pytest.raises(OSError, match="incomplete checkout observation"):
-        state.branch(repo, "feature/a", max_age=3600)
-    state.observe(repo)
+    repaired = state.branch(repo, "feature/a", max_age=3600)
+    assert repaired.source == "git" and len(repaired.checkouts) == 1
     history = directory / "history/keep"
     history.parent.mkdir()
     history.write_text("keep")
@@ -143,3 +153,45 @@ def test_unknown_primary_location_is_incomplete_and_not_reclaimed(repo, tmp_path
     observed = state.branch(linked, primary_branch, max_age=3600)
     assert not observed.complete and not observed.checkouts
     assert (directory / "checkouts" / primary_key / "observation.json").exists()
+
+
+def test_partial_publication_repairs_without_unrelated_branch_reads(repo, tmp_path, monkeypatch):
+    from repokit.git.state import get_current_branch
+
+    branch = get_current_branch(repo)
+    run(repo, "branch", "other")
+    state = RepositoryState(tmp_path / "state")
+    directory = state.observe(repo)
+    original = state.store.write
+
+    def fail_branch(path, value, owned):
+        if path == directory / "branches" / name_part(branch) / "observation.json":
+            raise OSError("interrupted publication")
+        return original(path, value, owned)
+
+    monkeypatch.setattr(state.store, "write", fail_branch)
+    with pytest.raises(OSError, match="interrupted publication"):
+        state.observe(repo)
+    monkeypatch.setattr(state.store, "write", original)
+    unrelated = directory / "branches/other/observation.json"
+    unrelated.write_text("{")
+    for age in (3600, 0):
+        observed = state.branch(repo, branch, max_age=age)
+        assert observed.source == "git" and len(observed.checkouts) == 1
+        assert unrelated.read_text() == "{"
+
+
+def test_git_transport_configuration_survives_checkout_isolation(repo, monkeypatch):
+    monkeypatch.setenv("GIT_CONFIG_COUNT", "2")
+    monkeypatch.setenv("GIT_CONFIG_KEY_0", "core.worktree")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_0", "/wrong")
+    monkeypatch.setenv("GIT_CONFIG_KEY_1", "http.extraHeader")
+    monkeypatch.setenv("GIT_CONFIG_VALUE_1", "X-Test: a'b c")
+    result = git.git(repo, "config", "--get", "http.extraHeader")
+    assert result.ok and result.out.strip() == "X-Test: a'b c"
+    monkeypatch.setenv(
+        "GIT_CONFIG_PARAMETERS", "'core.worktree=/wrong' 'user.name=Portable identity'"
+    )
+    result = git.git(repo, "config", "--get", "user.name")
+    assert result.ok and result.out.strip() == "Portable identity"
+    assert git.git(repo, "rev-parse", "--show-toplevel").out.strip() == str(repo)
