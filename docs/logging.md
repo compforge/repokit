@@ -7,7 +7,7 @@ Successful help/version invocations skip file logging and retention cleanup.
 not change the command records being summarized. See [local statistics](stats.md).
 
 Readable `slog` records are prefixed with `[repocli]` and appended to
-`~/.repocli/logs/YYYY-MM-DD.log` using the local date. Each invocation records:
+`~/.repokit/logs/YYYY-MM-DD.log` using the local date. Each invocation records:
 
 - Start time, `run_id`, tool version, working directory, and arguments. `args` is
   a JSON array encoded as a text-log string, preserving argument boundaries.
@@ -27,7 +27,7 @@ the command or recursively logging that warning.
 ## Diff history
 
 Every diff or impact invocation that reaches analysis appends one JSON object to
-`~/.repocli/logs/diff-YYYY-MM-DD.jsonl`, regardless of text or JSON output.
+`~/.repokit/logs/diff-YYYY-MM-DD.jsonl`, regardless of text or JSON output.
 Completed, partial, empty, failed, and timed-out analyses are recorded. This
 file shares the retention, append-only writes, permissions and warning behavior
 of execution logs.

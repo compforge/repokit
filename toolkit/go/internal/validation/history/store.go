@@ -2,15 +2,12 @@ package history
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
@@ -41,44 +38,15 @@ func Open(ctx context.Context, base, checkout string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	var name, legacy string
-	part := func(s string) string { return strings.ReplaceAll(url.PathEscape(s), "-", "%2D") }
+	var name string
 	if identity := project.FromOrigin(origin); identity != nil {
 		name = repostate.RepositoryKey(identity.Forge.Name, identity.Path)
-		parts := append([]string{identity.Forge.Name}, strings.Split(identity.Path, "/")...)
-		for i, p := range parts {
-			parts[i] = part(p)
-		}
-		legacy = strings.Join(parts, "--")
 	} else {
 		common, err := repo.CommonDir(ctx)
 		if err != nil {
 			return nil, err
 		}
 		name = repostate.LocalKey(common)
-		label := filepath.Base(common)
-		if label == ".git" {
-			label = filepath.Base(filepath.Dir(common))
-		}
-		sum := sha256.Sum256([]byte(common))
-		legacy = fmt.Sprintf("local--%s--%x", part(label), sum[:8])
-	}
-	// Existing WAL identity is retained; no copying a live writer's files or abandoning history.
-	if legacy != name && len(legacy) <= 255 {
-		entries, err := os.ReadDir(base)
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, err
-		}
-		for _, entry := range entries {
-			if entry.Name() != legacy {
-				continue
-			}
-			if _, err := os.Stat(filepath.Join(base, legacy, "history")); err == nil {
-				return newStore(base, legacy, checkout), nil
-			} else if !errors.Is(err, os.ErrNotExist) {
-				return nil, err
-			}
-		}
 	}
 	return newStore(base, name, checkout), nil
 }

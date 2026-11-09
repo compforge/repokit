@@ -48,9 +48,6 @@ func (c *Client) Load(ctx context.Context, repository string, number int, maxAge
 	if maxAge < 0 || number < 1 || repository == "" {
 		return PullRequest{}, errors.New("invalid PR observation request")
 	}
-	if c.config.StateDir == "" {
-		return c.Get(ctx, repository, number)
-	}
 	key := Key{c.Repository(repository), number}
 	directory, path, connection := c.observationLocation(key)
 	var result PullRequest
@@ -95,7 +92,7 @@ func (c *Client) observationLocation(key Key) (directory, path, connection strin
 		}
 	}
 	connection = observationDigest([]string{key.Repository.Forge.Name, observationDigest([]string{c.config.Provider, key.Repository.Forge.Name, strings.ToLower(endpoint), c.config.Token})})
-	directory = filepath.Join(c.config.StateDir, "repositories", repostate.RepositoryKey(key.Repository.Forge.Name, key.Repository.Path))
+	directory = filepath.Join(c.config.Home, "repositories", repostate.RepositoryKey(key.Repository.Forge.Name, key.Repository.Path))
 	path = filepath.Join(directory, "prs", strconv.Itoa(key.Number), "observations", connection+".json")
 	return
 }
@@ -107,27 +104,17 @@ func observationDigest(value any) string {
 	return fmt.Sprintf("%x", sha256.Sum256(bytes.TrimSuffix(buffer.Bytes(), []byte("\n"))))
 }
 func (c *Client) readObservation(key Key, path, connection string) (prRecord, bool, error) {
-	legacy := filepath.Join(filepath.Dir(filepath.Dir(path)), "observation.json")
-	oldConnection := observationDigest([]string{c.config.Provider, c.base, c.config.Token})
-	for _, candidate := range []string{path, legacy} {
-		var record prRecord
-		found, err := repostate.Read(candidate, &record)
-		if err != nil {
-			return record, false, err
-		}
-		if !found {
-			continue
-		}
-		if record.Connection != connection && !(candidate == legacy && record.Connection == oldConnection) {
-			continue
-		}
-		if record.Version != 1 || record.Observation.Key != key {
-			return record, false, errors.New("invalid PR observation identity or version")
-		}
-		return record, true, nil
+	var record prRecord
+	found, err := repostate.Read(path, &record)
+	if err != nil || !found {
+		return record, found, err
 	}
-	return prRecord{}, false, nil
+	if record.Version != 1 || record.Connection != connection || record.Observation.Key != key {
+		return record, false, errors.New("invalid PR observation identity or version")
+	}
+	return record, true, nil
 }
+
 func (c *Client) writeObservation(key Key, pr PullRequest, previous prRecord, directory, path, connection string, owned func() error) error {
 	now := time.Now().UTC()
 	observation := prObservation{Key: key, Snapshot: &observedPR{pr, key.Repository, key.Number, true}, ObservedAt: now, AttemptedAt: now}
@@ -150,9 +137,6 @@ func (c *Client) writeObservation(key Key, pr PullRequest, previous prRecord, di
 // failures must not turn a successful remote mutation into a retryable remote failure.
 // +spec=`Successful writes replace cached metadata and preserve discovery membership. Storage diagnostics never authorize repeating a remote write.`
 func (c *Client) mutate(ctx context.Context, key Key, operation func() (PullRequest, error)) (PullRequest, error) {
-	if c.config.StateDir == "" {
-		return operation()
-	}
 	directory, path, connection := c.observationLocation(key)
 	var result PullRequest
 	err := repostate.WithLock(ctx, path, func(owned func() error) error {
@@ -168,14 +152,7 @@ func (c *Client) mutate(ctx context.Context, key Key, operation func() (PullRequ
 		if err := c.writeObservation(key, result, previous, directory, path, connection, owned); err != nil {
 			// Remove a stale success if publication failed while we still own the lease.
 			if owned() == nil {
-				legacy := filepath.Join(filepath.Dir(filepath.Dir(path)), "observation.json")
-				var old prRecord
-				if found, readErr := repostate.Read(legacy, &old); readErr == nil && found &&
-					(old.Connection == connection || old.Connection == observationDigest([]string{c.config.Provider, c.base, c.config.Token})) {
-					if removeErr := os.Remove(legacy); removeErr != nil {
-						slog.WarnContext(ctx, "legacy PR cache invalidation failed", "repository", key.Repository.Path, "number", key.Number, "error", removeErr)
-					}
-				}
+
 				if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
 					slog.WarnContext(ctx, "PR cache invalidation failed", "repository", key.Repository.Path, "number", key.Number, "error", removeErr)
 				}

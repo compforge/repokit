@@ -1,5 +1,5 @@
+import { resolveHome } from "../../home.js";
 import { repositoryKey, namePart } from "../../state-paths.js";
-import { basename } from "node:path";
 import { remote, type Remote } from "../../git/remote.js";
 import type { RepositoryKey, PullRequestSnapshot } from "@compforge/harness-common";
 import { currentBranch, localBranches, listCheckouts, isAncestor, type CheckoutEntry } from "../../git/state.js";
@@ -47,7 +47,7 @@ export class PullRequestContext {
     if (!options.targets.length || [options.source, ...options.targets].some(repo => repo.forge.name !== reader.forge)) throw new Error("Invalid PR association repository scope");
     this.#remote = remote(options.checkout);
     this.#engine = new ObservationEngine(reader, options);
-    this.#store = new ObservationStore(options.stateDir);
+    this.#store = new ObservationStore(resolveHome(options.home));
     this.#now = options.now ?? (() => new Date());
   }
   #path(branch: string): string {
@@ -58,11 +58,7 @@ export class PullRequestContext {
     const { targets } = this.options;
     const path = this.#path(branch);
     return this.#store.locked(path, signal, async owned => {
-      let record = await this.#store.read<Association>(path);
-      if (!record) {
-        record = await this.#store.read<Association>(this.#store.path("associations",basename(path)));
-        if(record) await this.#store.write(path,record,owned);
-      }
+      const record = await this.#store.read<Association>(path);
       if (record && (record.version !== 1 || !Number.isFinite(Date.parse(record.nextRefreshAt)) || !record.error && !Array.isArray(record.keys))) throw new ForgeError("Invalid PR association record");
       if (!verify && record && Date.parse(record.nextRefreshAt) > this.#now().getTime()) {
         if (record.error) throw new ForgeError(record.error);

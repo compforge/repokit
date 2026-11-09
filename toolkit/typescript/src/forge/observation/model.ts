@@ -15,7 +15,7 @@ export interface PullRequestObservationResult extends PullRequestObservation {
   readonly source: "cache" | "remote";
 }
 export interface PullRequestObservationOptions {
-  readonly stateDir: string;
+  readonly home?: string;
   /** Stable access/configuration revision, changed whenever credentials or permissions change. Never a token. */
   readonly connection: string;
   readonly openIntervalMs?: number;

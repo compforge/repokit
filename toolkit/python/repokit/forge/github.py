@@ -15,6 +15,7 @@ from typing import Any
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
+from ..home import resolve_home
 from ._http_state import HttpState
 from ._page import page_continuation, page_position
 from ._rest import RestClient
@@ -42,7 +43,7 @@ class GitHubForge(Forge):
         *,
         forge: str | None = None,
         timeout: int = 10,
-        state_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ):
         host = host.lower()
         self.forge = ForgeIdentity(
@@ -57,14 +58,14 @@ class GitHubForge(Forge):
         )
         self.owner, self.name = owner, name
         self.host, self._token, self.timeout = host, token, timeout
-        self.state_dir = state_dir
+        self.home = resolve_home(home)
         self.path = f"{owner}/{name}"
         headers = {
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "X-GitHub-Api-Version": "2022-11-28",
         }
-        state = HttpState(Path(state_dir), host, token) if state_dir is not None else None
+        state = HttpState(self.home / "forge-http", host, token)
         self.c = RestClient(f"{api}/repos/{owner}/{name}", headers, timeout=timeout, state=state)
         self.g = RestClient(graphql_api, headers, timeout=timeout, state=state, resource="graphql")
         self._instance = RestClient(api, headers, timeout=timeout, state=state)
@@ -114,7 +115,7 @@ class GitHubForge(Forge):
             self._token,
             forge=self.forge.name,
             timeout=self.timeout,
-            state_dir=self.state_dir,
+            home=self.home,
         )
 
     def _repository_client(self, repository: Repository) -> GitHubForge:

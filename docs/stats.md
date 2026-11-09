@@ -1,6 +1,6 @@
 # Local statistics
 
-`repocli stats` summarizes the records currently retained in `~/.repocli` across
+`repocli stats` summarizes the records currently retained in `~/.repokit` across
 repositories. It works outside a Git checkout and does not require historical
 checkouts to still exist.
 
@@ -8,7 +8,7 @@ checkouts to still exist.
 repocli stats
 repocli stats --json
 repocli stats --top 10
-repocli stats --state-dir /path/to/repocli-state --json
+repocli stats --home /path/to/repocli-state --json
 ```
 
 `--top` selects 1–100 slow command runs, default 5. `--timeout` bounds collection.
@@ -20,7 +20,7 @@ For one repository, use `repocli validate --history --repo /path/to/repo`.
 - **Storage:** regular-file count and logical bytes by top-level directory,
   skipped symlink count, oldest/newest file modification time. This is not
   allocated disk space (`du`); timestamps do not establish cache validity or
-  authorize deletion. PR/HTTP caches and legacy `checkouts/` state contribute to
+  authorize deletion. PR/HTTP caches and other retained directories contribute to
   storage only. They are not command or validation events.
 - **Validation:** per-repository, per-Component/check statistics plus global
   totals. The Go toolkit's `ReadValidationHistories` reuses the same locked WAL

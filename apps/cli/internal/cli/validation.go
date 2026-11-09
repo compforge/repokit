@@ -46,14 +46,14 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			defer cancel()
 			// +spec=Optional history must not prevent planning or executing checks
 			if historyDir == "" && !planOnly {
-				stateDir, err := repositoryStateDir(opts.stateDir)
+				home, err := repositoryHome(opts.home)
 				if err != nil {
 					if showHistory {
 						return executionError{fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err)}
 					}
 					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
 				} else {
-					historyDir = filepath.Join(stateDir, "repositories")
+					historyDir = filepath.Join(home, "repositories")
 				}
 			}
 			if showHistory {
@@ -98,8 +98,8 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			if err != nil {
 				return executionError{err}
 			}
-			if stateDir, stateErr := repositoryStateDir(opts.stateDir); stateErr == nil {
-				if _, stateErr = worktree.Observe(ctx, opts.repository, stateDir, false); stateErr != nil {
+			if home, stateErr := repositoryHome(opts.home); stateErr == nil {
+				if _, stateErr = worktree.Observe(ctx, opts.repository, home, false); stateErr != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
 				}
 			}
@@ -149,7 +149,7 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 	command.Flags().BoolVar(&planOnly, "plan", false, "print the plan as JSON without running checks")
 	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")
 	command.Flags().StringVar(&inputsFile, "inputs", "", "JSON Component/check input declarations and receipt paths")
-	command.Flags().StringVar(&historyDir, "history-dir", "", "validation history root (default ~/.repocli/repositories)")
+	command.Flags().StringVar(&historyDir, "history-dir", "", "validation history root (default ~/.repokit/repositories)")
 	command.Flags().BoolVar(&force, "force", false, "execute checks even when successful history matches")
 	command.Flags().BoolVar(&showHistory, "history", false, "show retained execution and reuse statistics without running checks")
 	command.Flags().StringArrayVar(&changed, "changed-file", nil, "restrict impact seeds to a changed repository-relative path")

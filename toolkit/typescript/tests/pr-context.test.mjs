@@ -14,7 +14,7 @@ function fixture(t) {
   git('init','-b','topic'); git('config','user.email','test@example.com'); git('config','user.name','Test'); git('commit','--allow-empty','-m','initial');
   const rows=new Map([[1,{repository,number:1,state:'merged',sourceBranch:'topic',sourceRepository:repository,headSha:git('rev-parse','HEAD')}]]);
   const reader={forge:'github',provider:'github',listPullRequests:async()=>({items:[...rows.values()].map(({repository,number})=>({repository,number}))}),getPullRequest:async key=>rows.get(key.number)};
-  const context=new PullRequestContext(reader,{checkout:root,source:repository,targets:[repository],stateDir:join(root,'state'),connection:'account'});
+  const context=new PullRequestContext(reader,{checkout:root,source:repository,targets:[repository],home:join(root,'state'),connection:'account'});
   t.after(()=>context.close());
   return {root,git,rows,reader,context};
 }
@@ -41,7 +41,7 @@ test('a failing PR cannot select another terminal candidate for deletion',async 
 });
 test('one-shot observer never reads persisted merged again',async t=>{
   const f=fixture(t);
-  const options={stateDir:join(f.root,'state'),connection:'account',background:false};
+  const options={home:join(f.root,'state'),connection:'account',background:false};
   const observer=new PullRequestObserver(f.reader,options);
   await observer.getPullRequest({repository,number:1});
   f.reader.getPullRequest=async()=>{throw Error('must not read terminal PR');};
@@ -52,7 +52,7 @@ test('one-shot observer never reads persisted merged again',async t=>{
 
 test('explicit maintenance discovers configured scopes without a background loop',async t=>{
   const f=fixture(t);
-  const observer=new PullRequestObserver(f.reader,{stateDir:join(f.root,'state'),connection:'account',background:false,scopes:[{kind:'repository',repository}]});
+  const observer=new PullRequestObserver(f.reader,{home:join(f.root,'state'),connection:'account',background:false,scopes:[{kind:'repository',repository}]});
   await observer.maintain();
   f.reader.getPullRequest=async()=>{throw Error('discovery did not persist');};
   assert.equal((await observer.getPullRequest({repository,number:1})).state,'merged');

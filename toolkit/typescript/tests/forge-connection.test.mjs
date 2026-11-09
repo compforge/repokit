@@ -12,14 +12,14 @@ test("connection identity matches Python and keeps target selection explicit", (
   execFileSync("git", ["init", "-q", checkout]);
   try {
     for (const row of rows) {
-      const connection = new ForgeConnection({ ...row, stateDir: checkout });
+      const connection = new ForgeConnection({ ...row, home: checkout });
       assert.equal(connection.name, row.name);
       assert.equal(connection.identity, row.identity);
       assert.ok(!JSON.stringify(connection).includes(row.token));
       const context = connection.pullRequestContext(checkout, { source: "owner/repo" });
       try {
         assert.deepEqual(context.options.targets, [connection.repository("owner/repo")]);
-        assert.equal(context.options.stateDir, checkout);
+        assert.equal(context.options.home, checkout);
         assert.equal(context.options.connection, row.identity);
       } finally { context.close(); }
       const explicit = connection.pullRequestContext(checkout, { source: "owner/repo", targets: ["upstream/repo"] });

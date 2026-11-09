@@ -73,7 +73,7 @@ func TestWorktreeObserveExplicitStateRoot(t *testing.T) {
 		}
 	}
 	var out, stderr bytes.Buffer
-	if code := Execute(context.Background(), []string{"worktree", "observe", "--repo", root, "--state-dir", state, "--reconcile", "--json"}, nil, &out, &stderr); code != 0 {
+	if code := Execute(context.Background(), []string{"worktree", "observe", "--repo", root, "--home", state, "--reconcile", "--json"}, nil, &out, &stderr); code != 0 {
 		t.Fatalf("%d %s", code, &stderr)
 	}
 	var result map[string]string

@@ -93,7 +93,7 @@ type WorktreeCleanOptions struct {
 	Policy       *WorktreePolicy
 	DryRun       bool
 	PullRequests WorktreePullRequests
-	StateDir     string
+	Home         string
 }
 
 type retentionEntry struct {
@@ -336,8 +336,8 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if known {
 		report.RemainingPrepared = &countPrepared
 	}
-	if options.StateDir != "" && !options.DryRun {
-		if _, err := Observe(ctx, repo, options.StateDir, true); err != nil {
+	if !options.DryRun {
+		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			report.Errors = append(report.Errors, "repository observation: "+err.Error())
 		}
 	}

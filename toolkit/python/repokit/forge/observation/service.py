@@ -15,6 +15,7 @@ from harness_common import Repository
 
 from ..._state_paths import repository_key
 from ...budget import current_budget, operation
+from ...home import resolve_home
 from ..model import Forge, ForgeError, ForgeRateLimited, PullRequest
 from .model import PullRequestKey, PullRequestStatus, PullRequestStatusUnavailable
 from .store import JSON, ObservationStorageError, ObservationStore, digest
@@ -60,7 +61,7 @@ class PullRequestObserver:
         reader: Forge,
         *,
         forge: str,
-        state_dir: str | Path,
+        home: str | Path | None = None,
         connection: str,
         open_interval: float = 60,
         closed_interval: float = 600,
@@ -75,7 +76,7 @@ class PullRequestObserver:
         ):
             raise ValueError("nonempty identities and positive intervals are required")
         self.reader, self.forge = reader, forge
-        self.store = ObservationStore(state_dir)
+        self.store = ObservationStore(resolve_home(home))
         self.connection = digest([forge, connection])
         self.open_interval, self.closed_interval = open_interval, closed_interval
         self.retry_interval, self.timeout, self.now = retry_interval, timeout, now
@@ -112,23 +113,6 @@ class PullRequestObserver:
             path = self.path(key)
             with self.store.locked(path) as owned:
                 previous = self._stored(path)
-                if previous is None:
-                    for repository in (
-                        repository_key(self.forge, key.repository.path),
-                        digest([self.forge, key.repository.path]),
-                    ):
-                        legacy = (
-                            self.store.root
-                            / "repositories"
-                            / repository
-                            / "prs"
-                            / str(key.number)
-                            / "observation.json"
-                        )
-                        previous = self._stored(legacy)
-                        if previous is not None:
-                            self.store.write(path, previous, owned)
-                            break
                 old = cast(JSON, previous["observation"]) if previous else {}
                 if old and old.get("key") != key_json(key):
                     raise ObservationStorageError(f"PR identity mismatch at {path}")
@@ -256,19 +240,13 @@ class PullRequestObserver:
             raise ValueError("limit must be positive")
         due: list[tuple[float, PullRequestKey]] = []
         issues: list[str] = []
-        paths = list(self.store.root.glob("repositories/*/prs/*/observation.json"))
-        paths.extend(
-            self.store.root.glob(f"repositories/*/prs/*/observations/{self.connection}.json")
-        )
+        paths = self.store.root.glob(f"repositories/*/prs/*/observations/{self.connection}.json")
         for path in paths:
             try:
                 record = self._stored(path)
                 if not record:
                     continue
                 observation = cast(JSON, record["observation"])
-                canonical = self.path(key_from_json(cast(JSON, observation["key"])))
-                if path != canonical and self._stored(canonical) is not None:
-                    continue
                 if cast(JSON, observation.get("snapshot", {})).get("state") == "merged":
                     continue
                 at = epoch(observation.get("nextRefreshAt"))

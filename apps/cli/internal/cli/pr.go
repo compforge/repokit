@@ -64,11 +64,11 @@ func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot strin
 	if token == "" {
 		return nil, fmt.Errorf("no %s credential", provider)
 	}
-	stateDir, err := repositoryStateDir(stateRoot)
+	home, err := repositoryHome(stateRoot)
 	if err != nil {
 		return nil, err
 	}
-	client, err := forge.NewClient(forge.Config{Host: host, Provider: provider, APIHost: o.apiHost, Token: token, StateDir: stateDir})
+	client, err := forge.NewClient(forge.Config{Host: host, Provider: provider, APIHost: o.apiHost, Token: token, Home: home})
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 			defer cancel()
-			prContext, err := connection.context(ctx, opts.repository, opts.stateDir)
+			prContext, err := connection.context(ctx, opts.repository, opts.home)
 			if err != nil {
 				return executionError{err}
 			}

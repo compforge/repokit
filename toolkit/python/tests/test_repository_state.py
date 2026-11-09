@@ -40,7 +40,7 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     run(repo, "remote", "add", "origin", "https://github.com/owner/project.git")
     state = RepositoryState(tmp_path / "state")
     linked = tmp_path / "linked"
-    assert git.add_worktree(repo, linked, "HEAD", branch="feature/a", state_dir=state.store.root).ok
+    assert git.add_worktree(repo, linked, "HEAD", branch="feature/a", home=state.store.root).ok
     directory = state.store.root / "repositories/github--owner--project"
     key = digest_path(str(linked.resolve()))
     assert (directory / "branches/feature%2Fa/worktrees" / key / "path").resolve() == linked
@@ -52,7 +52,7 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     history = directory / "history/keep"
     history.parent.mkdir()
     history.write_text("keep")
-    assert git.remove_worktree(repo, linked, state_dir=state.store.root).ok
+    assert git.remove_worktree(repo, linked, home=state.store.root).ok
     assert not (directory / "checkouts" / key).exists()
     assert state.branch(repo, "feature/a").checkouts == ()
     assert history.read_text() == "keep"
@@ -195,3 +195,15 @@ def test_git_transport_configuration_survives_checkout_isolation(repo, monkeypat
     result = git.git(repo, "config", "--get", "user.name")
     assert result.ok and result.out.strip() == "Portable identity"
     assert git.git(repo, "rev-parse", "--show-toplevel").out.strip() == str(repo)
+
+
+def test_worktree_creation_publishes_to_default_home(repo, tmp_path):
+    from repokit import resolve_home
+
+    linked = tmp_path / "default-linked"
+    result = git.add_worktree(repo, linked, "HEAD", branch="default-home")
+    assert result.ok, result.err
+    state = RepositoryState()
+    assert state.store.root == resolve_home()
+    observed = state.branch(repo, "default-home", max_age=3600)
+    assert observed.source == "cache" and len(observed.checkouts) == 1

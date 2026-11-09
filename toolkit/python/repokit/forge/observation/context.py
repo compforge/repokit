@@ -68,7 +68,7 @@ class PullRequestContext:
             issues.extend(self.observer.maintain())
             rows = self.local_branches()
             maintenance = clean_worktrees(
-                self.checkout, context=self, inventory=rows, state_dir=self.observer.store.root
+                self.checkout, context=self, inventory=rows, home=self.observer.store.root
             )
         except Exception as exc:
             logger.warning(
@@ -159,10 +159,6 @@ class PullRequestContext:
         path = self._association_path(branch)
         with observer.store.locked(path) as owned:
             record = observer.store.read(path)
-            if record is None:
-                record = observer.store.read(observer.store.root / "associations" / path.name)
-                if record is not None:
-                    observer.store.write(path, record, owned)
             if record and (
                 record.get("version") != 1
                 or not record.get("error")

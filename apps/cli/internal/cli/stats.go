@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"slices"
 	"text/tabwriter"
 	"time"
@@ -17,7 +15,6 @@ import (
 )
 
 func newStatsCommand(opts *options) *cobra.Command {
-	var directory string
 	var top int
 	command := &cobra.Command{
 		Use:   "stats",
@@ -34,14 +31,7 @@ func newStatsCommand(opts *options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				return errors.New("stats is global; use validate --history --repo <path> for one repository")
 			}
-			if directory == "" {
-				home, err := os.UserHomeDir()
-				if err != nil {
-					return executionError{fmt.Errorf("resolve stats directory: %w; specify --state-dir", err)}
-				}
-				directory = filepath.Join(home, ".repocli")
-			}
-			path, err := filepath.Abs(directory)
+			path, err := repositoryHome(opts.home)
 			if err != nil {
 				return executionError{err}
 			}
@@ -65,9 +55,7 @@ func newStatsCommand(opts *options) *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().StringVar(&directory, "state-dir", "", "repocli state directory (default ~/.repocli)")
 	command.Flags().IntVar(&top, "top", 5, "number of slowest command runs (1–100)")
-	_ = command.MarkFlagDirname("state-dir")
 	return command
 }
 

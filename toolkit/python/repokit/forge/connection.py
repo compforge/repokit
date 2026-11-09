@@ -11,6 +11,7 @@ from typing import Literal
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
+from ..home import resolve_home
 from .github import GitHubForge
 from .gitlab import GitLabForge
 from .model import Forge, ForgeAuthError
@@ -37,7 +38,7 @@ class ForgeConnection:
     token: str = field(repr=False)
     provider: Literal["github", "gitlab"] | None = None
     api_host: str | None = None
-    state_dir: Path = field(default_factory=lambda: Path.home() / ".repocli")
+    home: Path = field(default_factory=resolve_home)
     timeout: int = 10
 
     def __post_init__(self) -> None:
@@ -48,7 +49,7 @@ class ForgeConnection:
             raise ForgeAuthError(f"PR query unavailable: no credential for {self.host}")
         object.__setattr__(self, "provider", detect_provider(self.host, self.provider))
         object.__setattr__(self, "api_host", (self.api_host or self.host).lower())
-        object.__setattr__(self, "state_dir", Path(self.state_dir))
+        object.__setattr__(self, "home", resolve_home(self.home))
 
     @property
     def name(self) -> str:
@@ -79,7 +80,7 @@ class ForgeConnection:
                 self.token,
                 forge=self.name,
                 timeout=self.timeout,
-                state_dir=self.state_dir / "forge-http",
+                home=self.home,
             )
         return GitLabForge(
             self.api_host or self.host,
@@ -87,7 +88,7 @@ class ForgeConnection:
             self.token,
             forge=self.name,
             timeout=self.timeout,
-            state_dir=self.state_dir / "forge-http",
+            home=self.home,
         )
 
     def pull_request_context(
@@ -101,7 +102,7 @@ class ForgeConnection:
         observer = PullRequestObserver(
             reader if reader is not None else self.client(source),
             forge=self.name,
-            state_dir=self.state_dir,
+            home=self.home,
             connection=self.identity,
             timeout=self.timeout,
         )

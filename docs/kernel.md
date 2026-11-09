@@ -281,6 +281,7 @@ PR 状态观察与本地分支关联由各语言工具包拥有，共用持久�
 
 ## Repository 本地信息
 
-信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
+用户目录由 RepoKit 统一解析：显式 home → `REPOKIT_HOME` → `~/.repokit`。
+位置选择不代表动作授权。信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
 单对象读取按需修复自己的可重建投影，不依赖全仓状态维护。PR 写操作发布成功事实；
 观察任务按连接隔离刷新和发现进度，避免共享目录中的客户端相互覆盖。

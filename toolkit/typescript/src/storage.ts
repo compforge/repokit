@@ -12,7 +12,7 @@ const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "E
 export class ObservationStore {
   readonly root: string;
   constructor(root: string) {
-    if (!root.trim()) throw new Error("repository stateDir must be explicit and nonempty");
+    if (!root.trim()) throw new Error("repository home must be explicit and nonempty");
     this.root = resolve(root);
   }
   path(...parts: string[]): string { return join(this.root, ...parts); }
@@ -62,7 +62,6 @@ export class ObservationStore {
     for (const repo of await directories(this.path("repositories"))) {
       for (const number of await directories(this.path("repositories", repo, "prs"))) {
         if (/^[1-9][0-9]*$/.test(number)) {
-          paths.push(this.path("repositories", repo, "prs", number, "observation.json"));
           paths.push(this.path("repositories", repo, "prs", number, "observations", connection+".json"));
         }
       }

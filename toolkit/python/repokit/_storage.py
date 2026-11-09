@@ -31,7 +31,7 @@ class ObservationStorageError(OSError):
 class ObservationStore:
     def __init__(self, root: str | Path):
         if not str(root).strip():
-            raise ValueError("state_dir must be nonempty")
+            raise ValueError("home must be nonempty")
         self.root = Path(root).expanduser().resolve()
 
     def read(self, path: Path) -> JSON | None:

@@ -196,7 +196,7 @@ Python `repokit.repository.default_branch(repo, forge=...)` 统一处理默认�
 观察，origin 变更不会复用旧仓事实。记录位于工具包状态目录的 `repositories/*/metadata.json`。
 刷新优先使用 Forge，失败或无客户端时尝试远端 HEAD；失败返回显式 stale 观察及诊断，
 不推进观察时间，不把 main/master 猜测记为事实。调用方只选择缺失时的开发基线，不维护 TTL
-或传输 fallback。显式 `state_dir` 可隔离应用/测试；`max_age=0` 请求刷新。
+或传输 fallback。显式 `home` 可隔离应用/测试；`max_age=0` 请求刷新。
 
 ## Repository 本地信息
 

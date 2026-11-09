@@ -16,7 +16,7 @@ import (
 var Version = "dev"
 
 type options struct {
-	stateDir   string
+	home       string
 	repository string
 	json       bool
 	timeout    time.Duration
@@ -41,7 +41,8 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	run := &commandLog{}
 	start := func() {
 		if run.logger == nil {
-			*run = *startCommandLog(stderr, args)
+			home, _ := root.PersistentFlags().GetString("home")
+			*run = *startCommandLog(stderr, args, home)
 		}
 	}
 	// Let Cobra resolve help/version normally. Opening the log only when work starts
@@ -84,7 +85,7 @@ func newRootCommand(opts *options) *cobra.Command {
 		SilenceUsage:  true,
 	}
 	flags := root.PersistentFlags()
-	flags.StringVar(&opts.stateDir, "state-dir", "", "RepoKit state root (default ~/.repocli)")
+	flags.StringVar(&opts.home, "home", "", "RepoKit user home (REPOKIT_HOME or ~/.repokit)")
 	flags.StringVar(&opts.repository, "repo", ".", "repository directory")
 	flags.BoolVar(&opts.json, "json", false, "write structured JSON to stdout")
 	flags.DurationVar(&opts.timeout, "timeout", 2*time.Minute, "command deadline")

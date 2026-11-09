@@ -12,3 +12,5 @@ export { tree } from "./tree.js";
 export type { TreeReport, Directory, File, Manifest } from "./tree.js";
 
 export { RepositoryState, type BranchObservation } from "./state.js";
+
+export { resolveHome } from "./home.js";

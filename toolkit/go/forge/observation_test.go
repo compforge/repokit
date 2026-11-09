@@ -28,7 +28,7 @@ func TestLoadFreshnessConnectionScopeAndTerminalLifecycle(t *testing.T) {
 		fmt.Fprint(w, githubFixture(1, state))
 	}))
 	defer server.Close()
-	config := Config{Host: "github.com", Token: "account-a", APIHost: server.URL, StateDir: t.TempDir()}
+	config := Config{Host: "github.com", Token: "account-a", APIHost: server.URL, Home: t.TempDir()}
 	client, _ := NewClient(config)
 	ctx := context.Background()
 	if _, err := client.Load(ctx, "acme/repo", 1, time.Hour); err != nil {
@@ -105,7 +105,7 @@ func TestMutationsPublishCacheAndKeepDiscoveryScopes(t *testing.T) {
 		fmt.Fprint(w, strings.Replace(githubFixture(1, state), `"title":"fixture"`, `"title":`+strconv.Quote(title), 1))
 	}))
 	defer server.Close()
-	config := Config{Host: "github.com", Token: "account-a", APIHost: server.URL, StateDir: t.TempDir()}
+	config := Config{Host: "github.com", Token: "account-a", APIHost: server.URL, Home: t.TempDir()}
 	client, _ := NewClient(config)
 	ctx := context.Background()
 	key := Key{client.Repository("acme/repo"), 1}
@@ -156,7 +156,7 @@ func TestLifecycleOnlySnapshotRefreshesMissingMetadata(t *testing.T) {
 	calls := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, githubFixture(1, "open")) }))
 	defer server.Close()
-	client, _ := NewClient(Config{Host: "github.com", Token: "fixture", APIHost: server.URL, StateDir: t.TempDir()})
+	client, _ := NewClient(Config{Host: "github.com", Token: "fixture", APIHost: server.URL, Home: t.TempDir()})
 	key := Key{client.Repository("acme/repo"), 1}
 	_, path, connection := client.observationLocation(key)
 	snapshot := map[string]any{"repository": key.Repository, "number": 1, "state": "open", "title": "partial"}

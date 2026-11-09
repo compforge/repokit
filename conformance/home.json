@@ -1,0 +1,32 @@
+[
+  {
+    "name": "default",
+    "explicit": null,
+    "environment": null,
+    "expected": "USER/.repokit"
+  },
+  {
+    "name": "environment",
+    "explicit": null,
+    "environment": "CWD/env-home",
+    "expected": "CWD/env-home"
+  },
+  {
+    "name": "explicit-wins",
+    "explicit": "CWD/explicit",
+    "environment": "CWD/ignored",
+    "expected": "CWD/explicit"
+  },
+  {
+    "name": "relative",
+    "explicit": "relative-home",
+    "environment": null,
+    "expected": "CWD/relative-home"
+  },
+  {
+    "name": "empty-environment",
+    "explicit": null,
+    "environment": "",
+    "expected": "USER/.repokit"
+  }
+]

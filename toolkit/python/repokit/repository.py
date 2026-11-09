@@ -10,9 +10,10 @@ from pathlib import Path
 from . import git
 from ._state_paths import local_key, repository_key
 from .forge.model import Forge, ForgeError
-from .forge.observation.store import ObservationStore, digest
+from .forge.observation.store import ObservationStore
 from .git import state as git_state
 from .git.remote import parse_remote_url
+from .home import resolve_home
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +30,7 @@ def default_branch(
     repo: str | Path,
     *,
     forge: Forge | None = None,
-    state_dir: str | Path | None = None,
+    home: str | Path | None = None,
     max_age: float = 86400,
 ) -> DefaultBranch:
     """Read default-branch metadata, refreshing stale observations at most once per lease.
@@ -46,7 +47,7 @@ def default_branch(
     if not remote.ok and not (remote.rc == 1 and not remote.err):
         raise OSError(f"cannot read origin identity: {remote.err}")
     # Include remote configuration so repointing origin never reuses another repository's fact.
-    store = ObservationStore(state_dir or Path.home() / ".repocli")
+    store = ObservationStore(resolve_home(home))
     identity = parse_remote_url(remote.out.strip()) if remote.ok else None
     key = (
         repository_key(
@@ -57,10 +58,9 @@ def default_branch(
         else local_key(info.common_dir)
     )
     path = store.root / "repositories" / key / "metadata.json"
-    legacy = store.root / "repositories" / digest([info.common_dir, remote.out]) / "metadata.json"
 
     def read() -> DefaultBranch:
-        value = store.read(path) or store.read(legacy)
+        value = store.read(path)
         if value is None:
             return DefaultBranch(None, 0, False)
         branch, at = value.get("default_branch"), value.get("observed_at")
@@ -69,10 +69,6 @@ def default_branch(
         return DefaultBranch(branch, float(at), 0 <= time.time() - at < max_age)
 
     with store.locked(path) as assert_owned:
-        if store.read(path) is None:
-            old = store.read(legacy)
-            if old is not None:
-                store.write(path, old, assert_owned)
         cached = read()
         if cached.fresh:
             return cached

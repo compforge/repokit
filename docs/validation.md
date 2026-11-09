@@ -164,7 +164,7 @@ paths 是仓库相对的字面文件或目录，不展开 glob；非法声明报
 父包的 `reuse.go` 解释检查结果及输入清单，判断本轮是否可复用，并衔接执行。依赖方向仅为 validation → history。
 history 原样保存检查载荷，仅解析统计和事件一致性所需字段，不依赖父包的 CheckResult、输入类型或规划策略。
 
-CLI 默认使用 `~/.repocli/repositories/<name>/`，`--history-dir` 可指定父目录。
+CLI 默认使用 `~/.repokit/repositories/<name>/`，`--history-dir` 可指定父目录。
 仓库名称由 Forge 与完整仓库路径组成，例如 `github--compforge--repokit`；路径分隔符使用 `--`，
 原名称中的分隔符及路径特殊字符转义。无远端身份时使用本地仓库名与共享 Git 元数据路径摘要。
 同仓多个 clone/worktree 共用一个历史库和锁；checkout 路径记录在事件和输入中，不创建 checkout 子目录。

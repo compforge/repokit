@@ -48,16 +48,16 @@ func (w *logWriter) Write(data []byte) (int, error) {
 	return len(data), nil
 }
 
-func startCommandLog(stderr io.Writer, args []string) *commandLog {
+func startCommandLog(stderr io.Writer, args []string, explicitHome string) *commandLog {
 	now := time.Now()
 	run := &commandLog{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), started: now, runID: rand.Text()}
 	writer := &logWriter{stderr: stderr}
-	home, err := os.UserHomeDir()
+	home, err := repositoryHome(explicitHome)
 	if err != nil {
 		writer.warn(err)
 		return run
 	}
-	dir := filepath.Join(home, ".repocli", "logs")
+	dir := filepath.Join(home, "logs")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		writer.warn(err)
 		return run

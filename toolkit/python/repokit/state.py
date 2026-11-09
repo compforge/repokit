@@ -17,6 +17,7 @@ from ._storage import JSON, ObservationStore
 from .git import operations as git
 from .git import state as git_state
 from .git.remote import parse_remote_url
+from .home import resolve_home
 
 logger = logging.getLogger(__name__)
 
@@ -60,8 +61,8 @@ class RepositoryState:
     @link component://docs/state.md
     """
 
-    def __init__(self, state_dir: str | Path):
-        self.store = ObservationStore(state_dir)
+    def __init__(self, home: str | Path | None = None):
+        self.store = ObservationStore(resolve_home(home))
 
     def branch(
         self, repo: str | Path, branch: str, *, max_age: float = 0

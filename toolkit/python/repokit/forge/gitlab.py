@@ -15,6 +15,7 @@ from typing import Any
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
+from ..home import resolve_home
 from ._http_state import HttpState
 from ._page import page_continuation, page_position
 from ._rest import RestClient
@@ -57,20 +58,20 @@ class GitLabForge(Forge):
         *,
         forge: str | None = None,
         timeout: int = 10,
-        state_dir: str | Path | None = None,
+        home: str | Path | None = None,
     ):
         host = host.lower()
         self.forge = ForgeIdentity(
             forge if forge is not None else ("gitlab" if host == "gitlab.com" else host)
         )
         self.host, self.path, self._token, self.timeout = host, path, token, timeout
-        self.state_dir = state_dir
+        self.home = resolve_home(home)
         enc = urllib.parse.quote(path, safe="")
         self.c = RestClient(
             f"https://{host}/api/v4/projects/{enc}",
             {"PRIVATE-TOKEN": token},
             timeout=timeout,
-            state=HttpState(Path(state_dir), host, token) if state_dir is not None else None,
+            state=HttpState(self.home / "forge-http", host, token),
         )
         self._instance = RestClient(
             f"https://{host}/api/v4", {"PRIVATE-TOKEN": token}, timeout=timeout, state=self.c.state
@@ -123,7 +124,7 @@ class GitLabForge(Forge):
             self._token,
             forge=self.forge.name,
             timeout=self.timeout,
-            state_dir=self.state_dir,
+            home=self.home,
         )
 
     def _repository_client(self, repository: Repository) -> GitLabForge:

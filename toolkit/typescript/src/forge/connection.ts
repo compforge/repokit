@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { resolveHome } from "../home.js";
 import type { RepositoryKey } from "@compforge/harness-common";
 import { createForgeReader } from "./create.js";
 import { ForgeAuthError, type ForgeReader, type ForgeReaderOptions } from "./model.js";
@@ -18,7 +17,7 @@ export interface ForgeConnectionConfig {
   readonly token: string;
   readonly provider?: "github" | "gitlab";
   readonly apiHost?: string;
-  readonly stateDir?: string;
+  readonly home?: string;
   readonly timeoutMs?: number;
 }
 
@@ -31,14 +30,14 @@ export class ForgeConnection {
   readonly host: string;
   readonly provider: "github" | "gitlab";
   readonly apiHost: string;
-  readonly stateDir: string;
+  readonly home: string;
   readonly timeoutMs: number;
   readonly #token: string;
   constructor(config: ForgeConnectionConfig) {
     this.host = config.host.toLowerCase();
     this.provider = detectProvider(this.host, config.provider);
     this.apiHost = (config.apiHost || this.host).toLowerCase();
-    this.stateDir = config.stateDir ?? join(homedir(), ".repocli");
+    this.home = resolveHome(config.home);
     this.timeoutMs = config.timeoutMs ?? 10_000;
     if (!this.host || !Number.isFinite(this.timeoutMs) || this.timeoutMs <= 0) throw new Error("Forge host and positive timeout are required");
     if (!config.token.trim()) throw new ForgeAuthError(`PR query unavailable: no credential for ${this.host}`);
@@ -59,7 +58,7 @@ export class ForgeConnection {
     return new PullRequestContext(options.reader ?? this.reader(), {
       checkout, source: this.repository(options.source),
       targets: (options.targets ?? [options.source]).map(path => this.repository(path)),
-      stateDir: this.stateDir, connection: this.identity, requestTimeoutMs: this.timeoutMs,
+      home: this.home, connection: this.identity, requestTimeoutMs: this.timeoutMs,
     });
   }
 }

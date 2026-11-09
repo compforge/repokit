@@ -40,7 +40,7 @@ def error(status, body=None, **values):
 
 def test_cooldown_survives_another_process_and_is_credential_scoped(tmp_path):
     retry_at = int(time.time()) + 600
-    client = GitHubForge("github.com", "o", "one", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "one", "secret", home=tmp_path)
     with patch(
         "urllib.request.urlopen",
         side_effect=error(
@@ -57,20 +57,20 @@ from repokit.forge import GitHubForge
 from repokit.forge.model import ForgeRateLimited
 with patch('urllib.request.urlopen', side_effect=AssertionError('network during cooldown')):
     try:
-        GitHubForge('github.com', 'o', 'two', 'secret', state_dir=sys.argv[1]).get(2)
+        GitHubForge('github.com', 'o', 'two', 'secret', home=sys.argv[1]).get(2)
     except ForgeRateLimited:
         pass
     else:
         raise AssertionError('cooldown not shared')
 """
     subprocess.run([sys.executable, "-c", script, str(tmp_path)], check=True, env=os.environ)
-    other = GitHubForge("github.com", "o", "one", "different", state_dir=tmp_path)
+    other = GitHubForge("github.com", "o", "one", "different", home=tmp_path)
     with patch("urllib.request.urlopen", return_value=Response({"number": 1, "state": "open"})):
         assert other.get(1).is_open
 
 
 def test_permission_403_is_not_a_rate_limit(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch("urllib.request.urlopen", side_effect=error(403, {"message": "forbidden"})):
         with pytest.raises(ForgeAuthError):
             client.get(1)
@@ -79,7 +79,7 @@ def test_permission_403_is_not_a_rate_limit(tmp_path):
 def test_dispatch_lock_deadline_precedes_any_mutation(tmp_path):
     import fcntl
 
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path, timeout=0.1)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path, timeout=0.1)
     state = client.c.state
     state.home.mkdir(parents=True)
     with (state.home / "request.lock").open("w") as held:
@@ -92,7 +92,7 @@ def test_dispatch_lock_deadline_precedes_any_mutation(tmp_path):
 
 
 def test_last_success_remains_usable_and_cools_only_its_primary_bucket(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch(
         "urllib.request.urlopen",
         return_value=Response(
@@ -111,7 +111,7 @@ def test_last_success_remains_usable_and_cools_only_its_primary_bucket(tmp_path)
 
 
 def test_expired_cooldown_allows_a_new_attempt(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch("repokit.forge._rest.time.time", return_value=1000):
         with patch("urllib.request.urlopen", side_effect=error(429)):
             with pytest.raises(ForgeRateLimited):
@@ -122,7 +122,7 @@ def test_expired_cooldown_allows_a_new_attempt(tmp_path):
 
 
 def test_secondary_limit_blocks_rest_and_graphql(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch("urllib.request.urlopen", side_effect=error(429, retry_after=120)) as request:
         with pytest.raises(ForgeRateLimited) as caught:
             client.get(1)
@@ -134,7 +134,7 @@ def test_secondary_limit_blocks_rest_and_graphql(tmp_path):
 
 
 def test_graphql_200_rate_error_is_structured(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch(
         "urllib.request.urlopen",
         return_value=Response(
@@ -147,13 +147,13 @@ def test_graphql_200_rate_error_is_structured(tmp_path):
 
 
 def test_conditional_pages_preserve_bodies_across_clients(tmp_path):
-    first = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    first = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch(
         "urllib.request.urlopen",
         side_effect=[Response([1, 2], ETag='"p1"'), Response([3], ETag='"p2"')],
     ):
         assert first.c.get_all("comments", per_page=2) == [1, 2, 3]
-    second = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    second = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     requests = []
 
     def unchanged(req, **kwargs):
@@ -170,7 +170,7 @@ def test_conditional_pages_preserve_bodies_across_clients(tmp_path):
 
 
 def test_cached_first_page_does_not_hide_later_page_failure(tmp_path):
-    client = GitHubForge("github.com", "o", "r", "secret", state_dir=tmp_path)
+    client = GitHubForge("github.com", "o", "r", "secret", home=tmp_path)
     with patch("urllib.request.urlopen", side_effect=[Response([1, 2], ETag='"p1"'), error(500)]):
         with pytest.raises(ForgeError):
             client.c.get_all("comments", per_page=2)
