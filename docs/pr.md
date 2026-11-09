@@ -31,7 +31,7 @@ Forge 客户端复用有超时的 HTTP 传输，不自动重试写操作。Pytho
 与默认 `prs_for_branch()` 一样排除其它源仓的同名分支。分页失败抛错，不返回部分清单；一个 PR
 不再出现在开放列表中，并不证明它已经合并。调用方通过 `get()` 确认变化，并决定历史补查频率。
 
-GitHubForge / GitLabForge 可显式接收 `state_dir`。同一目录、host 和凭据的请求跨线程/进程串行，
+GitHubForge / GitLabForge 可显式接收 `home`。同一目录、host 和凭据的请求跨线程/进程串行，
 锁等待受 operation deadline 约束。状态只保存凭据摘要；目录和缓存文件限制为当前用户访问。
 不同凭据分别隔离；同一账号的不同 token 可能共享平台额度，当前不会推断它们属于同一主体。
 目录由调用方选择，库不依赖应用配置或应用状态目录。未提供目录时不持久化缓存或共享冷却。
@@ -204,7 +204,7 @@ import { join } from "node:path";
 
 const reader = createForgeReader(config);
 const prs = new PullRequestObserver(reader, {
-  stateDir: join(homedir(), ".repokit"),
+  home: join(homedir(), ".repokit"),
   connection: "github-personal-access-v1",
 });
 try {
@@ -220,7 +220,7 @@ try {
 
 TypeScript observer 默认启动维护循环；短进程设置 `background: false` 后调用 `maintain()`。
 Python observer 默认由宿主调用 `maintain()`；常驻宿主可调用 `start()`，退出时调用 `close()`。一次 get 自动把 PR 纳入后续维护；
-重启后恢复同一访问身份的本地记录。工具包要求显式 stateDir；命令行消费方可使用上面的默认目录。
+重启后恢复同一访问身份的本地记录。工具包要求显式 home；命令行消费方可使用上面的默认目录。
 Python 和 TypeScript 提供原生持续观察，Go CLI 不提供 Forge adapter。
 可配置 scopes 自动发现仓库或账号的 PR；initialSince 只控制首次历史回看，首次另枚举开放对象。
 查询接受 AbortSignal；close 取消内部循环及协作式远端请求，不关闭调用方提供的共享 reader。
@@ -233,7 +233,7 @@ Python 和 TypeScript 提供原生持续观察，Go CLI 不提供 Forge adapter�
 ### 状态与目录
 
 ```text
-<stateDir>/
+<home>/
 ├── repositories/
 │   └── <repository-key>/
 │       ├── repository.json
@@ -291,7 +291,7 @@ Repositories；相同分支名在不同 fork 中不能互相替代。一个 bran
 也可以没有 checkout。worktree 是 branch 的一种 checkout；detached HEAD 不产生 branch 关联。
 
 Python `PullRequestContext(observer, checkout, source=..., targets=(...))` 与 TypeScript
-`new PullRequestContext(reader, {checkout, source, targets, stateDir, connection})` 提供：
+`new PullRequestContext(reader, {checkout, source, targets, home, connection})` 提供：
 
 | Python / TypeScript | 查询 |
 |---|---|
@@ -309,7 +309,7 @@ PR 生命周期终态与分支关联具有不同的更新周期：merged 事实�
 因此关联发现继续按自己的到期时间更新。冷历史发现默认每轮最多 20 个到期关联，并受整轮预算
 约束；已知 PR 的 `maintain` 独立刷新，不等待全部历史发现完成。
 
-关联记录位于 `<stateDir>/associations/<scope-digest>.json`，身份包含 connection、源仓、branch
+关联记录位于 `<home>/associations/<scope-digest>.json`，身份包含 connection、源仓、branch
 和目标仓列表。Git topology 只在查询时读取，不作为本地资源删除的持久化授权。
 Python 与 TypeScript 共用观察和关联记录及 `.lock` 目录 lease：30 秒过期、10 秒续期、原子替换、
 文件和目录 fsync。connection 是调用方提供的访问配置 revision，磁盘只存摘要，不存 token。
@@ -321,7 +321,7 @@ from repokit.forge import GitHubForge, PullRequestKey, PullRequestObserver
 
 repository = Repository(Forge("github"), "org/repo")
 reader = GitHubForge("github.com", "org", "repo", token)
-prs = PullRequestObserver(reader, forge="github", state_dir=Path.home() / ".repokit",
+prs = PullRequestObserver(reader, forge="github", home=Path.home() / ".repokit",
                           connection="personal-access-v1")
 try:
     status = prs.get_pull_request(PullRequestKey(repository, 107))
@@ -362,7 +362,7 @@ host 与 API host 按小写规范化，大小写不改变身份或缓存；逻�
 API host 只决定传输地址。Python client 切换 repository 后仍保留逻辑身份与传输配置。
 工具包不读取应用配置，也不推断 fork parent。缺少凭据是不可用，不能解释成没有 PR。
 
-连接对象管理观察缓存标识与默认 `~/.repocli` 状态根目录；可显式指定隔离目录。provider、Forge 身份、
+连接对象管理观察缓存标识与默认 `~/.repokit` 状态根目录；可显式指定隔离目录。provider、Forge 身份、
 API endpoint 或 credential 改变时，连接标识改变，旧缓存不能作为新访问范围的观察。凭据不写入缓存，
 也不进入连接对象的日志表示。Python HTTP 协调状态归该状态根目录的 `forge-http/`。
 
@@ -408,7 +408,7 @@ repocli pr merge 123 --expected-sha <reviewed-source-sha> --method squash
 Go uses a reusable HTTP client with a ten-second request deadline, shared operation context,
 16 MiB response limit, at most 100 pages, per-client request serialization and rate-limit cooldown.
 It does not retry writes; interrupted, malformed or server-failed write responses are uncertain.
-Go `Client.Load` owns optional read-through PR observations under `Config.StateDir`; `Get` remains
+Go `Client.Load` owns optional read-through PR observations under `Config.Home`; `Get` remains
 a live read. `repocli pr show --max-age 0` requests a fresh observation. Connection scopes remain
 isolated across credentials and providers; cleanup uses current source-verified PR facts.
 See [storage, freshness and migration](state.md).

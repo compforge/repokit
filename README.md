@@ -192,7 +192,7 @@ Snapshot schema 2 reports content identity only. Consumers of its former compone
 See [snapshot usage](docs/snapshot.md) for scope and limitations.
 
 Analysis commands and invalid invocations automatically log replay arguments, version, elapsed time and exit status
-to `~/.repocli/logs/YYYY-MM-DD.log`, keeping today and the previous 29 days.
+to `~/.repokit/logs/YYYY-MM-DD.log`, keeping today and the previous 29 days.
 Each recorded run has a `run_id`; output destinations stay unchanged.
 Successful help/version commands do not initialize or write log files.
 Diff analyses also append comparison inputs and stage timings to `diff-YYYY-MM-DD.jsonl`
@@ -202,7 +202,7 @@ in the same directory. See [execution logs](docs/logging.md).
 
 `repocli stats` summarizes retained validation execution/reuse across repositories,
 command and analysis timings, and local storage. Use `--json` for structured output,
-`--top 10` for slow runs, or `--state-dir` for an alternate state root.
+`--top 10` for slow runs, or `--home` for an alternate state root.
 It does not execute checks or prune records. See [local statistics](docs/stats.md)
 for counting rules and partial-report semantics.
 

@@ -294,7 +294,7 @@ def clean_worktrees(
     inventory: tuple[BranchPullRequests, ...] | None = None,
     policy: WorktreePolicy | None = None,
     dry_run: bool = False,
-    state_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> WorktreeCleanReport:
     """Merged first, then oldest checkouts, then oldest prepared environments.
 
@@ -308,11 +308,11 @@ def clean_worktrees(
     with worktree_lease(control):
         rows = inventory if inventory is not None else context.local_branches() if context else ()
         result = _clean(control, info.root, context, rows, policy, dry_run)
-        if state_dir is not None and not dry_run:
+        if not dry_run:
             from .state import RepositoryState
 
             try:
-                RepositoryState(state_dir).observe(control, reconcile=True)
+                RepositoryState(home).observe(control, reconcile=True)
             except (OSError, ValueError) as exc:
                 from dataclasses import replace
 

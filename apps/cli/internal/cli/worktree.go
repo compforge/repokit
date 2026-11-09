@@ -5,10 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/worktree"
 	"github.com/spf13/cobra"
-	"os"
-	"path/filepath"
 )
 
 func newWorktreeCommand(opts *options) *cobra.Command {
@@ -35,12 +34,12 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		if err = policy.Validate(); err != nil {
 			return err
 		}
-		stateDir, err := repositoryStateDir(opts.stateDir)
+		home, err := repositoryHome(opts.home)
 		if err != nil {
 			return executionError{err}
 		}
-		request := worktree.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, StateDir: stateDir}
-		prContext, connectionErr := connection.context(ctx, opts.repository, opts.stateDir)
+		request := worktree.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
+		prContext, connectionErr := connection.context(ctx, opts.repository, opts.home)
 		if connectionErr == nil {
 			request.PullRequests = prContext
 		}
@@ -80,11 +79,11 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 		defer cancel()
-		stateDir, err := repositoryStateDir(opts.stateDir)
+		home, err := repositoryHome(opts.home)
 		if err != nil {
 			return executionError{err}
 		}
-		directory, err := worktree.Observe(ctx, opts.repository, stateDir, reconcile)
+		directory, err := worktree.Observe(ctx, opts.repository, home, reconcile)
 		if err != nil {
 			return executionError{err}
 		}
@@ -100,13 +99,4 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 	return root
 }
 
-func repositoryStateDir(explicit string) (string, error) {
-	if explicit != "" {
-		return explicit, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(home, ".repocli"), nil
-}
+func repositoryHome(explicit string) (string, error) { return repokit.ResolveHome(explicit) }

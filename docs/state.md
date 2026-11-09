@@ -1,13 +1,13 @@
 # Repository 信息与资源生命周期
 
-`~/.repocli/repositories/` 是 RepoKit 的本地信息集散地。目的是让查询、Forge 观察、Git 操作和验证
+`~/.repokit/repositories/` 是 RepoKit 的本地信息集散地。目的是让查询、Forge 观察、Git 操作和验证
 共用 repository 身份与已有事实，并由 RepoKit 负责按需获取、更新与回收。目录可被 `ls/tree` 浏览
 是附带收益；目录不声明远端全集、实时同步或当前操作的授权依据。
 
 ## 目录与身份
 
 ```text
-~/.repocli/
+~/.repokit/
   repositories/<repo-key>/
     repository.json
     metadata.json                       # 已观察的 repository metadata（例如 default branch）
@@ -55,7 +55,7 @@ Python `RepositoryState.branch`、TS `RepositoryState.branch` 负责 read-throug
 观测不提供 Git 全局事务快照：一次规划共用一份 inventory，实际写操作继续重新验证。
 同名 tag 不改变 branch 身份，分支名从完整 `refs/heads/` 读取。
 
-Go `forge.Client.Load(ctx, repo, number, maxAge)` 在显式 `Config.StateDir` 下持久化 PR 信息；
+Go `forge.Client.Load(ctx, repo, number, maxAge)` 在解析后的 home 下持久化 PR 信息；
 `maxAge=0` 强制远端读取，`Get` 始终实时，供写操作与 cleanup 验证。CLI `pr show` 默认最多复用一分钟，
 `--max-age 0` 强制刷新。三种语言对等价的 provider、Forge、endpoint 和 credential 使用相同连接摘要，契约由共享语料验证。
 不同连接分别保存快照、scopeIds、重试和刷新进度；一个连接的读取不能覆盖另一个连接的观察任务。
@@ -85,23 +85,24 @@ CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同
 
 ```sh
 repocli worktree observe --repo /path/to/repository
-repocli worktree observe --repo /path/to/repository --reconcile --state-dir /tmp/repokit-state
+repocli worktree observe --repo /path/to/repository --reconcile --home /tmp/repokit-state
 repocli pr show 123 --repo /path/to/repository --max-age 0
 ```
 
-Toolkit 的新状态 API 使用显式 state root；CLI 默认 `~/.repocli`，统一由 `--state-dir` 覆盖。
+Go、Python、TypeScript 与 CLI 共用 RepoKit home：显式 `home` / `Home` / `--home` →
+`REPOKIT_HOME` → `~/.repokit`。目录解析由工具包统一提供，解析本身不创建文件。
+省略 home 表示使用默认目录，不表示禁用持久化；实时只读、刷新、写入和回收由各 API 契约决定。
+CLI 日志、PR、topology、统计与验证默认历史根都从同一 home 派生。
 `validate --history-dir` 仍独立覆盖历史根路径，不隐式改变其他信息的位置。
 
-## 持久化与兼容
+## 持久化边界
 
 记录通过临时文件、fsync 和 rename 发布；权限为目录 0700、记录 0600。topology 按 repository
 持有共享 lease，PR/关联按记录持有 lease；Go/Python/TypeScript 使用兼容的 `.lock` 目录协议。
 失败可能留下部分最新投影，下次分支读取或显式观察修复；因此它不是动作日志，也不能代替操作前重新验证。
 
-旧单连接 PR 文件、旧哈希 PR 目录、旧关联目录、旧默认分支缓存按需读取并写入新位置，不批量扫描搬迁、不删除旧文件。
-轮询遇到同 scope 的新旧记录时优先新记录。已有验证 WAL 如使用旧的大写/特殊字符目录编码，继续在原位
-读写，避免复制活跃 WAL 或静默丢失历史；普通小写 repo key 保持原目录不变。
-旧 `~/.repocli/checkouts/` 中的历史兼容资产保持独立，不作为新的 checkout registry，也不被本次回收删除。
+只读写当前目录结构，不扫描、迁移或回退旧的 repo key、PR 文件和关联记录。
+更改 home 是显式切换存储根，不自动搬运数据；需要保留现有目录时由用户在工具进程停止后移动目录。
 
 ## 验证场景
 
@@ -109,6 +110,6 @@ Toolkit 的新状态 API 使用显式 state root；CLI 默认 `~/.repocli`，统
 - 两个 clone 的同名 branch 有不同 head，观察一个不能覆盖另一个。
 - detached、分支无 checkout、失败 inventory、保留源码与历史、回收失效链接。
 - Python 与 TS 互读拓扑，并竞争同一个 lease；Go 验证取消、原子写和 lease 互斥。
-- PR 连接身份、跨连接观察任务共存、写后读取、完整字段补查、旧路径迁移与 merged 终态防回退。
+- PR 连接身份、跨连接观察任务共存、写后读取、完整字段补查、merged 终态防回退。
 - 部分发布后读取自动修复；无关分支损坏不阻断单分支读取；真实取消和 lease 替换禁止发布。
 - 继承另一个 checkout 的 Git 环境时，查询与 Make 验证仍操作显式目标。

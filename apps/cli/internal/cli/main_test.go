@@ -10,6 +10,7 @@ import (
 
 // Default logging must never write into the developer's real home during tests.
 func TestMain(m *testing.M) {
+	os.Unsetenv("REPOKIT_HOME")
 	home, err := os.MkdirTemp("", "repocli-test-home-")
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

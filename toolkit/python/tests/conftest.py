@@ -14,3 +14,8 @@ def repo(tmp_path):
     assert git.stage(tmp_path, ["测试.py"]).ok
     assert git.commit(tmp_path, "initial").ok
     return tmp_path
+
+
+@pytest.fixture(autouse=True)
+def isolated_repokit_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPOKIT_HOME", str(tmp_path / "repokit-home"))

@@ -16,7 +16,7 @@ def test_connection_identity_and_context_are_shared_with_typescript(repo, tmp_pa
             provider=row["provider"],
             api_host=row["apiHost"],
             token=row["token"],
-            state_dir=tmp_path,
+            home=tmp_path,
         )
         assert connection.name == row["name"]
         assert connection.identity == row["identity"]
@@ -25,7 +25,8 @@ def test_connection_identity_and_context_are_shared_with_typescript(repo, tmp_pa
         assert context.source == connection.repository("owner/repo")
         assert context.targets == (context.source,)
         assert context.observer.store.root == tmp_path
-        assert context.observer.reader.state_dir == tmp_path / "forge-http"
+        assert context.observer.reader.home == tmp_path
+        assert context.observer.reader.c.state.home.parent == tmp_path / "forge-http"
         explicit = connection.pull_request_context(
             repo, source="owner/repo", targets=("upstream/repo",)
         )
@@ -52,7 +53,7 @@ def test_endpoint_override_preserves_identity_across_repository_queries(
     from repokit.forge._rest import RestClient
 
     connection = ForgeConnection(
-        "Forge.Example", "fixture", provider=provider, api_host="API.Example", state_dir=tmp_path
+        "Forge.Example", "fixture", provider=provider, api_host="API.Example", home=tmp_path
     )
     calls = []
 
@@ -93,7 +94,7 @@ def test_mixed_case_public_github_routes_to_public_api(tmp_path, monkeypatch):
         return []
 
     monkeypatch.setattr(RestClient, "get", get)
-    connection = ForgeConnection("GitHub.com", "fixture", state_dir=tmp_path)
+    connection = ForgeConnection("GitHub.com", "fixture", home=tmp_path)
     connection.client("owner/repo").list_repositories()
     assert calls == ["https://api.github.com"]
     assert connection.identity == ForgeConnection("github.com", "fixture").identity

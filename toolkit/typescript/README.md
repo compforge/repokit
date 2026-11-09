@@ -109,6 +109,6 @@ See [read and scan contracts](../../docs/pr.md#typescript-forge-读取) and
 
 `PullRequestObserver.getPullRequest(key)` returns lifecycle status and its observation time.
 The observer wraps an existing `ForgeReader` with durable state,
-bounded background polling and merged-terminal convergence; hosts call `close()` on shutdown. Supply `stateDir` and a stable access-configuration
+bounded background polling and merged-terminal convergence; hosts call `close()` on shutdown. Supply `home` and a stable access-configuration
 `connection` revision; never pass the credential itself as that revision. See
 [PR observation](../../docs/pr.md#持续观察) for directory layout, freshness, cancellation and recovery.

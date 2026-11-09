@@ -18,7 +18,7 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	state := t.TempDir()
 	git("remote", "add", "origin", "https://github.com/owner/project.git")
 	path := filepath.Join(t.TempDir(), "topic")
-	if result := AddWorktree(ctx, root, path, "HEAD", AddWorktreeOptions{Branch: "feature/a", StateDir: state}); result.Err != nil {
+	if result := AddWorktree(ctx, root, path, "HEAD", AddWorktreeOptions{Branch: "feature/a", Home: state}); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	cached, err := LoadBranch(ctx, root, "feature/a", state, time.Hour)
@@ -47,7 +47,7 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	if resolved, err := filepath.EvalSymlinks(filepath.Join(directory, "branches", "feature%2Fa", "worktrees", key, "path")); err != nil || resolved != path {
 		t.Fatalf("link %s %v", resolved, err)
 	}
-	if result := RemoveWorktree(ctx, root, path, RemoveWorktreeOptions{StateDir: state}); result.Err != nil {
+	if result := RemoveWorktree(ctx, root, path, RemoveWorktreeOptions{Home: state}); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	if _, err := os.Stat(filepath.Join(directory, "checkouts", key)); !os.IsNotExist(err) {

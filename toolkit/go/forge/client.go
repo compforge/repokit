@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/compforge/quality-harness/sdks/go/common"
+	repohome "github.com/compforge/repokit/toolkit/go/internal/home"
 	"io"
 	"log/slog"
 	"net/http"
@@ -52,7 +53,7 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Forge HTTP %d", e.Statu
 
 type Config struct {
 	Host, Provider, APIHost, Token string
-	StateDir                       string // empty disables persistent observations
+	Home                           string // explicit option, REPOKIT_HOME, or ~/.repokit
 	HTTPClient                     *http.Client
 }
 type Client struct {
@@ -85,6 +86,10 @@ func NewClient(config Config) (*Client, error) {
 		return nil, err
 	}
 	config.Provider = provider
+	config.Home, err = repohome.Resolve(config.Home)
+	if err != nil {
+		return nil, err
+	}
 	base := config.APIHost
 	if base == "" {
 		if config.Provider == "github" {

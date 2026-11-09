@@ -22,7 +22,7 @@ import (
 
 func readLogs(t *testing.T, home string) string {
 	t.Helper()
-	paths, err := filepath.Glob(filepath.Join(home, ".repocli", "logs", "*.log"))
+	paths, err := filepath.Glob(filepath.Join(home, ".repokit", "logs", "*.log"))
 	if err != nil || len(paths) == 0 {
 		t.Fatalf("log files: %v, %v", paths, err)
 	}
@@ -61,8 +61,8 @@ func TestDiffLogsDoNotChangeReport(t *testing.T) {
 		t.Fatal("source contents in logs")
 	}
 	for path, perm := range map[string]os.FileMode{
-		filepath.Join(home, ".repocli", "logs"):                                         0700,
-		filepath.Join(home, ".repocli", "logs", time.Now().Format("2006-01-02")+".log"): 0600,
+		filepath.Join(home, ".repokit", "logs"):                                         0700,
+		filepath.Join(home, ".repokit", "logs", time.Now().Format("2006-01-02")+".log"): 0600,
 	} {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -197,7 +197,7 @@ func TestNewCommandInheritsLogging(t *testing.T) {
 func TestLogFailurePreservesSuccessfulDiff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	put(t, home, ".repocli", "block log directory")
+	put(t, home, ".repokit", "block log directory")
 	var out, stderr bytes.Buffer
 	code := Execute(context.Background(), []string{"impact", "--repo", fixture(t), "--json"}, strings.NewReader(""), &out, &stderr)
 	if code != 0 || !json.Valid(out.Bytes()) || strings.Count(stderr.String(), "repocli: log warning:") != 1 {
@@ -393,14 +393,14 @@ func TestInformationCommandsDoNotInitializeLogs(t *testing.T) {
 				home := t.TempDir()
 				t.Setenv("HOME", home)
 				if blocked {
-					put(t, home, ".repocli", "block log directory")
+					put(t, home, ".repokit", "block log directory")
 				}
 				var stdout, stderr bytes.Buffer
 				if code := Execute(context.Background(), args, nil, &stdout, &stderr); code != 0 || stderr.Len() != 0 || stdout.Len() == 0 {
 					t.Fatalf("code=%d stdout=%s stderr=%s", code, stdout.String(), stderr.String())
 				}
 				if !blocked {
-					if _, err := os.Stat(filepath.Join(home, ".repocli")); !os.IsNotExist(err) {
+					if _, err := os.Stat(filepath.Join(home, ".repokit")); !os.IsNotExist(err) {
 						t.Fatalf("informational command created log state: %v", err)
 					}
 				}

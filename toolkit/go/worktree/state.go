@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	repohome "github.com/compforge/repokit/toolkit/go/internal/home"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -50,10 +51,12 @@ type BranchObservation struct {
 	Source     string          `json:"source"`
 }
 
-func stateLocation(ctx context.Context, repo, stateDir string) (string, CheckoutInfo, any, error) {
-	if stateDir == "" {
-		return "", CheckoutInfo{}, nil, errors.New("state directory must be explicit")
+func stateLocation(ctx context.Context, repo, home string) (string, CheckoutInfo, any, error) {
+	resolved, err := repohome.Resolve(home)
+	if err != nil {
+		return "", CheckoutInfo{}, nil, err
 	}
+	home = resolved
 	info, err := checkoutLocal(ctx, repo)
 	if err != nil {
 		return "", info, nil, err
@@ -73,7 +76,7 @@ func stateLocation(ctx context.Context, repo, stateDir string) (string, Checkout
 		key = repostate.RepositoryKey(identity.Forge.Name, identity.Path)
 		record = identity
 	}
-	return filepath.Join(stateDir, "repositories", key), info, record, nil
+	return filepath.Join(home, "repositories", key), info, record, nil
 }
 
 var errIncompleteObservation = errors.New("incomplete checkout observation")
@@ -81,11 +84,11 @@ var errIncompleteObservation = errors.New("incomplete checkout observation")
 // LoadBranch uses a local observation only within maxAge; zero requests current Git facts.
 // +spec=`Missing, stale or partially published observations are refreshed for the requested branch only. Failed current reads never return stale data as current.`
 // +link=component://docs/state.md
-func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.Duration) (*BranchObservation, error) {
+func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Duration) (*BranchObservation, error) {
 	if maxAge < 0 {
 		return nil, errors.New("max age must be nonnegative")
 	}
-	directory, info, _, err := stateLocation(ctx, repo, stateDir)
+	directory, info, _, err := stateLocation(ctx, repo, home)
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +141,7 @@ func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.
 			return result, nil
 		}
 	}
-	if _, err := observeBranch(ctx, repo, stateDir, false, &branch); err != nil {
+	if _, err := observeBranch(ctx, repo, home, false, &branch); err != nil {
 		return nil, err
 	}
 	result = nil
@@ -152,12 +155,12 @@ func LoadBranch(ctx context.Context, repo, branch, stateDir string, maxAge time.
 // Reconcile retires only this clone's absent checkout records and empty branch projections.
 // +spec=`Failed inventory never means absence. Observations are not authority to delete Git resources. History survives checkout reclamation.`
 // +link=component://docs/state.md
-func Observe(ctx context.Context, repo, stateDir string, reconcile bool) (string, error) {
-	return observeBranch(ctx, repo, stateDir, reconcile, nil)
+func Observe(ctx context.Context, repo, home string, reconcile bool) (string, error) {
+	return observeBranch(ctx, repo, home, reconcile, nil)
 }
 
-func observeBranch(ctx context.Context, repo, stateDir string, reconcile bool, selectedBranch *string) (string, error) {
-	directory, info, identity, err := stateLocation(ctx, repo, stateDir)
+func observeBranch(ctx context.Context, repo, home string, reconcile bool, selectedBranch *string) (string, error) {
+	directory, info, identity, err := stateLocation(ctx, repo, home)
 	if err != nil {
 		return "", err
 	}
@@ -182,7 +185,7 @@ func observeBranch(ctx context.Context, repo, stateDir string, reconcile bool, s
 		if err != nil {
 			return err
 		}
-		current, _, _, err := stateLocation(ctx, repo, stateDir)
+		current, _, _, err := stateLocation(ctx, repo, home)
 		if err != nil {
 			return err
 		}

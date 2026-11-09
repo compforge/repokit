@@ -65,7 +65,7 @@ func TestLibraryHasNoCLIHistorySideEffects(t *testing.T) {
 	if _, err := repokit.Diff(context.Background(), repokit.DiffRequest{Repository: root}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(home, ".repocli")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(home, ".repokit")); !os.IsNotExist(err) {
 		t.Fatal("library created CLI state", err)
 	}
 }

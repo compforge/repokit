@@ -1,3 +1,4 @@
+import { resolveHome } from "./home.js";
 import { realpathSync } from "node:fs";
 import { lstat, mkdir, readdir, rename, rmdir, symlink, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -30,7 +31,7 @@ class IncompleteObservation extends Error {}
  */
 export class RepositoryState {
   readonly store: ObservationStore;
-  constructor(stateDir: string) { this.store = new ObservationStore(stateDir); }
+  constructor(home?: string) { this.store = new ObservationStore(resolveHome(home)); }
   async branch(repo: string, branch: string, options: {maxAgeMs?: number; signal?: AbortSignal} = {}): Promise<BranchObservation | undefined> {
     const maxAge = options.maxAgeMs ?? 0, signal = options.signal ?? new AbortController().signal;
     if (!Number.isFinite(maxAge) || maxAge < 0) throw new Error("maxAgeMs must be nonnegative and finite");

@@ -27,7 +27,7 @@ func TestStatsCLIEmptyHomeIsReadOnly(t *testing.T) {
 		if code != want {
 			t.Fatalf("%v: %d %s", args, code, &stderr)
 		}
-		if _, err := os.Stat(filepath.Join(home, ".repocli")); !os.IsNotExist(err) {
+		if _, err := os.Stat(filepath.Join(home, ".repokit")); !os.IsNotExist(err) {
 			t.Fatalf("stats wrote state: %v", err)
 		}
 	}
@@ -37,7 +37,7 @@ func TestStatsCLIEmptyHomeIsReadOnly(t *testing.T) {
 func TestStatsCLIAggregatesValidationAndPreservesLogs(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	state := filepath.Join(home, ".repocli")
+	state := filepath.Join(home, ".repokit")
 	for range 2 {
 		repo := t.TempDir()
 		if output, err := exec.Command("git", "init", "-q", repo).CombinedOutput(); err != nil {
@@ -74,7 +74,7 @@ func TestStatsCLIAggregatesValidationAndPreservesLogs(t *testing.T) {
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := Execute(context.Background(), []string{"stats", "--state-dir", state}, nil, &out, &stderr); code != 1 || !strings.Contains(out.String(), "2 executions") || !strings.Contains(out.String(), "Diagnostics") {
+	if code := Execute(context.Background(), []string{"stats", "--home", state}, nil, &out, &stderr); code != 1 || !strings.Contains(out.String(), "2 executions") || !strings.Contains(out.String(), "Diagnostics") {
 		t.Fatalf("%d %s %s", code, &out, &stderr)
 	}
 }

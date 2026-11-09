@@ -16,7 +16,7 @@ import (
 )
 
 func historyPath(home string) string {
-	return filepath.Join(home, ".repocli", "logs", "diff-"+time.Now().Format("2006-01-02")+".jsonl")
+	return filepath.Join(home, ".repokit", "logs", "diff-"+time.Now().Format("2006-01-02")+".jsonl")
 }
 
 func readDiffHistory(t *testing.T, home string) []diffRecord {

@@ -155,7 +155,7 @@ def add_worktree(
     *,
     branch: str | None = None,
     detach: bool = False,
-    state_dir: str | Path | None = None,
+    home: str | Path | None = None,
 ) -> GitResult:
     if branch is not None and detach:
         raise ValueError("branch and detach are mutually exclusive")
@@ -174,10 +174,9 @@ def add_worktree(
                 created = Path(path) if Path(path).is_absolute() else Path(repo) / path
                 try:
                     record_creation(created)
-                    if state_dir is not None:
-                        from ..state import RepositoryState
+                    from ..state import RepositoryState
 
-                        RepositoryState(state_dir).observe(repo)
+                    RepositoryState(home).observe(repo)
                 except (OSError, ValueError) as exc:
                     # The checkout exists; never report the creation as safely retryable.
                     return GitResult(
@@ -189,7 +188,7 @@ def add_worktree(
 
 
 def remove_worktree(
-    repo: str | Path, path: str | Path, *, force: bool = False, state_dir: str | Path | None = None
+    repo: str | Path, path: str | Path, *, force: bool = False, home: str | Path | None = None
 ) -> GitResult:
     """Default removal preserves dirty and locked worktrees."""
     result = git(
@@ -202,11 +201,11 @@ def remove_worktree(
         timeout=30,
     )
 
-    if result.ok and state_dir is not None:
+    if result.ok:
         from ..state import RepositoryState
 
         try:
-            RepositoryState(state_dir).observe(repo, reconcile=True)
+            RepositoryState(home).observe(repo, reconcile=True)
         except (OSError, ValueError) as exc:
             return GitResult(
                 result.rc, result.out, f"checkout removed; metadata unavailable: {exc}"

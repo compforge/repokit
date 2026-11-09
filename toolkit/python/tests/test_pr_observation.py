@@ -56,7 +56,7 @@ class Reader:
 
 def observer(tmp_path, reader, **options):
     return PullRequestObserver(
-        cast(Forge, reader), forge="github", state_dir=tmp_path, connection="account", **options
+        cast(Forge, reader), forge="github", home=tmp_path, connection="account", **options
     )
 
 
@@ -193,7 +193,7 @@ def test_typescript_and_python_share_lock_and_terminal_fact(tmp_path):
     program = """import {PullRequestObserver} from MODULE;
       const reader = {forge:'github', getPullRequest:async()=>{throw Error('duplicate read')}};
       const observer = new PullRequestObserver(reader,
-        {stateDir:DIR,connection:'account',background:false});
+        {home:DIR,connection:'account',background:false});
       const repository = {forge:{name:'github'},path:'owner/project'};
       const result=await observer.getPullRequest({repository,number:1});
       console.log(result.state); await observer.close();""".replace(
@@ -338,19 +338,11 @@ def test_disappearing_branch_does_not_authorize_mutation(tmp_path, monkeypatch):
         context.verify(rows["broken"])
 
 
-def test_legacy_pr_record_migrates_and_merged_metadata_refreshes(tmp_path):
-    from repokit.forge.observation.store import digest
-
+def test_merged_metadata_refreshes(tmp_path):
     reader = Reader()
     service = observer(tmp_path, reader)
     reader.rows[1] = replace(reader.rows[1], state="merged", title="original")
     service.get_pull_request(KEY)
-    canonical = service.path(KEY)
-    old = tmp_path / "repositories" / digest(["github", REPO.path]) / "prs/1/observation.json"
-    old.parent.mkdir(parents=True)
-    canonical.rename(old)
-    service.get_pull_request(KEY)
-    assert reader.calls == [1] and canonical.exists()
     reader.rows[1] = replace(reader.rows[1], title="edited after merge")
     service.get_pull_request(KEY, refresh=True)
     assert service._snapshot(KEY).title == "edited after merge"
@@ -367,7 +359,7 @@ def test_connections_keep_independent_refresh_inventory(tmp_path):
     second = PullRequestObserver(
         cast(Forge, reader),
         forge="github",
-        state_dir=tmp_path,
+        home=tmp_path,
         connection="other",
         now=lambda: clock[0],
     )

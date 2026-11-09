@@ -193,9 +193,9 @@ func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
 // AddWorktreeOptions chooses a new branch or a detached checkout. Both empty
 // leaves Git's normal branch selection intact. Naming and ownership are caller policy.
 type AddWorktreeOptions struct {
-	Branch   string
-	Detach   bool
-	StateDir string
+	Branch string
+	Detach bool
+	Home   string
 }
 
 // AddWorktree creates a checkout at an explicit path. It never replaces an existing branch.
@@ -243,8 +243,8 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
 		}
 	}
-	if result.Err == nil && options.StateDir != "" {
-		if _, err := Observe(ctx, repo, options.StateDir, false); err != nil {
+	if result.Err == nil {
+		if _, err := Observe(ctx, repo, options.Home, false); err != nil {
 			result.Stderr += fmt.Sprintf("\ncheckout created; metadata unavailable: %v", err)
 		}
 	}
@@ -253,8 +253,8 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 
 // RemoveWorktreeOptions requires explicit force to remove dirty or locked checkouts.
 type RemoveWorktreeOptions struct {
-	Force    bool
-	StateDir string
+	Force bool
+	Home  string
 }
 
 // RemoveWorktree defaults to Git's protection of dirty and locked checkouts.
@@ -265,8 +265,8 @@ func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktr
 		args = append(args, "--force", "--force")
 	}
 	result := worktreeGit(ctx, repo, 30*time.Second, append(args, "--", path)...)
-	if result.Err == nil && options.StateDir != "" {
-		if _, err := Observe(ctx, repo, options.StateDir, true); err != nil {
+	if result.Err == nil {
+		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			result.Stderr += fmt.Sprintf("\ncheckout removed; metadata unavailable: %v", err)
 		}
 	}

@@ -1,3 +1,4 @@
+import { resolveHome } from "../../home.js";
 import { repositoryKey } from "../../state-paths.js";
 import { pullRequestId } from "@compforge/harness-common";
 import { setTimeout as delay } from "node:timers/promises";
@@ -32,7 +33,7 @@ export class ObservationEngine {
   readonly #timeout: number;
   constructor(readonly reader: ObservationReader, options: PullRequestObservationOptions) {
     if (!options.connection.trim()) throw new Error("PR observation connection must be nonempty");
-    this.#store = new ObservationStore(options.stateDir);
+    this.#store = new ObservationStore(resolveHome(options.home));
     this.#connection = digest([reader.forge, options.connection]);
     this.#now = options.now ?? (() => new Date());
     this.#open = positive("openIntervalMs", options.openIntervalMs ?? 60_000);
@@ -50,11 +51,6 @@ export class ObservationEngine {
       throw new ObservationStorageError(`Invalid PR observation ${path}`);
     }
     return record?.connection === this.#connection ? record : undefined;
-  }
-  async #inventory(path: string): Promise<StoredObservation | undefined> {
-    const record = await this.#stored(path);
-    if (record && path !== this.#path(record.observation.key) && await this.#stored(this.#path(record.observation.key))) return undefined;
-    return record;
   }
   #fresh(record: StoredObservation, age: number): boolean {
     const observation = record.observation;
@@ -84,14 +80,7 @@ export class ObservationEngine {
     const signal = query.signal ?? new AbortController().signal;
     const path = this.#path(key);
     return this.#store.locked(path, signal, async assertOwned => {
-      let previous = await this.#stored(path);
-      if (!previous) {
-        for (const repository of [this.#repo(key), digest([key.repository.forge.name, key.repository.path])]) {
-          const legacy = this.#store.path("repositories", repository, "prs", String(key.number), "observation.json");
-          previous = await this.#stored(legacy);
-          if (previous) { await this.#store.write(path, previous, assertOwned); break; }
-        }
-      }
+      const previous = await this.#stored(path);
       if (previous && pullRequestId(previous.observation.key) !== pullRequestId(key)) throw new ObservationStorageError(`PR identity mismatch at ${path}`);
       const scopeIds = [...new Set([...(previous?.scopeIds ?? []), ...(scopeId ? [scopeId] : [])])];
       if (previous && !query.refresh && (this.#fresh(previous, age) ||
@@ -136,7 +125,7 @@ export class ObservationEngine {
     const due = new Map<string, { key: PullRequestKey; at: number }>();
     for (const key of keys.values()) due.set(pullRequestId(key), { key, at: 0 });
     for (const path of await this.#store.observations(this.#connection)) {
-      const record = await this.#inventory(path);
+      const record = await this.#stored(path);
       if (!record) continue;
       const observation = record.observation, id = pullRequestId(observation.key);
       const selected = keys.has(id) || record.scopeIds.some(id => scopeIds.has(id)) || (watch.keys === undefined && watch.scopes === undefined);
@@ -182,7 +171,7 @@ export class ObservationEngine {
     }
     // Persisted refresh errors remain visible even during backoff, without causing tight retry loops.
     for (const path of await this.#store.observations(this.#connection)) {
-      const record = await this.#inventory(path);
+      const record = await this.#stored(path);
       if (record?.observation.lastError && (keys.has(pullRequestId(record.observation.key)) || record.scopeIds.some(id => scopeIds.has(id)) ||
           (watch.keys === undefined && watch.scopes === undefined))) issues.push(record.observation.lastError);
     }
