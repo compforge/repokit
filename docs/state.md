@@ -1,0 +1,109 @@
+# Repository 信息与资源生命周期
+
+`~/.repocli/repositories/` 是 RepoKit 的本地信息集散地。目的是让查询、Forge 观察、Git 操作和验证
+共用 repository 身份与已有事实，并由 RepoKit 负责按需获取、更新与回收。目录可被 `ls/tree` 浏览
+是附带收益；目录不声明远端全集、实时同步或当前操作的授权依据。
+
+## 目录与身份
+
+```text
+~/.repocli/
+  repositories/<repo-key>/
+    repository.json
+    metadata.json                       # 已观察的 repository metadata（例如 default branch）
+    branches/<branch-key>/
+      observation.json                  # 按 clone 保留 head、observedAt、checkout keys
+      worktrees/<checkout-key> -> ../../../checkouts/<checkout-key>
+      associations/<scope-key>.json     # source/targets/connection 范围内的 PR 发现
+    checkouts/<checkout-key>/
+      observation.json                  # path、commonDir、head、branch、primary、observedAt
+      path -> /absolute/source/path
+    prs/<number>/observation.json
+    history/                            # 验证 WAL，独立保留策略
+    inputs/
+    logs/
+  scans/                                # 可能跨仓的 Forge discovery checkpoint
+  forge-http/                           # endpoint/account 范围的传输协调
+```
+
+工作源码继续位于调用方选择的位置，不搬进状态目录。branch 可以没有 checkout；detached checkout
+只有 checkout 记录。PR 属于目标 repository，branch 关联记录可以引用另一个目标仓。
+多个 clone 的同名 branch 分别保存 head；任何一次观察只更新当前 common Git directory 对应的 clone。
+
+三种语言共享 `conformance/repository-state.json`：Forge + 完整 namespace/repository 形成 repo key，
+小写 ASCII 常见名字可读；大写、分隔符与其他 UTF-8 字节编码为 `%XX`。branch slash 不成为目录层级，
+大小写不同的 branch 在大小写不敏感文件系统上也不碰撞。超长名字保留前缀并附内容摘要。
+无可解析 origin 时使用 common Git directory 的本地身份。checkout key 由绝对路径摘要生成，
+原始身份和路径始终保存在记录内；凭据不进入 repository 身份或路径。
+
+## 读取与更新边界
+
+| 信息 | 复用与刷新 |
+|---|---|
+| 内容版本、执行记录 | 由版本/输入身份判断；不因时间流逝伪造一次新执行，保留期限另行管理 |
+| merged 生命周期 | 已确认的 merged 不回退；Python/TS 日常轮询停止，显式刷新仍可更新标题等元数据 |
+| PR 标题、开放/关闭状态、关联 | 检查 connection scope 和 freshness；按需查询 Forge 后写回，closed 可 reopen |
+| 默认分支 | Python `default_branch` 按 `max_age` 复用；失败保留旧值但返回 `fresh=False` 与 diagnostic |
+| branch head、checkout 拓扑 | 按 clone 与明确时效读取；`max_age=0` 请求 Git 当前事实 |
+| 删除、合并等操作前置条件 | 在操作边界重新读取 Git/Forge；目录存在或缓存命中不能授权操作 |
+
+查询者不自己实现“读文件、判断是否过期、再调 Forge”的第二套逻辑。Go `worktree.LoadBranch`、
+Python `RepositoryState.branch`、TS `RepositoryState.branch` 负责 read-through，并返回来源、观测时间与 checkout 位置完整性 `complete`。
+无法定位的注册 checkout 不会伪装成完整的空集合；缺失或不一致的 checkout 记录返回错误，重新 observe 可修复部分发布。
+缺失或过期记录由 RepoKit 刷新。读取失败与不存在分开；JSON 损坏、权限错误、Git 查询失败不会转成空集合。
+观测不提供 Git 全局事务快照：一次规划共用一份 inventory，实际写操作继续重新验证。
+同名 tag 不改变 branch 身份，分支名从完整 `refs/heads/` 读取。
+
+Go `forge.Client.Load(ctx, repo, number, maxAge)` 在显式 `Config.StateDir` 下持久化 PR 信息；
+`maxAge=0` 强制远端读取，`Get` 始终实时，供写操作与 cleanup 验证。CLI `pr show` 默认最多复用一分钟，
+`--max-age 0` 强制刷新。Go 缓存 scope 包含 provider、endpoint 与 credential 摘要；Python/TS 保留既有
+连接 scope 契约。不同 scope 的记录不能互相授权或复用；相同路径通过共享 record lease 串行发布。
+
+Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer 的 `refresh: true`
+允许刷新 merged 后的可变元数据。刷新失败不推进成功观测时间，也不抹掉既有终态；需要当前元数据的
+调用方检查错误/freshness，不能把“确认过 merged”当作“所有字段刚刚刷新”。
+
+## 资源与回收
+
+Go `worktree.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
+当前 clone 中已不再注册、且源路径确实不存在的 checkout 记录及其 branch 链接。它只删除明确拥有的
+状态文件和 symlink，不遍历或删除 symlink 指向的源码。未知文件、未知 checkout 路径或读取失败不会
+变成删除授权。仍存在的非注册源码目录保留其旧记录，供后续核对。
+
+删除 branch 的投影只移除当前 clone 的信息；其他 clone、PR 关联和执行历史独立保留。
+没有 clone 信息且没有其他资产的 branch 空投影可回收。执行历史按自己的 retention 清理，不能因为
+checkout 消失连带删除历史。仓库根保留信息不会触发全量 Forge 扫描或后台实时同步。
+
+Python/Go worktree 创建、移除和清理接受显式 state directory，并在成功操作后观察/对账。
+CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同一入口。Python/TS PR context
+读取 branch 时顺带更新 topology，不删除源文件。CLI validation 在执行后尽力更新 repository 观测；
+观测失败单独报告，不改变检查结果。纯分析与 validation plan 不隐式写入此目录。
+
+```sh
+repocli worktree observe --repo /path/to/repository
+repocli worktree observe --repo /path/to/repository --reconcile --state-dir /tmp/repokit-state
+repocli pr show 123 --repo /path/to/repository --max-age 0
+```
+
+Toolkit 的新状态 API 使用显式 state root；CLI 默认 `~/.repocli`，统一由 `--state-dir` 覆盖。
+`validate --history-dir` 仍独立覆盖历史根路径，不隐式改变其他信息的位置。
+
+## 持久化与兼容
+
+记录通过临时文件、fsync 和 rename 发布；权限为目录 0700、记录 0600。topology 按 repository
+持有共享 lease，PR/关联按记录持有 lease；Go/Python/TypeScript 使用兼容的 `.lock` 目录协议。
+失败可能留下部分最新投影，下次完整观察修复；因此它不是动作日志，也不能代替操作前重新验证。
+
+旧哈希 PR 目录、旧关联目录、旧默认分支缓存按需读取并写入新位置，不批量扫描搬迁、不删除旧文件。
+轮询遇到同 scope 的新旧记录时优先新记录。已有验证 WAL 如使用旧的大写/特殊字符目录编码，继续在原位
+读写，避免复制活跃 WAL 或静默丢失历史；普通小写 repo key 保持原目录不变。
+旧 `~/.repocli/checkouts/` 中的历史兼容资产保持独立，不作为新的 checkout registry，也不被本次回收删除。
+
+## 验证场景
+
+- 共享身份编码与环境语料由三个语言消费。
+- 两个 clone 的同名 branch 有不同 head，观察一个不能覆盖另一个。
+- detached、分支无 checkout、失败 inventory、保留源码与历史、回收失效链接。
+- Python 与 TS 互读拓扑，并竞争同一个 lease；Go 验证取消、原子写和 lease 互斥。
+- PR cache scope、旧路径迁移、merged 可变 metadata 显式刷新及终态防回退。
+- 继承另一个 checkout 的 Git 环境时，查询与 Make 验证仍操作显式目标。

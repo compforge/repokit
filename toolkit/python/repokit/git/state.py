@@ -250,7 +250,9 @@ class CheckoutInfo:
         return self.git_dir != self.common_dir
 
 
-def checkout_info(repo_dir: str | Path) -> CheckoutInfo:
+def _checkout_info(
+    repo_dir: str | Path, entries: list[tuple[str, str, str | None]]
+) -> CheckoutInfo:
     """Observe checkout topology, without choosing a caller's state directory.
 
     main_root is the checkout recoverable from shared Git metadata. It can be
@@ -269,7 +271,6 @@ def checkout_info(repo_dir: str | Path) -> CheckoutInfo:
         raise OSError("Git metadata directory is not a checkout")
     gd = query(repo_dir, "--git-dir")
     cd = query(repo_dir, "--git-common-dir")
-    entries = list_worktrees(repo_dir)
     main = None
     if entries:
         try:
@@ -281,6 +282,11 @@ def checkout_info(repo_dir: str | Path) -> CheckoutInfo:
         except OSError:
             pass
     return CheckoutInfo(root, gd, cd, main)
+
+
+def checkout_info(repo_dir: str | Path) -> CheckoutInfo:
+    """Observe live checkout topology without persisting or reusing old inventory."""
+    return _checkout_info(repo_dir, list_worktrees(repo_dir))
 
 
 @dataclass(frozen=True)
@@ -300,8 +306,8 @@ def list_checkouts(repo_dir: str | Path) -> list[CheckoutEntry]:
     from that primary checkout we can identify it directly; from a linked checkout
     its location stays unknown. Unknown must not be treated as an absent checkout.
     """
-    info = checkout_info(repo_dir)
     entries = list_worktrees(repo_dir)
+    info = _checkout_info(repo_dir, entries)
     main = info.root if not info.linked else info.main_root
     return [
         CheckoutEntry(main if index == 0 else str(Path(path).resolve()), head, branch, index == 0)
@@ -326,7 +332,7 @@ def list_local_branches(repo_dir: str | Path) -> list[tuple[str, str]]:
         repo_dir,
         "for-each-ref",
         "--sort=refname",
-        "--format=%(refname:short)%00%(objectname)",
+        "--format=%(refname)%00%(objectname)",
         "refs/heads",
     )
     if not r.ok:
@@ -334,10 +340,11 @@ def list_local_branches(repo_dir: str | Path) -> list[tuple[str, str]]:
     out: list[tuple[str, str]] = []
     for line in r.out.splitlines():
         if "\x00" not in line:
-            continue
-        branch, sha = line.split("\x00", 1)
-        if branch and sha:
-            out.append((branch, sha))
+            raise OSError("invalid branch inventory")
+        ref, sha = line.split("\x00", 1)
+        if not ref.startswith("refs/heads/") or not sha:
+            raise OSError("invalid branch inventory")
+        out.append((ref.removeprefix("refs/heads/"), sha))
     return out
 
 

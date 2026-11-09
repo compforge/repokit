@@ -71,8 +71,8 @@ repocli worktree clean --repo /path/to/repository --max-count 10 --max-prepared 
 ```
 
 PR operations use the native `toolkit/go/forge` client. Both PR operations and cleanup query that
-same capability, verifying the source repository, branch and exact head. Go currently queries
-platform APIs directly; it does not read or overwrite Python/TypeScript observation caches.
+same capability, verifying the source repository, branch and exact head. Cleanup always queries current platform facts. Go PR display can use the explicit
+[repository observation store](state.md); cached display metadata never authorizes cleanup.
 Credentials come from `GH_TOKEN`/`GITHUB_TOKEN` or `GITLAB_TOKEN`; `--provider`, `--api-host`
 and repeatable `--target-repository owner/repo` supply explicit connection/target scope.
 No fork parent or another application's credential configuration is inferred. Without credentials,

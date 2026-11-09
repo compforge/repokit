@@ -242,15 +242,21 @@ def _release_environment(root: Path, directory: Path) -> None:
     _save_releases(root, journal, pending)
 
 
-def _protection(repo: str, entry: state.CheckoutEntry, current: str) -> str:
+def _protection(
+    repo: str,
+    entry: state.CheckoutEntry,
+    current: str,
+    inventory: list[state.CheckoutEntry] | None = None,
+) -> str:
     path = entry.path
     if not path or entry.primary or path == current:
         return "primary_or_current_checkout"
-    if entry not in state.list_checkouts(repo):
+    entries = state.list_checkouts(repo) if inventory is None else inventory
+    if entry not in entries:
         return "checkout_identity_changed"
     if not entry.branch:
         return "detached_checkout"
-    info = state.checkout_info(path)
+    info = state._checkout_info(path, [(e.path or "", e.head, e.branch) for e in entries])
     if (Path(info.git_dir) / "locked").exists():
         return "locked"
     if any(
@@ -260,7 +266,7 @@ def _protection(repo: str, entry: state.CheckoutEntry, current: str) -> str:
         return "git_operation_in_progress"
     if any(
         other.path and other.path != path and Path(other.path).is_relative_to(path)
-        for other in state.list_checkouts(repo)
+        for other in entries
     ):
         return "nested_checkout"
     return ""
@@ -288,6 +294,7 @@ def clean_worktrees(
     inventory: tuple[BranchPullRequests, ...] | None = None,
     policy: WorktreePolicy | None = None,
     dry_run: bool = False,
+    state_dir: str | Path | None = None,
 ) -> WorktreeCleanReport:
     """Merged first, then oldest checkouts, then oldest prepared environments.
 
@@ -300,7 +307,19 @@ def clean_worktrees(
     control = info.main_root or info.root
     with worktree_lease(control):
         rows = inventory if inventory is not None else context.local_branches() if context else ()
-        return _clean(control, info.root, context, rows, policy, dry_run)
+        result = _clean(control, info.root, context, rows, policy, dry_run)
+        if state_dir is not None and not dry_run:
+            from .state import RepositoryState
+
+            try:
+                RepositoryState(state_dir).observe(control, reconcile=True)
+            except (OSError, ValueError) as exc:
+                from dataclasses import replace
+
+                result = replace(
+                    result, errors=(*result.errors, f"repository observation failed: {exc}")
+                )
+        return result
 
 
 def _clean(
@@ -311,7 +330,8 @@ def _clean(
     policy: WorktreePolicy,
     dry_run: bool,
 ) -> WorktreeCleanReport:
-    entries = [entry for entry in state.list_checkouts(repo) if not entry.primary]
+    inventory = state.list_checkouts(repo)
+    entries = [entry for entry in inventory if not entry.primary]
     actions: list[WorktreeAction] = []
     errors = [row.error for row in rows if row.error]
     dates: dict[str, int] = {}
@@ -340,7 +360,7 @@ def _clean(
         if not entry.path:
             continue
         try:
-            reason = _protection(repo, entry, current)
+            reason = _protection(repo, entry, current, inventory)
             directories, has_unmanaged = _environments(entry.path, policy, recover=not dry_run)
             environments[entry.path] = directories
             if has_unmanaged:

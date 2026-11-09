@@ -18,6 +18,7 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from .. import _process
+from .._git_environment import checkout_environment
 from .._inspect import inspect
 from ..budget import current_budget
 from ..model import ComponentBinding, Layout, owner
@@ -81,7 +82,7 @@ class ValidationReport:
 
 
 def _environment(values: Mapping[str, str] | None) -> tuple[tuple[str, str], ...]:
-    source = os.environ if values is None else values
+    source = checkout_environment() if values is None else values
     excluded = {
         "MAKEFILES",
         "MAKEFLAGS",

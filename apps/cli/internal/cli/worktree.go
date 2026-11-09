@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/worktree"
 	"github.com/spf13/cobra"
+	"os"
+	"path/filepath"
 )
 
 func newWorktreeCommand(opts *options) *cobra.Command {
@@ -33,8 +35,12 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		if err = policy.Validate(); err != nil {
 			return err
 		}
-		request := worktree.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun}
-		prContext, connectionErr := connection.context(ctx, opts.repository)
+		stateDir, err := repositoryStateDir(opts.stateDir)
+		if err != nil {
+			return executionError{err}
+		}
+		request := worktree.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, StateDir: stateDir}
+		prContext, connectionErr := connection.context(ctx, opts.repository, opts.stateDir)
 		if connectionErr == nil {
 			request.PullRequests = prContext
 		}
@@ -67,6 +73,40 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 	clean.Flags().IntVar(&count, "max-count", 10, "maximum linked worktrees (repository config by default)")
 	clean.Flags().IntVar(&prepared, "max-prepared", 3, "maximum prepared worktrees (repository config by default)")
 	connection.flags(clean)
+	var reconcile bool
+	observe := &cobra.Command{Use: "observe", Short: "Record local branches and checkout locations", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if opts.timeout <= 0 {
+			return errors.New("--timeout must be positive")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+		defer cancel()
+		stateDir, err := repositoryStateDir(opts.stateDir)
+		if err != nil {
+			return executionError{err}
+		}
+		directory, err := worktree.Observe(ctx, opts.repository, stateDir, reconcile)
+		if err != nil {
+			return executionError{err}
+		}
+		if opts.json {
+			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"directory": directory})
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), directory)
+		return nil
+	}}
+	observe.Flags().BoolVar(&reconcile, "reconcile", false, "retire absent checkout observations without deleting source directories")
+	root.AddCommand(observe)
 	root.AddCommand(clean)
 	return root
+}
+
+func repositoryStateDir(explicit string) (string, error) {
+	if explicit != "" {
+		return explicit, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".repocli"), nil
 }

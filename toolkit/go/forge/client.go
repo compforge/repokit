@@ -51,6 +51,7 @@ func (e *HTTPError) Error() string { return fmt.Sprintf("Forge HTTP %d", e.Statu
 
 type Config struct {
 	Host, Provider, APIHost, Token string
+	StateDir                       string // empty disables persistent observations
 	HTTPClient                     *http.Client
 }
 type Client struct {

@@ -226,3 +226,18 @@ func TestValidationImpactAndStaleReport(t *testing.T) {
 		t.Fatal("stale report accepted")
 	}
 }
+
+func TestInheritedGitContextDoesNotRedirectMake(t *testing.T) {
+	other := validationRepo(t, "test:\n\t@true\n")
+	root := validationRepo(t, "test:\n\t@git rev-parse --show-toplevel > actual.out\n")
+	t.Setenv("GIT_DIR", filepath.Join(other, ".git"))
+	t.Setenv("GIT_WORK_TREE", other)
+	report, err := repokit.Validate(context.Background(), repokit.ValidationRequest{Repository: root, Checks: []string{"test"}})
+	if err != nil || !report.Passed {
+		t.Fatalf("%+v %v", report, err)
+	}
+	output, err := os.ReadFile(filepath.Join(root, "actual.out"))
+	if err != nil || strings.TrimSpace(string(output)) != root {
+		t.Fatalf("%s %v", output, err)
+	}
+}

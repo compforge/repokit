@@ -1,0 +1,60 @@
+{
+  "repositories": [
+    {
+      "forge": "github",
+      "path": "owner/project",
+      "key": "github--owner--project"
+    },
+    {
+      "forge": "gitlab.example.com",
+      "path": "group/sub/repo",
+      "key": "gitlab.example.com--group--sub--repo"
+    },
+    {
+      "forge": "github",
+      "path": "Owner/Repo",
+      "key": "github--%4Fwner--%52epo"
+    },
+    {
+      "forge": "github",
+      "path": "a-b/c",
+      "key": "github--a%2Db--c"
+    },
+    {
+      "forge": "github",
+      "path": "a/b-c",
+      "key": "github--a--b%2Dc"
+    },
+    {
+      "forge": "github",
+      "path": "a/%2F",
+      "key": "github--a--%252%46"
+    }
+  ],
+  "branches": [
+    {
+      "name": "feature/a",
+      "key": "feature%2Fa"
+    },
+    {
+      "name": "Topic",
+      "key": "%54opic"
+    },
+    {
+      "name": "topic",
+      "key": "topic"
+    },
+    {
+      "name": "fix-1",
+      "key": "fix%2D1"
+    },
+    {
+      "name": "..",
+      "key": "%2E%2E"
+    },
+    {
+      "name": "中文",
+      "key": "%E4%B8%AD%E6%96%87"
+    }
+  ]
+}

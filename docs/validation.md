@@ -260,3 +260,7 @@ format 提前终止的报告不冒充 lint/test 证据。
 
 Python 验证实现集中在 `repokit/validation/`：`engine.py` 负责原生规划与执行，`report.py` 负责 Go wire report 解码，
 包入口汇总公共类型与函数。`repokit` 包根和 `repokit.validation` 的既有执行 API 保持不变。
+
+## Repository 本地信息
+
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。

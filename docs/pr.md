@@ -408,9 +408,10 @@ repocli pr merge 123 --expected-sha <reviewed-source-sha> --method squash
 Go uses a reusable HTTP client with a ten-second request deadline, shared operation context,
 16 MiB response limit, at most 100 pages, per-client request serialization and rate-limit cooldown.
 It does not retry writes; interrupted, malformed or server-failed write responses are uncertain.
-Go reads fresh platform facts and does not yet consume the persistent Python/TypeScript observer
-or HTTP caches. This keeps cache ownership explicit; callers should not infer cross-process
-request deduplication. Cleanup uses the same source-verified PR APIs and numbered-resource reads.
+Go `Client.Load` owns optional read-through PR observations under `Config.StateDir`; `Get` remains
+a live read. `repocli pr show --max-age 0` requests a fresh observation. Connection scopes remain
+isolated across credentials and providers; cleanup uses current source-verified PR facts.
+See [storage, freshness and migration](state.md).
 
 Breaking migration: Go worktree exports moved from the module root to its `worktree` package.
 Python remains an independently usable toolkit; its former console entry point is removed.

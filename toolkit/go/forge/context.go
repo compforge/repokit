@@ -99,7 +99,7 @@ func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (in
 }
 
 func (c *Context) Maintain(ctx context.Context) worktree.WorktreeCleanReport {
-	report, err := worktree.CleanWorktrees(ctx, c.Checkout, worktree.WorktreeCleanOptions{PullRequests: c})
+	report, err := worktree.CleanWorktrees(ctx, c.Checkout, worktree.WorktreeCleanOptions{PullRequests: c, StateDir: c.Client.config.StateDir})
 	if err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	}

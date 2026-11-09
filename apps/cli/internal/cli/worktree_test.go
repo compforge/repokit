@@ -63,3 +63,27 @@ func TestWorktreeCleanUsageAndExecutionExitCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestWorktreeObserveExplicitStateRoot(t *testing.T) {
+	root := t.TempDir()
+	state := t.TempDir()
+	for _, args := range [][]string{{"init", "-qb", "main"}, {"-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "initial"}, {"remote", "add", "origin", "https://github.com/owner/project.git"}} {
+		if out, err := exec.Command("git", append([]string{"-C", root}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("%s %v", out, err)
+		}
+	}
+	var out, stderr bytes.Buffer
+	if code := Execute(context.Background(), []string{"worktree", "observe", "--repo", root, "--state-dir", state, "--reconcile", "--json"}, nil, &out, &stderr); code != 0 {
+		t.Fatalf("%d %s", code, &stderr)
+	}
+	var result map[string]string
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result["directory"] != filepath.Join(state, "repositories", "github--owner--project") {
+		t.Fatal(result)
+	}
+	if _, err := os.Stat(filepath.Join(result["directory"], "branches", "main", "observation.json")); err != nil {
+		t.Fatal(err)
+	}
+}

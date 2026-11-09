@@ -1,3 +1,4 @@
+import { checkoutEnvironment } from "./environment.js";
 import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { lstat, open, realpath } from "node:fs/promises";
@@ -15,7 +16,7 @@ export class Git {
     this.signal.throwIfAborted();
     return new Promise((resolve, reject) => {
       const child = execFile("git", ["-C", this.root, ...args], {
-        encoding: "buffer", signal: this.signal, maxBuffer, killSignal: "SIGKILL",
+        env: checkoutEnvironment(), encoding: "buffer", signal: this.signal, maxBuffer, killSignal: "SIGKILL",
       }, (error, stdout) => {
         if (error && !(allowMissing && error.code === 1)) reject(error);
         else resolve(stdout);

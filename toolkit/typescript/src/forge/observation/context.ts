@@ -1,3 +1,6 @@
+import { RepositoryState } from "../../state.js";
+import { repositoryKey, namePart } from "../../state-paths.js";
+import { basename } from "node:path";
 import { remote, type Remote } from "../../git/remote.js";
 import type { RepositoryKey, PullRequestSnapshot } from "@compforge/harness-common";
 import { currentBranch, localBranches, listCheckouts, isAncestor, type CheckoutEntry } from "../../git/state.js";
@@ -50,13 +53,17 @@ export class PullRequestContext {
   }
   #path(branch: string): string {
     const clean = (repo: RepositoryKey) => ({ forge: { name: repo.forge.name }, path: repo.path });
-    return this.#store.path("associations", `${digest([digest([this.reader.forge, this.options.connection]), clean(this.options.source), branch, this.options.targets.map(clean)])}.json`);
+    return this.#store.path("repositories", repositoryKey(this.options.source.forge.name,this.options.source.path),"branches",namePart(branch),"associations", `${digest([digest([this.reader.forge, this.options.connection]), clean(this.options.source), branch, this.options.targets.map(clean)])}.json`);
   }
   async #keys(branch: string, verify: boolean, signal: AbortSignal): Promise<readonly PullRequestKey[]> {
     const { targets } = this.options;
     const path = this.#path(branch);
     return this.#store.locked(path, signal, async owned => {
-      const record = await this.#store.read<Association>(path);
+      let record = await this.#store.read<Association>(path);
+      if (!record) {
+        record = await this.#store.read<Association>(this.#store.path("associations",basename(path)));
+        if(record) await this.#store.write(path,record,owned);
+      }
       if (record && (record.version !== 1 || !Number.isFinite(Date.parse(record.nextRefreshAt)) || !record.error && !Array.isArray(record.keys))) throw new ForgeError("Invalid PR association record");
       if (!verify && record && Date.parse(record.nextRefreshAt) > this.#now().getTime()) {
         if (record.error) throw new ForgeError(record.error);
@@ -95,12 +102,12 @@ export class PullRequestContext {
       return unique;
     });
   }
-  async #branch(branch: string, verify: boolean, external?: AbortSignal): Promise<BranchPullRequests> {
+  async #branch(branch: string, verify: boolean, external?: AbortSignal, inventory?: {branches: ReadonlyMap<string,string>; checkouts: readonly CheckoutEntry[]}): Promise<BranchPullRequests> {
     const signal = AbortSignal.any([this.#controller.signal, AbortSignal.timeout(this.options.requestTimeoutMs ?? 20_000), ...(external ? [external] : [])]);
     signal.throwIfAborted();
-    const head = localBranches(this.options.checkout).get(branch);
+    const head = (inventory?.branches ?? localBranches(this.options.checkout)).get(branch);
     if (!head) throw new Error(`Local branch does not exist: ${branch}`);
-    const checkouts = listCheckouts(this.options.checkout).filter(entry => entry.branch === branch);
+    const checkouts = (inventory?.checkouts ?? listCheckouts(this.options.checkout)).filter(entry => entry.branch === branch);
     const candidates: PullRequestSnapshot[] = [], errors: string[] = [];
     try {
       for (const key of await this.#keys(branch, verify, signal)) {
@@ -119,7 +126,10 @@ export class PullRequestContext {
     return { repository: this.options.source, branch, head, candidates, checkouts, ambiguous: matching.length > 1,
       ...(matching.length === 1 && !errors.length ? { selected: matching[0] } : {}), ...(errors.length ? { error: errors.join("; ") } : {}) };
   }
-  getBranch(branch: string, options: { signal?: AbortSignal } = {}): Promise<BranchPullRequests> { return this.#branch(branch, false, options.signal); }
+  async getBranch(branch: string, options: { signal?: AbortSignal } = {}): Promise<BranchPullRequests> {
+    await new RepositoryState(this.options.stateDir).observe(this.options.checkout, options);
+    return this.#branch(branch, false, options.signal);
+  }
   async getCheckout(options: { signal?: AbortSignal } = {}): Promise<BranchPullRequests | undefined> {
     const branch = currentBranch(this.options.checkout);
     return branch ? this.getBranch(branch, options) : undefined;
@@ -127,6 +137,7 @@ export class PullRequestContext {
   async localBranches(options: { limit?: number } = {}): Promise<readonly BranchPullRequests[]> {
     const limit = options.limit ?? 20;
     if (!Number.isSafeInteger(limit) || limit < 1) throw new Error("Invalid discovery limit");
+    await new RepositoryState(this.options.stateDir).observe(this.options.checkout, {signal:this.#controller.signal});
     const branches = localBranches(this.options.checkout), checkouts = listCheckouts(this.options.checkout);
     const due = new Map<string, number>(), unavailable = new Map<string, string>();
     for (const [branch] of branches) {
@@ -142,7 +153,7 @@ export class PullRequestContext {
       let error = unavailable.get(branch) ?? "association discovery pending";
       try {
         if (selected.has(branch) || due.get(branch)! > this.#now().getTime()) {
-          results.push(await this.getBranch(branch, { signal }));
+          results.push(await this.#branch(branch, false, signal, {branches,checkouts}));
           continue;
         }
       } catch (failure) {

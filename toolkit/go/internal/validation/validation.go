@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -41,7 +42,7 @@ type ValidationRequest struct {
 	HistoryDir           string   // empty disables persistent history; CLI supplies its default.
 	Force                bool     // execute even when reusable history exists.
 	HistoryRetentionDays int      // zero defaults to 30; expired event prefixes are truncated regardless of references.
-	Environment          []string // nil inherits the caller's environment; never serialized in results.
+	Environment          []string // nil inherits the caller environment with Git checkout overrides removed; never serialized.
 }
 
 // CheckSpec freezes one Component/check invocation. Scope is full, focused,
@@ -177,7 +178,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 	}
 	env := req.Environment
 	if env == nil {
-		env = os.Environ()
+		env = gitenv.ForCheckout(os.Environ())
 	}
 	// Make's inherited flags/overrides can turn a frozen full command into a dry-run,
 	// another Makefile or a narrowed check. These control inputs belong to the plan.

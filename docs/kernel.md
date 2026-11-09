@@ -278,3 +278,7 @@ TypeScript 的 PR 状态查询由 PullRequestObserver.getPullRequest 收口，�
 PR 状态观察与本地分支关联由各语言工具包拥有，共用持久化契约；调用方只查询状态和关联，
 保留开发门禁、交付与资源回收策略。merged 生命周期终态不冻结分支关联，也不授权删除 checkout。
 详见 [PR 模型](pr.md#本地-branch-与-checkout-关联)。
+
+## Repository 本地信息
+
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。

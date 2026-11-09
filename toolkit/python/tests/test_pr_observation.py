@@ -314,20 +314,47 @@ def test_missing_pr_head_preserves_candidates_and_healthy_branches(tmp_path):
     assert context.verify(rows["broken"]).error
 
 
-def test_disappearing_branch_does_not_abort_scan(tmp_path, monkeypatch):
+def test_disappearing_branch_does_not_authorize_mutation(tmp_path, monkeypatch):
     root = checkout(tmp_path)
     git(root, "branch", "broken")
     context = PullRequestContext(
         observer(tmp_path / "state", Reader()), root, source=REPO, targets=(REPO,)
     )
-    original = context.get_branch
+    original = context._branch
+    removed = False
 
-    def read(branch):
-        if branch == "broken":
+    def read(branch, **kwargs):
+        nonlocal removed
+        if branch == "broken" and not removed:
             git(root, "branch", "-D", branch)
-        return original(branch)
+            removed = True
+        return original(branch, **kwargs)
 
-    monkeypatch.setattr(context, "get_branch", read)
+    monkeypatch.setattr(context, "_branch", read)
     rows = {row.branch: row for row in context.local_branches()}
-    assert "does not exist" in rows["broken"].error
-    assert rows["topic"].selected.number == 1
+    assert rows["broken"].head  # One planning inventory survives the concurrent change.
+    assert "topic" in rows
+    with pytest.raises(ValueError, match="does not exist"):
+        context.verify(rows["broken"])
+
+
+def test_legacy_pr_record_migrates_and_merged_metadata_refreshes(tmp_path):
+    from repokit.forge.observation.store import digest
+
+    reader = Reader()
+    service = observer(tmp_path, reader)
+    reader.rows[1] = replace(reader.rows[1], state="merged", title="original")
+    service.get_pull_request(KEY)
+    canonical = service.path(KEY)
+    old = tmp_path / "repositories" / digest(["github", REPO.path]) / "prs/1/observation.json"
+    old.parent.mkdir(parents=True)
+    canonical.rename(old)
+    service.get_pull_request(KEY)
+    assert reader.calls == [1] and canonical.exists()
+    reader.rows[1] = replace(reader.rows[1], title="edited after merge")
+    service.get_pull_request(KEY, refresh=True)
+    assert service._snapshot(KEY).title == "edited after merge"
+    reader.rows[1] = replace(reader.rows[1], state="open")
+    with pytest.raises(ForgeError):
+        service.get_pull_request(KEY, refresh=True)
+    assert service.get_pull_request(KEY).state == "merged"

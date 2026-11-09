@@ -13,6 +13,7 @@ from typing import Literal, cast
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
+from ..._state_paths import repository_key
 from ...budget import current_budget, operation
 from ..model import Forge, ForgeError, ForgeRateLimited, PullRequest
 from .model import PullRequestKey, PullRequestStatus, PullRequestStatusUnavailable
@@ -87,7 +88,7 @@ class PullRequestObserver:
         return (
             self.store.root
             / "repositories"
-            / digest([self.forge, key.repository.path])
+            / repository_key(self.forge, key.repository.path)
             / "prs"
             / str(key.number)
             / "observation.json"
@@ -104,20 +105,32 @@ class PullRequestObserver:
             raise ObservationStorageError(f"Invalid PR observation {path}")
         return record if record and record.get("connection") == self.connection else None
 
-    def _get(self, key: PullRequestKey, *, verify: bool = False) -> JSON:
+    def _get(self, key: PullRequestKey, *, verify: bool = False, refresh: bool = False) -> JSON:
         with operation(timeout=self.timeout, cancel=self._stop):
             budget = current_budget(self.timeout)
             path = self.path(key)
             with self.store.locked(path) as owned:
                 previous = self._stored(path)
+                if previous is None:
+                    legacy = (
+                        self.store.root
+                        / "repositories"
+                        / digest([self.forge, key.repository.path])
+                        / "prs"
+                        / str(key.number)
+                        / "observation.json"
+                    )
+                    previous = self._stored(legacy)
+                    if previous is not None:
+                        self.store.write(path, previous, owned)
                 old = cast(JSON, previous["observation"]) if previous else {}
                 if old and old.get("key") != key_json(key):
                     raise ObservationStorageError(f"PR identity mismatch at {path}")
                 snapshot = cast(JSON, old.get("snapshot", {}))
                 # The terminal lifecycle survives even explicit association verification.
-                if snapshot.get("state") == "merged":
+                if snapshot.get("state") == "merged" and not refresh:
                     return old
-                if not verify and epoch(old.get("nextRefreshAt")) > self.now():
+                if not verify and not refresh and epoch(old.get("nextRefreshAt")) > self.now():
                     if old.get("lastError"):
                         raise PullRequestStatusUnavailable(
                             f"PR retry pending: {key.repository.path}#{key.number}"
@@ -134,6 +147,8 @@ class PullRequestObserver:
                         or pr.target_repository != key.repository.path
                     ):
                         raise ForgeError("Forge returned invalid PR identity or lifecycle")
+                    if snapshot.get("state") == "merged" and pr.state != "merged":
+                        raise ForgeError("Forge contradicted a confirmed merged lifecycle")
                     snapshot = {
                         **key_json(key),
                         "state": pr.state,
@@ -205,8 +220,8 @@ class PullRequestObserver:
                     )
                 return observation
 
-    def get_pull_request(self, key: PullRequestKey) -> PullRequestStatus:
-        observed = self._get(key)
+    def get_pull_request(self, key: PullRequestKey, *, refresh: bool = False) -> PullRequestStatus:
+        observed = self._get(key, refresh=refresh)
         snapshot = cast(JSON, observed["snapshot"])
         return PullRequestStatus(
             key,
@@ -241,6 +256,9 @@ class PullRequestObserver:
                 if not record:
                     continue
                 observation = cast(JSON, record["observation"])
+                canonical = self.path(key_from_json(cast(JSON, observation["key"])))
+                if path != canonical and self._stored(canonical) is not None:
+                    continue
                 if cast(JSON, observation.get("snapshot", {})).get("state") == "merged":
                     continue
                 at = epoch(observation.get("nextRefreshAt"))
