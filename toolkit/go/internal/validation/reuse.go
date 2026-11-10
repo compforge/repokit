@@ -37,6 +37,7 @@ type historySession struct {
 	store       *history.Store
 	state       *history.State
 	manifests   map[string]inputManifest
+	startedAt   map[string]time.Time
 	diagnostics []string
 	failed      bool
 	inputID     string
@@ -45,7 +46,7 @@ type historySession struct {
 }
 
 func beginHistory(ctx context.Context, plan ValidationPlan) *historySession {
-	s := &historySession{manifests: map[string]inputManifest{}, inputID: plan.InputID, manifest: plan.manifest, force: plan.force}
+	s := &historySession{manifests: map[string]inputManifest{}, startedAt: map[string]time.Time{}, inputID: plan.InputID, manifest: plan.manifest, force: plan.force}
 	if plan.historyDir == "" {
 		return s
 	}
@@ -146,7 +147,7 @@ func (s *historySession) reuse(ctx context.Context, root string, spec CheckSpec)
 	if !run.Consistent || run.CheckedAt.IsZero() || previous.Inputs.DisableReuse {
 		return nil, "latest matching check has no reusable evidence"
 	}
-	if previous.Stdout, previous.Stderr, err = s.store.LoadOutput(previous.RunID); err != nil {
+	if previous.Stdout, previous.Stderr, err = s.store.LoadOutput(ctx, previous.RunID, run.Start.At); err != nil {
 		s.fail(ctx, err)
 		return nil, "history output unavailable"
 	}
@@ -165,6 +166,7 @@ func (s *historySession) started(ctx context.Context, root string, spec CheckSpe
 	defer s.mu.Unlock()
 	if s.store != nil && !s.failed {
 		e := historyRecord("started", s.manifest.Checkout, root, s.inputID, CheckResult{CheckSpec: spec, RunID: id}, false)
+		s.startedAt[id] = e.At
 		if err := s.store.Append(ctx, []history.Event{e}); err != nil {
 			s.fail(ctx, err)
 		}
@@ -187,7 +189,7 @@ func (s *historySession) finish(ctx context.Context, report *ValidationReport) {
 				kind := "reused"
 				if !result.Reused {
 					kind = "finished"
-					if err := s.store.SaveOutput(result.RunID, result.Stdout, result.Stderr); err != nil {
+					if err := s.store.SaveOutput(ctx, result.RunID, s.startedAt[result.RunID], result.Stdout, result.Stderr); err != nil {
 						s.fail(ctx, err)
 						break
 					}

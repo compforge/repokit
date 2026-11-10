@@ -175,7 +175,7 @@ CLI 默认使用 `~/.repokit/repositories/<name>/`，`--history-dir` 可指定�
 
 - `history/`：tidwall/wal 的 JSONL 分段，默认目标 20 MiB，连续序号；业务 JSON 保存在 data 字符串中。
 - `inputs/<id>.json`：完整输入清单，包含路径、类型和摘要，不保存源码正文。
-- `logs/<run-id>/stdout`、`stderr`：实际检查输出，权限限制在本地用户。
+- `logs/YYYY-MM-DD.stdout.jsonl`、`YYYY-MM-DD.stderr.jsonl`：按 Run 开始时间的 UTC 日期聚合实际检查输出，每个 Run 向各文件追加一条 `{runID, output}` 记录。跨午夜执行仍使用开始日期，多行输出以 JSON 字符串保存。追加和读取共用 repository 文件锁；不完整尾记录明确报错，不自动修复。旧的 `logs/<run-id>/stdout`、`stderr` 继续可读，不自动搬迁。
 
 started 在检查进程成功启动后追加；finished 在整轮输入复核后追加；reused 引用原 Run，所有事件记录其 checkout。
 进程启动后、started 持久化前崩溃可能留下计数缺口；本地历史不宣称跨进程启动与磁盘写入的原子事务。
@@ -190,7 +190,7 @@ macOS/Linux 通过 OS 文件锁保护 Open → 读写 → Close，锁等待最�
 
 默认按 30 天窗口滚动截断事件的过期前缀，不区分成功、失败或未完成，也不因近期复用延长旧 Run 的保留期。
 截断后缺少 started 的 finished/reused 事件在重放时忽略，不计入统计、不提供复用证据；最差按未执行过重新检查。
-随后清理过期且未被保留 Run 引用的 inputs/logs。工具包可用 HistoryRetentionDays 调整天数。
+随后清理过期且未被保留 Run 引用的 inputs/logs。每日输出文件仅在该日期没有保留 Run、且文件修改时间已过期时整体删除；当天过期 Run 的输出可随同日保留 Run 延后清理。旧布局沿用按 Run 清理。工具包可用 HistoryRetentionDays 调整天数。
 `validate --history` 输出保留期统计，不执行检查；报告 history 也提供执行次数、通过/失败/未完成次数、
 实际执行耗时、复用次数、比较耗时及最近实际检查时间。复用不重复累计原执行耗时；统计不是永久累计值。
 

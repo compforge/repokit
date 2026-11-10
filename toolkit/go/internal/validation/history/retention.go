@@ -57,6 +57,10 @@ func (h *Store) Maintain(ctx context.Context, days int) (*State, error) {
 		if err != nil {
 			return err
 		}
+		retainedDates := map[string]bool{}
+		for _, run := range state.Runs {
+			retainedDates[run.Start.At.UTC().Format(time.DateOnly)] = true
+		}
 		for _, kind := range []string{"inputs", "logs"} {
 			entries, err := os.ReadDir(filepath.Join(h.dir, kind))
 			if os.IsNotExist(err) {
@@ -73,7 +77,13 @@ func (h *Store) Maintain(ctx context.Context, days int) (*State, error) {
 				if kind == "inputs" {
 					id = strings.TrimSuffix(id, ".json")
 				}
-				if !validID(id) {
+				date, stream, _ := strings.Cut(id, ".")
+				_, dateErr := time.Parse(time.DateOnly, date)
+				daily := kind == "logs" && entry.Type().IsRegular() && dateErr == nil && (stream == "stdout.jsonl" || stream == "stderr.jsonl")
+				if daily && retainedDates[date] {
+					continue
+				}
+				if !daily && !validID(id) {
 					continue
 				}
 				if kind == "inputs" && state.Inputs[id] || kind == "logs" && state.Runs[id] != nil {

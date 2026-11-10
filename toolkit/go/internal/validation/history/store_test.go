@@ -158,6 +158,13 @@ func TestHistoryMultipleProcesses(t *testing.T) {
 	if counts := state.Summary.Checks[". lint"]; counts.Executions != 20 || counts.Passed != 20 || counts.Unfinished != 0 {
 		t.Fatalf("%+v", counts)
 	}
+	h := newStore(root, "fixture", "/fixture")
+	for id, run := range state.Runs {
+		out, stderr, err := h.LoadOutput(context.Background(), id, run.Start.At)
+		if err != nil || out != id+"\n" || stderr != "" {
+			t.Fatalf("concurrent output %s: %q %q %v", id, out, stderr, err)
+		}
+	}
 }
 
 func TestHistoryWriterProcess(t *testing.T) {
@@ -168,7 +175,11 @@ func TestHistoryWriterProcess(t *testing.T) {
 	h := newStore(root, "fixture", "/fixture")
 	h.segmentSize = 512
 	for range 5 {
-		if err := h.Append(context.Background(), testEvents(time.Now())); err != nil {
+		events := testEvents(time.Now())
+		if err := h.Append(context.Background(), events); err != nil {
+			t.Fatal(err)
+		}
+		if err := h.SaveOutput(context.Background(), events[0].Run, events[0].At, events[0].Run+"\n", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -327,7 +338,7 @@ func TestPayloadRoundTrip(t *testing.T) {
 	if err := h.SaveInputs(events[0].Inputs, input); err != nil {
 		t.Fatal(err)
 	}
-	if err := h.SaveOutput(events[0].Run, "checked\n", "notice\n"); err != nil {
+	if err := h.SaveOutput(ctx, events[0].Run, events[0].At, "checked\n", "notice\n"); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Append(ctx, events); err != nil {
@@ -344,7 +355,7 @@ func TestPayloadRoundTrip(t *testing.T) {
 	if err != nil || string(loaded) != string(input) {
 		t.Fatalf("inputs: %s %v", loaded, err)
 	}
-	out, stderr, err := h.LoadOutput(events[0].Run)
+	out, stderr, err := h.LoadOutput(ctx, events[0].Run, events[0].At)
 	if err != nil || out != "checked\n" || stderr != "notice\n" {
 		t.Fatalf("output: %q %q %v", out, stderr, err)
 	}
@@ -373,11 +384,11 @@ func TestHistoryRetentionIgnoresRunStatus(t *testing.T) {
 				if err := h.SaveInputs(e.Inputs, []byte(`{}`)); err != nil {
 					t.Fatal(err)
 				}
-				if err := h.SaveOutput(e.Run, "output", ""); err != nil {
+				if err := h.SaveOutput(ctx, e.Run, e.At, "output", ""); err != nil {
 					t.Fatal(err)
 				}
 			}
-			for _, path := range []string{filepath.Join(h.dir, "inputs", old[0].Inputs+".json"), filepath.Join(h.dir, "logs", old[0].Run)} {
+			for _, path := range []string{filepath.Join(h.dir, "inputs", old[0].Inputs+".json"), filepath.Join(h.dir, "logs", old[0].At.UTC().Format(time.DateOnly)+".stdout.jsonl"), filepath.Join(h.dir, "logs", old[0].At.UTC().Format(time.DateOnly)+".stderr.jsonl")} {
 				if err := os.Chtimes(path, old[0].At, old[0].At); err != nil {
 					t.Fatal(err)
 				}
@@ -389,10 +400,10 @@ func TestHistoryRetentionIgnoresRunStatus(t *testing.T) {
 			if _, err := h.LoadInputs(old[0].Inputs); !os.IsNotExist(err) {
 				t.Fatalf("expired inputs: %v", err)
 			}
-			if _, _, err := h.LoadOutput(old[0].Run); !os.IsNotExist(err) {
+			if _, _, err := h.LoadOutput(ctx, old[0].Run, old[0].At); !os.IsNotExist(err) {
 				t.Fatalf("expired output: %v", err)
 			}
-			if output, _, err := h.LoadOutput(recent[0].Run); err != nil || output != "output" {
+			if output, _, err := h.LoadOutput(ctx, recent[0].Run, recent[0].At); err != nil || output != "output" {
 				t.Fatalf("retained output: %q %v", output, err)
 			}
 			if status == "unfinished" {
