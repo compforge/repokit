@@ -79,7 +79,10 @@ func (s *historySession) fail(ctx context.Context, err error) {
 	slog.WarnContext(ctx, "validation history unavailable", "error", err)
 }
 
-func (s *historySession) candidate(root string, spec CheckSpec) (*history.Run, *CheckResult, error) {
+// candidate keeps searching older runs after a mismatch; the latest same-task
+// candidate explains a miss only when no exact match exists.
+func (s *historySession) candidate(root string, spec CheckSpec) (*history.Run, *CheckResult, string, error) {
+	var reason string
 	for _, id := range slices.Backward(s.state.Order) {
 		run := s.state.Runs[id]
 		if run.Start.Checkout != s.manifest.Checkout || run.Start.Component != root || run.Check != spec.Check {
@@ -87,28 +90,41 @@ func (s *historySession) candidate(root string, spec CheckSpec) (*history.Run, *
 		}
 		var result CheckResult
 		if err := json.Unmarshal(run.Result, &result); err != nil {
-			return nil, nil, err
+			return nil, nil, "", err
 		}
-		if result.Environment != spec.Environment || result.Scope != spec.Scope || !slices.Equal(result.Command, spec.Command) || !slices.Equal(result.Files, spec.Files) {
-			continue
-		}
-		if !reflect.DeepEqual(result.DepotWitnesses, spec.DepotWitnesses) || !reflect.DeepEqual(result.Witnesses, spec.Witnesses) || !slices.Equal(result.Inputs.Components, spec.Inputs.Components) || !slices.Equal(result.Inputs.Paths, spec.Inputs.Paths) {
-			continue
-		}
-		manifest, ok := s.manifests[run.Start.Inputs]
-		if !ok {
-			var err error
-			manifest, err = s.loadInputs(run.Start.Inputs)
-			if err != nil {
-				return nil, nil, err
+		var mismatch string
+		switch {
+		case result.Scope != spec.Scope || !slices.Equal(result.Command, spec.Command) || !slices.Equal(result.Files, spec.Files):
+			mismatch = "check command, scope or files changed"
+		case !slices.Equal(result.Inputs.Components, spec.Inputs.Components) || !slices.Equal(result.Inputs.Paths, spec.Inputs.Paths):
+			mismatch = "check input declaration changed"
+		case !reflect.DeepEqual(result.DepotWitnesses, spec.DepotWitnesses) || !reflect.DeepEqual(result.Witnesses, spec.Witnesses):
+			mismatch = "dependency evidence changed"
+		case result.Environment != spec.Environment:
+			mismatch = "execution environment changed"
+		default:
+			manifest, ok := s.manifests[run.Start.Inputs]
+			if !ok {
+				var err error
+				manifest, err = s.loadInputs(run.Start.Inputs)
+				if err != nil {
+					return nil, nil, "", err
+				}
+				s.manifests[run.Start.Inputs] = manifest
 			}
-			s.manifests[run.Start.Inputs] = manifest
+			if sameInputs(manifest, result.InputFiles, s.manifest, spec.InputFiles) {
+				return run, &result, "", nil
+			}
+			mismatch = "check input contents changed"
 		}
-		if sameInputs(manifest, result.InputFiles, s.manifest, spec.InputFiles) {
-			return run, &result, nil
+		if reason == "" {
+			reason = mismatch
 		}
 	}
-	return nil, nil, nil
+	if reason == "" {
+		reason = "no matching completed check"
+	}
+	return nil, nil, reason, nil
 }
 
 // +spec=Only the latest matching completed Run may grant reuse; unrelated runs never revoke its evidence
@@ -133,13 +149,13 @@ func (s *historySession) reuse(ctx context.Context, root string, spec CheckSpec)
 	if s.store == nil {
 		return nil, "history disabled"
 	}
-	run, previous, err := s.candidate(root, spec)
+	run, previous, reason, err := s.candidate(root, spec)
 	if err != nil {
 		s.fail(ctx, err)
 		return nil, "history result unavailable"
 	}
 	if run == nil {
-		return nil, "no matching completed check"
+		return nil, reason
 	}
 	if run.Status != "passed" {
 		return nil, "latest matching check did not pass"

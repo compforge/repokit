@@ -157,6 +157,9 @@ paths 是仓库相对的字面文件或目录，不展开 glob；非法声明报
 
 复用结果保留原 `runID`、`checkedAt`、输出和 `durationSeconds`；`requestedAt` 与 `lookupSeconds` 描述本次请求。
 `inputID` 关联本轮输入清单，`reuseReason` 解释复用或执行原因。报告的完整 snapshot 始终属于本轮。
+没有精确匹配时，`reuseReason` 报告同一 checkout、Component/check 最近完成候选的首个差异：
+命令/scope/文件集合、输入声明、依赖凭据、执行环境或输入内容。它不是全部差异清单；
+较新候选不匹配时仍继续查找更早的精确匹配，不改变最近匹配 Run 的成功/失败判定。
 
 ### 执行历史
 
@@ -208,6 +211,10 @@ macOS/Linux 通过 OS 文件锁保护 Open → 读写 → Close，锁等待最�
 Make 控制变量 MAKEFILES/MAKEFLAGS/MFLAGS/MAKEOVERRIDES/GNUMAKEFLAGS/MAKELEVEL 与两类文件变量不从父环境继承；
 每条命令显式设置 LINT_FILES 和 TEST_FILES，防止继承的 dry-run 或文件选择改变计划语义。
 环境摘要描述实际传入的环境，不要求 Python/Node 宿主进程的环境相等。
+Go/CLI 默认继承环境时额外移除 `CODEX_TOOL_CALL_ID`，避免每次工具调用的追踪身份使复用失效；
+该变量同时从实际检查进程中移除，不是仅从摘要中忽略。其它环境变量（包括构建配置、凭据和 sandbox 设置）
+继续参与摘要。Go 调用方显式提供 `ValidationRequest.Environment` 时保留该变量，并以其实际值参与复用判定。
+已有历史不改写；旧环境摘要不匹配时正常执行一次，后续请求才能复用新的成功记录。
 
 Go/CLI 的 concurrency 默认 2，范围 1–64；format 顺序完成后，lint/test 共用一个有界队列。Go 调用方通过 context 传入整轮 deadline；Python 保留顺序执行，使用 timeout 和已有 operation
 取消作用域。CLI 沿用全局 --timeout。macOS/Linux 上每次 Make 都运行在独立会话中，取消、超时、
