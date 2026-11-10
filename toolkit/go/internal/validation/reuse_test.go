@@ -55,6 +55,59 @@ func TestValidationHistoryOwnsReuseAndStatistics(t *testing.T) {
 	}
 }
 
+// +case:id=validation_inherited_invocation_identity,desc=`Only the inherited tool call ID changes between checks`,expect=`The child never receives the ID and the second request reuses the first run; build and sandbox settings still invalidate reuse`
+func TestValidationInheritedInvocationIdentity(t *testing.T) {
+	root := validationRepo(t, "lint:\n\t@printf '%s|%s|%s' \"$${CODEX_TOOL_CALL_ID-unset}\" \"$$VALIDATION_MODE\" \"$$CODEX_SANDBOX\"\n\t@echo executed >> runs.out\n")
+	req := repokit.ValidationRequest{Repository: root, HistoryDir: t.TempDir(), Checks: []string{"lint"}}
+	t.Setenv("CODEX_TOOL_CALL_ID", "call-one")
+	t.Setenv("VALIDATION_MODE", "normal")
+	t.Setenv("CODEX_SANDBOX", "fixture-a")
+	run := func(reused bool, output string) repokit.CheckResult {
+		t.Helper()
+		report, err := repokit.Validate(context.Background(), req)
+		if err != nil || !report.Passed || !report.InputsConsistent || len(report.Diagnostics) != 0 {
+			t.Fatalf("%+v %v", report, err)
+		}
+		result := report.Components[0].Checks[0]
+		if result.Reused != reused || result.Stdout != output {
+			t.Fatalf("reused=%v stdout=%q; want %v %q", result.Reused, result.Stdout, reused, output)
+		}
+		return result
+	}
+	first := run(false, "unset|normal|fixture-a")
+	t.Setenv("CODEX_TOOL_CALL_ID", "call-two")
+	if reused := run(true, "unset|normal|fixture-a"); reused.RunID != first.RunID || reused.Environment != first.Environment {
+		t.Fatal("invocation identity changed the run or environment")
+	}
+	t.Setenv("VALIDATION_MODE", "changed")
+	if result := run(false, "unset|changed|fixture-a"); result.ReuseReason != "execution environment changed" {
+		t.Fatal(result.ReuseReason)
+	}
+	t.Setenv("CODEX_SANDBOX", "fixture-b")
+	run(false, "unset|changed|fixture-b")
+	actual, err := os.ReadFile(filepath.Join(root, "runs.out"))
+	if err != nil || string(actual) != "executed\nexecuted\nexecuted\n" {
+		t.Fatalf("%q %v", actual, err)
+	}
+}
+
+// +case:id=validation_explicit_invocation_identity,desc=`A caller explicitly includes a tool call ID in the check environment`,expect=`It reaches the child and changing it requires a new execution`
+func TestValidationExplicitInvocationIdentity(t *testing.T) {
+	root := validationRepo(t, "lint:\n\t@printf '%s' \"$$CODEX_TOOL_CALL_ID\"\n")
+	req := repokit.ValidationRequest{Repository: root, HistoryDir: t.TempDir(), Checks: []string{"lint"}, Environment: []string{"PATH=" + os.Getenv("PATH"), "CODEX_TOOL_CALL_ID=explicit-one"}}
+	for _, id := range []string{"explicit-one", "explicit-two"} {
+		req.Environment[1] = "CODEX_TOOL_CALL_ID=" + id
+		report, err := repokit.Validate(context.Background(), req)
+		if err != nil || !report.Passed || !report.InputsConsistent {
+			t.Fatalf("%+v %v", report, err)
+		}
+		result := report.Components[0].Checks[0]
+		if result.Reused || result.Stdout != id {
+			t.Fatalf("reused=%v stdout=%q; want execution with %q", result.Reused, result.Stdout, id)
+		}
+	}
+}
+
 func TestValidationHistoryEnvironmentAndScopeInvalidate(t *testing.T) {
 	root := validationRepo(t, "lint:\n\t@echo '$(LINT_FILES)' >> runs.out\n")
 	writeValidationFile(t, root, "a.py", "pass")
@@ -321,7 +374,14 @@ func TestValidationUsesLatestMatchingRun(t *testing.T) {
 			}
 			a := run(false, true, false)
 			writeValidationFile(t, root, "fail.out", "fail")
-			run(true, false, false)
+			wantReason := map[string]string{
+				"contents": "check input contents changed", "environment": "execution environment changed",
+				"scope": "check command, scope or files changed", "files": "check command, scope or files changed",
+				"receipt": "dependency evidence changed", "declaration": "check input declaration changed",
+			}[difference]
+			if different := run(true, false, false); different.ReuseReason != wantReason {
+				t.Fatalf("miss reason=%q, want %q", different.ReuseReason, wantReason)
+			}
 			if reused := run(false, true, true); reused.RunID != a.RunID {
 				t.Fatalf("A reused a different run: %s != %s", reused.RunID, a.RunID)
 			}

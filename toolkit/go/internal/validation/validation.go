@@ -42,7 +42,7 @@ type ValidationRequest struct {
 	HistoryDir           string   // empty disables persistent history; CLI supplies its default.
 	Force                bool     // execute even when reusable history exists.
 	HistoryRetentionDays int      // zero defaults to 30; expired event prefixes are truncated regardless of references.
-	Environment          []string // nil inherits the caller environment with Git checkout overrides removed; never serialized.
+	Environment          []string // nil inherits the caller environment without Git checkout overrides or tool call identity; never serialized.
 }
 
 // CheckSpec freezes one Component/check invocation. Scope is full, focused,
@@ -128,6 +128,8 @@ type ValidationReport struct {
 var makeFilePath = regexp.MustCompile(`^[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*$`)
 
 // PlanValidation only reads the checkout. Preparation/formatting must precede it.
+// +spec=Inherited tool call identity is removed from both execution and reuse inputs; explicit environments retain it
+// +why=Per-invocation tracing metadata must not invalidate otherwise identical checks
 // +spec=Makefile is the execution contract; absent targets never select language-specific commands
 // +spec=Missing lint/test targets fall back only to the root Component; format never falls back
 // +spec=Recorded inputs bind execution evidence and never decide affected-file selection
@@ -190,6 +192,9 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 		}
 		switch key {
 		case "_", "SHLVL", "PWD", "OLDPWD", "MAKEFILES", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "GNUMAKEFLAGS", "MAKELEVEL", "LINT_FILES", "TEST_FILES":
+			continue
+		}
+		if req.Environment == nil && key == "CODEX_TOOL_CALL_ID" {
 			continue
 		}
 		envMap[key] = value
@@ -471,6 +476,7 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationRepo
 						result.ReuseReason = reason
 						slog.InfoContext(ctx, "validation check reused", "component", component.Component.Root, "check", spec.Check, "run", result.RunID)
 					} else {
+						slog.DebugContext(ctx, "validation check reuse missed", "checkout", plan.Checkout, "component", component.Component.Root, "check", spec.Check, "reason", reason)
 						started := time.Now()
 						result = executeMakeStarted(ctx, filepath.Join(plan.Checkout, component.Component.Root), spec, plan.environment, func() string { return history.started(ctx, component.Component.Root, spec) })
 						result.DurationSeconds = time.Since(started).Seconds()
