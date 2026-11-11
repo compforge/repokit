@@ -73,3 +73,49 @@ func TestDeadcodeWriterErrors(t *testing.T) {
 		t.Fatal("lost write error")
 	}
 }
+
+func TestDeadcodeCLIDiffAndFiles(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	gitCommand(t, root, "init", "-q", "-b", "main")
+	put(t, root, "main.go", "package main\nfunc main(){target()}\n")
+	put(t, root, "target.go", "package main\nfunc target(){leaf()}\nfunc leaf(){}\nfunc unrelated(){}\n")
+	gitCommand(t, root, "add", ".")
+	gitCommand(t, root, "commit", "-qm", "before")
+	put(t, root, "main.go", "package main\nfunc main(){}\n")
+	var out, stderr bytes.Buffer
+	args := []string{"deadcode", "--repo", root, "--base", "HEAD", "--mode", "unreachable", "--json"}
+	if code := Execute(context.Background(), args, nil, &out, &stderr); code != 0 {
+		t.Fatalf("code=%d %s", code, &stderr)
+	}
+	var report repokit.DeadcodeReport
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.SchemaVersion != 2 || len(report.Nodes) != 2 || report.Baseline == nil {
+		t.Fatalf("report=%+v", report)
+	}
+	for _, node := range report.Nodes {
+		if node.Change != "became_dead" || node.Location.Path != "target.go" {
+			t.Fatalf("candidate=%+v", node)
+		}
+	}
+	out.Reset()
+	stderr.Reset()
+	if code := Execute(context.Background(), []string{"deadcode", "--repo", root, "--file", "target.go", "--json"}, nil, &out, &stderr); code != 0 {
+		t.Fatalf("code=%d %s", code, &stderr)
+	}
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
+		t.Fatal(err)
+	}
+	if report.Scope.Kind != "files" || len(report.Nodes) != 2 {
+		t.Fatalf("report=%+v", report)
+	}
+	for _, flags := range [][]string{{"--mode", "invalid"}, {"--root", "whatever"}, {"--file", "../outside.go"}} {
+		out.Reset()
+		stderr.Reset()
+		if code := Execute(context.Background(), append([]string{"deadcode", "--repo", root}, flags...), nil, &out, &stderr); code != 2 {
+			t.Fatalf("flags=%v code=%d stderr=%s", flags, code, &stderr)
+		}
+	}
+}

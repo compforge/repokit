@@ -14,6 +14,8 @@ github.com/bluekeyes/go-gitdiff v0.8.1 h1:lL1GofKMywO17c0lgQmJYcKek5+s8X6tXVNOLx
 github.com/bluekeyes/go-gitdiff v0.8.1/go.mod h1:WWAk1Mc6EgWarCrPFO+xeYlujPu98VuLW3Tu+B/85AE=
 github.com/compforge/codegraph v0.15.4-0.20261109033530-9ad1ea207624 h1:OqoR5MPy6ElEQsi+bwlXSXwHYA/fV0FBx7IXo2ecbHg=
 github.com/compforge/codegraph v0.15.4-0.20261109033530-9ad1ea207624/go.mod h1:q8Xxce2mtbD76WRYnTiLaItupJ14YncrYYS6ldkJXno=
+github.com/compforge/codegraph v0.15.4-0.20261111031621-4601507fd431 h1:kCYArYtdOxMQsj/ZtVPamVnBFos0F7zeeuKCrcyUqak=
+github.com/compforge/codegraph v0.15.4-0.20261111031621-4601507fd431/go.mod h1:8/7ALjA7qCZPst01kVcNcbCWF4xnYnVZkCE8gi/uH0g=
 github.com/compforge/go-stdx v0.1.1-0.20261010101953-ebb567922ec3 h1:lgmN+jDedy8H0jfAwOyiqN5x7K/TxInKcJLEOhtd8cg=
 github.com/compforge/go-stdx v0.1.1-0.20261010101953-ebb567922ec3/go.mod h1:Cp85zeX33t42YooXdNlm4NHTgV8j7362+HBxjbShcew=
 github.com/compforge/quality-harness/sdks/go v0.0.0-20261105122955-dd898d2b95fc h1:a6SqvSJv7325P04uqBMIMwE5IlwVJDftRhBHkCAf7Ls=
@@ -34,6 +36,8 @@ github.com/mschoch/smat v0.2.0 h1:8imxQsjDm8yFEAVBe7azKmKSgzSkZXDuKkSq9374khM=
 github.com/mschoch/smat v0.2.0/go.mod h1:kc9mz7DoBKqDyiRL7VZN8KvXQMWeTaVnttLRXOlotKw=
 github.com/odvcencio/gotreesitter v0.57.0 h1:WhRBJSZy8FgLvisB+C2eZkdjfBX52ND+B1mw/ruvEtM=
 github.com/odvcencio/gotreesitter v0.57.0/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
+github.com/odvcencio/gotreesitter v0.57.1-0.20261111023359-660ea2bc0bea h1:a/yT1UnppKUQR8RORfPKeYj2/vlUAoffdL7A31EX7IM=
+github.com/odvcencio/gotreesitter v0.57.1-0.20261111023359-660ea2bc0bea/go.mod h1:hBVkghd0paaYAVwd2087vfwdeU984bQbMo9LvpE0moo=
 github.com/pelletier/go-toml/v2 v2.4.3 h1:GTRvJQutkOSftxIFD5xw9aepkYNuPWmVJpffdDPYVpY=
 github.com/pelletier/go-toml/v2 v2.4.3/go.mod h1:2gIqNv+qfxSVS7cM2xJQKtLSTLUE9V8t9Stt+h56mCY=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=

@@ -40,6 +40,13 @@ func describeResult(r *commandResult, data any) {
 			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "units.limit_exceeded", Severity: "warning", Phase: "units", Message: "Unit count exceeds the soft limit; all formed units are retained", Evidence: "/data/limit_exceeded"})
 		}
 	case repokit.DeadcodeReport:
+		r.analysisDiagnostics(v.Scope.Diagnostics, "deadcode_scope", "/data/scope/diagnostics")
+		if v.Baseline != nil {
+			r.analysisDiagnostics(v.Baseline.Snapshot.Diagnostics, "before_snapshot", "/data/baseline/snapshot/diagnostics")
+			for i, d := range v.Baseline.Diagnostics {
+				r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "before_graph", Message: d.Message, Path: d.Location.Path, Line: d.Location.Line, Evidence: fmt.Sprintf("/data/baseline/diagnostics/%d", i)})
+			}
+		}
 		r.Summary = fmt.Sprintf("%d deadcode candidates; capture complete=%t; graph diagnostics=%d", len(v.Nodes), v.Snapshot.Complete, len(v.Diagnostics))
 		r.analysisDiagnostics(v.Snapshot.Diagnostics, "snapshot", "/data/snapshot/diagnostics")
 		for i, d := range v.Diagnostics {

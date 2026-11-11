@@ -39,7 +39,7 @@ func TestDeadcodeFullGraphAndSelectedSnapshot(t *testing.T) {
 		if !reflect.DeepEqual(names, tc.want) {
 			t.Fatalf("%s: %v", tc.input, names)
 		}
-		if report.SchemaVersion != 1 || report.Snapshot.Input != tc.input || !report.Snapshot.Complete || report.Diagnostics == nil {
+		if report.SchemaVersion != 2 || report.Snapshot.Input != tc.input || !report.Snapshot.Complete || report.Diagnostics == nil {
 			t.Fatalf("%+v", report)
 		}
 	}
