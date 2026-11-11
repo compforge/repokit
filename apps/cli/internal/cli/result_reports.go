@@ -6,6 +6,7 @@ import (
 	"github.com/compforge/repokit/apps/cli/internal/stats"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/forge"
+	"github.com/compforge/repokit/toolkit/go/forge/discussion"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -79,6 +80,12 @@ func describeResult(r *commandResult, data any) {
 		if len(v.Errors) > 0 {
 			r.Outcome = "partial"
 		}
+	case []discussion.Discussion:
+		r.Summary = fmt.Sprintf("%d discussion(s)", len(v))
+	case discussion.Discussion:
+		r.Summary = fmt.Sprintf("Thread %s %s; %d comment(s)", v.ID, v.Resolution, len(v.Comments))
+	case discussion.CommentResult:
+		r.Summary = fmt.Sprintf("Comment %s posted in thread %s", v.Comment.ID, v.ThreadID)
 	case forge.OperationResult:
 		r.Summary = fmt.Sprintf("PR #%d %s; created=%t; %d maintenance errors", v.PullRequest.Key.Number, v.PullRequest.State, v.Created, len(v.Maintenance.Errors))
 		// +spec=Maintenance warnings cannot turn a confirmed PR write into a failed write

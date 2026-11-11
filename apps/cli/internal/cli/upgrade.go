@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 	"github.com/spf13/cobra"
 )
@@ -14,20 +15,20 @@ type upgradeClient interface {
 	Install(context.Context, upgrade.Release, string) error
 }
 
-func newUpgradeCommand(opts *options, version string, client upgradeClient) *cobra.Command {
+func newUpgradeCommand(opts *cmdutil.Options, version string, client upgradeClient) *cobra.Command {
 	var check bool
 	command := &cobra.Command{
 		Use:   "upgrade",
 		Short: "Check for or install the latest stable CLI release",
 		Args:  cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("timeout must be positive")
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(command.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(command.Context(), opts.Timeout)
 			defer cancel()
 			release, err := client.Check(ctx, version)
 			if err != nil {
@@ -44,8 +45,8 @@ func newUpgradeCommand(opts *options, version string, client upgradeClient) *cob
 				}
 				updated = true
 			}
-			if opts.json {
-				err = writeJSON(command.OutOrStdout(), struct {
+			if opts.JSON {
+				err = cmdutil.JSON(command.OutOrStdout(), struct {
 					upgrade.Release
 					Updated bool `json:"updated"`
 				}{release, updated})

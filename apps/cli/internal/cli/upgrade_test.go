@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 )
 
@@ -52,7 +53,7 @@ func TestUpgradeCommand(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Setenv("HOME", t.TempDir())
-			opts := &options{}
+			opts := &cmdutil.Options{}
 			root := newRootCommand(opts)
 			for _, cmd := range root.Commands() {
 				if cmd.Name() == "upgrade" {
@@ -99,7 +100,7 @@ func TestUpgradeRejectsNonPositiveTimeoutBeforeChecking(t *testing.T) {
 			}
 			t.Run(name, func(t *testing.T) {
 				t.Setenv("HOME", t.TempDir())
-				opts := &options{}
+				opts := &cmdutil.Options{}
 				root := newRootCommand(opts)
 				for _, command := range root.Commands() {
 					if command.Name() == "upgrade" {

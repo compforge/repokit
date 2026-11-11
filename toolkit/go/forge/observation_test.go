@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -13,6 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/forge/model"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
 )
 
 func TestLoadFreshnessConnectionScopeAndTerminalLifecycle(t *testing.T) {
@@ -76,7 +78,7 @@ func TestConnectionIdentityConformance(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, _, connection := client.observationLocation(Key{client.Repository("owner/project"), 1})
+		_, _, connection := client.observationLocation(model.Key{Repository: client.Repository("owner/project"), Number: 1})
 		if connection != row.Connection {
 			t.Fatalf("connection mismatch for %s: %s", row.Host, connection)
 		}
@@ -108,7 +110,7 @@ func TestMutationsPublishCacheAndKeepDiscoveryScopes(t *testing.T) {
 	config := Config{Host: "github.com", Token: "account-a", APIHost: server.URL, Home: t.TempDir()}
 	client, _ := NewClient(config)
 	ctx := context.Background()
-	key := Key{client.Repository("acme/repo"), 1}
+	key := model.Key{Repository: client.Repository("acme/repo"), Number: 1}
 	if _, err := client.Load(ctx, key.Repository.Path, 1, time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -157,7 +159,7 @@ func TestLifecycleOnlySnapshotRefreshesMissingMetadata(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, githubFixture(1, "open")) }))
 	defer server.Close()
 	client, _ := NewClient(Config{Host: "github.com", Token: "fixture", APIHost: server.URL, Home: t.TempDir()})
-	key := Key{client.Repository("acme/repo"), 1}
+	key := model.Key{Repository: client.Repository("acme/repo"), Number: 1}
 	_, path, connection := client.observationLocation(key)
 	snapshot := map[string]any{"repository": key.Repository, "number": 1, "state": "open", "title": "partial"}
 	record := map[string]any{"version": 1, "connection": connection, "scopeIds": []string{"watcher"}, "failures": 0, "observation": map[string]any{"key": key, "snapshot": snapshot, "observedAt": time.Now().UTC(), "attemptedAt": time.Now().UTC()}}

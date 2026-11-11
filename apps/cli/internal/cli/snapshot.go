@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"io"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newSnapshotCommand(opts *options) *cobra.Command {
+func newSnapshotCommand(opts *cmdutil.Options) *cobra.Command {
 	var head string
 	var staged bool
 	command := &cobra.Command{
@@ -24,19 +25,19 @@ Always check capture completeness before comparing digests.`,
   repocli snapshot --head HEAD --json`,
 		Args: cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("--timeout must be positive")
 			}
 			return nil
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(command.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(command.Context(), opts.Timeout)
 			defer cancel()
-			result, err := repokit.Snapshot(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
+			result, err := repokit.Snapshot(ctx, repokit.InputRequest{Repository: opts.Repository, Head: head, Staged: staged})
 			if err != nil {
 				return executionFailure(err)
 			}
-			if err := writeSnapshot(command.OutOrStdout(), result, opts.json); err != nil {
+			if err := writeSnapshot(command.OutOrStdout(), result, opts.JSON); err != nil {
 				return executionFailure(err)
 			}
 			return nil
@@ -50,10 +51,10 @@ Always check capture completeness before comparing digests.`,
 
 func writeSnapshot(output io.Writer, report repokit.SnapshotReport, asJSON bool) error {
 	if !asJSON {
-		recordResult(output, report)
+		cmdutil.Record(output, report)
 	}
 	if asJSON {
-		return writeJSON(output, report)
+		return cmdutil.JSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "%s input=%s complete=%t files=%d\n", report.Snapshot, report.Input, report.Complete, report.FileCount); err != nil {
 		return err

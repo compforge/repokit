@@ -9,12 +9,13 @@ import (
 	"os"
 	"path/filepath"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
-func newValidationCommand(opts *options, name string) *cobra.Command {
+func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
 	var planOnly, force, showHistory bool
@@ -31,7 +32,7 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
 				return errors.New("--history cannot be combined with check execution options")
 			}
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return errors.New("--timeout must be positive")
 			}
 			if len(changed) > 0 && base == "" {
@@ -43,17 +44,17 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 			// +spec=Optional history must not prevent planning or executing checks
 			if historyDir == "" && !planOnly {
-				home, err := repositoryHome(opts.home)
+				home, err := repositoryHome(opts.Home)
 				if err != nil {
 					if showHistory {
 						return executionFailure(fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err))
 					}
 					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "validation.history_unavailable", Severity: "warning", Phase: "history", Message: err.Error()})
-					if !opts.json {
+					if !opts.JSON {
 						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
 					}
 				} else {
@@ -61,7 +62,7 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 				}
 			}
 			if showHistory {
-				checkout, err := repokit.FindCheckout(ctx, opts.repository)
+				checkout, err := repokit.FindCheckout(ctx, opts.Repository)
 				if err != nil {
 					return executionFailure(err)
 				}
@@ -72,9 +73,9 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 				if err != nil {
 					return executionFailure(err)
 				}
-				return writeJSON(cmd.OutOrStdout(), history)
+				return cmdutil.JSON(cmd.OutOrStdout(), history)
 			}
-			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.repository, Components: components, Files: files, Concurrency: concurrency, Checks: checks, Base: base, ChangedFiles: changed}
+			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
@@ -96,29 +97,29 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 				if err != nil {
 					return executionFailure(err)
 				}
-				return writeJSON(cmd.OutOrStdout(), plan)
+				return cmdutil.JSON(cmd.OutOrStdout(), plan)
 			}
 			finishPhase := measurePhase(cmd.OutOrStdout(), "validation")
 			report, err := repokit.Validate(ctx, request)
 			finishPhase()
 			// Preserve available check evidence even if final capture or bookkeeping fails.
 			if report.SchemaVersion != 0 {
-				recordResult(cmd.OutOrStdout(), report)
+				cmdutil.Record(cmd.OutOrStdout(), report)
 			}
 			if err != nil {
 				return executionFailure(err)
 			}
 			finishPhase = measurePhase(cmd.OutOrStdout(), "observation")
-			if home, stateErr := repositoryHome(opts.home); stateErr == nil {
-				if _, stateErr = state.Observe(ctx, opts.repository, home, false); stateErr != nil {
+			if home, stateErr := repositoryHome(opts.Home); stateErr == nil {
+				if _, stateErr = state.Observe(ctx, opts.Repository, home, false); stateErr != nil {
 					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "state.observation_unavailable", Severity: "warning", Phase: "observation", Message: stateErr.Error()})
-					if !opts.json {
+					if !opts.JSON {
 						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
 					}
 				}
 			}
 			finishPhase()
-			if !opts.json {
+			if !opts.JSON {
 				if err := writeValidationText(cmd.OutOrStdout(), report); err != nil {
 					return executionFailure(err)
 				}

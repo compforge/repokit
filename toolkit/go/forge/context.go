@@ -8,6 +8,7 @@ import (
 
 	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -154,7 +155,7 @@ func (c *Context) Ensure(ctx context.Context, r CreateRequest) (operation Operat
 	return result, nil
 }
 
-func (c *Context) Update(ctx context.Context, key Key, r UpdateRequest) (operation OperationResult, err error) {
+func (c *Context) Update(ctx context.Context, key model.Key, r UpdateRequest) (operation OperationResult, err error) {
 	defer func() { err = errs.Wrap(err, "forge.update_failed", "forge.update", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
@@ -162,7 +163,7 @@ func (c *Context) Update(ctx context.Context, key Key, r UpdateRequest) (operati
 	pr, err := c.Client.Update(ctx, key, r)
 	return c.afterWrite(ctx, pr, err)
 }
-func (c *Context) Close(ctx context.Context, key Key) (operation OperationResult, err error) {
+func (c *Context) Close(ctx context.Context, key model.Key) (operation OperationResult, err error) {
 	defer func() { err = errs.Wrap(err, "forge.close_failed", "forge.close", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
@@ -170,7 +171,7 @@ func (c *Context) Close(ctx context.Context, key Key) (operation OperationResult
 	pr, err := c.Client.Close(ctx, key)
 	return c.afterWrite(ctx, pr, err)
 }
-func (c *Context) Merge(ctx context.Context, key Key, expectedSHA, method string) (operation OperationResult, err error) {
+func (c *Context) Merge(ctx context.Context, key model.Key, expectedSHA, method string) (operation OperationResult, err error) {
 	defer func() { err = errs.Wrap(err, "forge.merge_failed", "forge.merge", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
@@ -178,7 +179,7 @@ func (c *Context) Merge(ctx context.Context, key Key, expectedSHA, method string
 	pr, err := c.Client.Merge(ctx, key, expectedSHA, method)
 	return c.afterWrite(ctx, pr, err)
 }
-func (c *Context) authorize(ctx context.Context, key Key) error {
+func (c *Context) authorize(ctx context.Context, key model.Key) error {
 	if err := c.verifyOrigin(ctx); err != nil {
 		return err
 	}

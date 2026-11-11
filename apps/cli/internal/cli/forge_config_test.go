@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -76,16 +77,16 @@ func TestForgeConfigurationLoadedOncePerOperation(t *testing.T) {
 	os.WriteFile(path, []byte(`{"forges":{"git.example.com":{"provider":"gitlab","token":"fixture"}}}`), 0600)
 	repo := fixture(t)
 	gitCommand(t, repo, "remote", "add", "origin", "https://git.example.com/acme/repo.git")
-	var options forgeOptions
-	if _, err := options.context(context.Background(), repo, home); err != nil {
+	var options forgeaccess.Options
+	if _, err := options.Context(context.Background(), repo, home); err != nil {
 		t.Fatal(err)
 	}
 	os.WriteFile(path, []byte("invalid"), 0600)
-	if _, err := options.context(context.Background(), repo, home); err != nil {
+	if _, err := options.Context(context.Background(), repo, home); err != nil {
 		t.Fatal("config was reloaded", err)
 	}
-	var next forgeOptions
-	if _, err := next.context(context.Background(), repo, home); err == nil {
+	var next forgeaccess.Options
+	if _, err := next.Context(context.Background(), repo, home); err == nil {
 		t.Fatal("new operation ignored invalid config")
 	}
 }

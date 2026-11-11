@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/forge"
@@ -68,7 +69,7 @@ func TestJSONFlagIntentRespectsValuesAndDelimiter(t *testing.T) {
 		{[]string{"--json", "impact", "--json=false"}, false},
 		{[]string{"impact", "--json=true"}, true},
 	} {
-		if got := requestedJSON(newRootCommand(&options{}), tc.args); got != tc.want {
+		if got := requestedJSON(newRootCommand(&cmdutil.Options{}), tc.args); got != tc.want {
 			t.Fatalf("%v: %t", tc.args, got)
 		}
 	}
@@ -76,10 +77,10 @@ func TestJSONFlagIntentRespectsValuesAndDelimiter(t *testing.T) {
 
 func runResultCommand(t *testing.T, data any, err error, stdout io.Writer) (int, string) {
 	t.Helper()
-	root := newRootCommand(&options{})
+	root := newRootCommand(&cmdutil.Options{})
 	root.AddCommand(&cobra.Command{Use: "fixture-result", RunE: func(cmd *cobra.Command, _ []string) error {
 		if data != nil {
-			if e := writeJSON(cmd.OutOrStdout(), data); e != nil {
+			if e := cmdutil.JSON(cmd.OutOrStdout(), data); e != nil {
 				return executionFailure(e)
 			}
 		}

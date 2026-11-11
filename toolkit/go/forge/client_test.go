@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
 func githubFixture(number int, state string) string {
@@ -59,7 +60,7 @@ func TestWriteFailureIsUncertainAndNeverRetried(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(503) }))
 	defer server.Close()
 	client, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
-	_, err := client.Close(context.Background(), Key{client.Repository("acme/repo"), 1})
+	_, err := client.Close(context.Background(), model.Key{Repository: client.Repository("acme/repo"), Number: 1})
 	var unknown *errs.Error
 	if !errors.As(err, &unknown) || !unknown.Uncertain || unknown.Code != "forge.outcome_unknown" || unknown.HTTPStatus != 503 || calls != 1 {
 		t.Fatal(err, calls)

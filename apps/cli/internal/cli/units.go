@@ -2,17 +2,19 @@ package cli
 
 import (
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go"
 	"io"
 	"strings"
+
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/toolkit/go"
 )
 
 func writeUnits(w io.Writer, r repokit.UnitReport, structured bool) error {
 	if !structured {
-		recordResult(w, r)
+		cmdutil.Record(w, r)
 	}
 	if structured {
-		return writeJSON(w, r)
+		return cmdutil.JSON(w, r)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diff -> Fragment -> Unit: %d files, %d fragments, %d units\n", len(r.Changes), len(r.Fragments), len(r.Units))

@@ -6,11 +6,12 @@ import (
 	"io"
 	"strings"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newInspectCommand(opts *options) *cobra.Command {
+func newInspectCommand(opts *cmdutil.Options) *cobra.Command {
 	var head string
 	var staged bool
 	command := &cobra.Command{
@@ -24,19 +25,19 @@ full-content digest, or submodule capture is performed. Use snapshot for content
   repocli inspect --head HEAD --json`,
 		Args: cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("timeout must be positive")
 			}
 			return nil
 		},
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
-			report, err := repokit.Inspect(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
+			report, err := repokit.Inspect(ctx, repokit.InputRequest{Repository: opts.Repository, Head: head, Staged: staged})
 			if err != nil {
 				return executionFailure(err)
 			}
-			if err := writeInspect(cmd.OutOrStdout(), report, opts.json); err != nil {
+			if err := writeInspect(cmd.OutOrStdout(), report, opts.JSON); err != nil {
 				return executionFailure(err)
 			}
 			return nil
@@ -50,10 +51,10 @@ full-content digest, or submodule capture is performed. Use snapshot for content
 
 func writeInspect(output io.Writer, report repokit.InspectReport, asJSON bool) error {
 	if !asJSON {
-		recordResult(output, report)
+		cmdutil.Record(output, report)
 	}
 	if asJSON {
-		return writeJSON(output, report)
+		return cmdutil.JSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "input=%s complete=%t components=%d\n", report.Input, report.Complete, len(report.Components)); err != nil {
 		return err

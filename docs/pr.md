@@ -416,3 +416,50 @@ See [storage, freshness and migration](state.md).
 
 Breaking migration: Go worktree exports moved from the module root to its `worktree` package.
 Python remains an independently usable toolkit; its former console entry point is removed.
+
+## PR discussions
+
+CLI 的 PR 生命周期与讨论命令归 `apps/cli/internal/cli/pr`，根命令负责注册和统一结果封装；
+`cli/command` 提供共享选项与结果记录契约，`cli/forgeaccess` 装配 PR 和清理共用的 Forge 访问。
+工具包的讨论模型、查询与写入归 `forge/discussion`，PR 生命周期仍归 `forge`。
+两者通过 `forge/model` 共享 PR 身份，通过 `forge/internal/transport` 共享凭据、HTTP 客户端、
+响应限制和限流冷却；讨论服务由 `forge.Client` 装配，不反向依赖父包。GitHub 评论创建前复用
+PR 实时读取核验，讨论操作不触发 worktree maintenance。
+
+Go `forge.Client.Discussions()` 返回 `forge/discussion.Service`，提供 `List`、`Get`、
+`Create`、`Reply` 和 `Resolve`。讨论属于明确的 PR `forge/model.Key`；thread ID 与 comment ID 是不同的 opaque
+标识。GitHub review thread 使用平台 node ID，普通 conversation comment 的 thread ID 为
+`issue:<comment-id>`；GitLab 使用 discussion ID。调用方使用返回的 ID，不自行转换。
+
+```sh
+repocli pr discussion list 12 --repo . --json
+repocli pr discussion show 12 <thread-id> --repo . --json
+repocli pr discussion create 12 --repo . --body-file comment.md --json
+repocli pr discussion reply 12 <thread-id> --repo . --body-file reply.md --json
+repocli pr discussion resolve 12 <thread-id> --repo . --json
+```
+
+沿用 `--target-repository` 选择 fork 的目标仓，访问配置来自 RepoKit home。
+`--body-file -` 从 stdin 读取完整 Markdown；空白正文拒绝写入。`create` 发布普通 conversation
+comment；GitHub 普通评论不能原生回复/resolve，GitLab 创建 discussion 后可回复。
+创建带 diff 位置的 review comment 不在这组命令的创建能力内。
+
+`data` 的读取结果是 Discussion（list 为数组），包含 `pullRequest`、`id`、完整 `comments`、
+`replyable`、`resolvable` 和 `resolution`（`not_applicable` / `unresolved` / `resolved`）。
+Comment 保留 `id`、`author`、完整 `body`、`createdAt` 与可获得的 URL、path、line；过期位置
+保留原始行号。reply 返回已确认的 `pullRequest`、`threadId` 和新 `comment`。
+文本 list 展示 ID 与能力摘要，show 展示完整正文及回复；JSON 始终保留完整内容。
+
+读取遍历有界分页（每个集合最多 100 页、每页 100 项），system notes 不作为用户讨论。
+分页失败、容量超限及 GitHub REST/GraphQL 观察不一致都报错，不能返回不完整的成功结果。
+reply/resolve 写入前从指定 PR 重新读取 thread，核验归属和平台能力；已经 resolved 的 thread
+返回当前观察，不重复写。平台 resolve 只表达讨论状态，不表示 finding 无效、代码已修复或验证通过。
+这些判断与何时执行由调用方拥有。
+
+写操作只发送一次，结果必须由平台响应确认。传输中断、5xx、无法解释的写入响应返回
+`outcome: unknown` / `error.uncertain`，并指向目标 PR/thread；调用方先重新读取讨论，核对正文、
+作者、ID 和 resolution，再决定恢复。GraphQL 查询虽然使用 POST，仍按读取处理。
+这些命令不维护讨论缓存，也不调用 worktree maintenance。
+
+平台协议依据：[GitHub Pull requests GraphQL](https://docs.github.com/en/graphql/reference/pulls)、
+[GitLab Discussions API](https://docs.gitlab.com/api/discussions/)。

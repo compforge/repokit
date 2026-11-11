@@ -9,11 +9,12 @@ import (
 	"text/tabwriter"
 	"time"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/apps/cli/internal/stats"
 	"github.com/spf13/cobra"
 )
 
-func newStatsCommand(opts *options) *cobra.Command {
+func newStatsCommand(opts *cmdutil.Options) *cobra.Command {
 	var top int
 	command := &cobra.Command{
 		Use:   "stats",
@@ -21,7 +22,7 @@ func newStatsCommand(opts *options) *cobra.Command {
 		Long:  "Summarize existing local records across repositories without running checks or cleaning history.\nCounts cover retained records, not lifetime totals. Storage reports logical file bytes.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return errors.New("--timeout must be positive")
 			}
 			if top < 1 || top > 100 {
@@ -30,21 +31,21 @@ func newStatsCommand(opts *options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				return errors.New("stats is global; use validate --history --repo <path> for one repository")
 			}
-			path, err := repositoryHome(opts.home)
+			path, err := repositoryHome(opts.Home)
 			if err != nil {
 				return executionFailure(err)
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 			report, err := stats.Read(ctx, path, top)
 			if err != nil {
 				return executionFailure(err)
 			}
-			if !opts.json {
-				recordResult(cmd.OutOrStdout(), report)
+			if !opts.JSON {
+				cmdutil.Record(cmd.OutOrStdout(), report)
 			}
-			if opts.json {
-				err = writeJSON(cmd.OutOrStdout(), report)
+			if opts.JSON {
+				err = cmdutil.JSON(cmd.OutOrStdout(), report)
 			} else {
 				err = writeStats(cmd.OutOrStdout(), report)
 			}

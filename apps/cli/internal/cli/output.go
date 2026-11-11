@@ -6,15 +6,16 @@ import (
 	"slices"
 	"strings"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 )
 
 func writeReport(stdout io.Writer, result repokit.ImpactReport, asJSON bool) error {
 	if !asJSON {
-		recordResult(stdout, result)
+		cmdutil.Record(stdout, result)
 	}
 	if asJSON {
-		return writeJSON(stdout, result)
+		return cmdutil.JSON(stdout, result)
 	}
 	var buffer strings.Builder
 	fmt.Fprintf(&buffer, "%d changed files; impact scope: %s\n", len(result.Changes), result.Scope)

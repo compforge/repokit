@@ -3,31 +3,27 @@
 package forge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	"github.com/compforge/repokit/toolkit/go/forge/internal/transport"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 	repohome "github.com/compforge/repokit/toolkit/go/state"
 )
 
-type Key struct {
-	Repository common.Repository `json:"repository"`
-	Number     int               `json:"number"`
-}
 type PullRequest struct {
-	Key              Key               `json:"key"`
+	Key              model.Key         `json:"key"`
 	Title            string            `json:"title"`
 	Body             string            `json:"body"`
 	URL              string            `json:"url"`
@@ -45,11 +41,8 @@ type Config struct {
 	HTTPClient                     *http.Client
 }
 type Client struct {
-	config   Config
-	base     string
-	http     *http.Client
-	mu       sync.Mutex
-	cooldown time.Time
+	config    Config
+	transport *transport.Client
 }
 
 // DetectProvider applies the same case-insensitive host policy as Python ForgeConnection.
@@ -100,123 +93,7 @@ func NewClient(config Config) (result *Client, err error) {
 	if client == nil {
 		client = &http.Client{Timeout: 10 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 	}
-	return &Client{config: config, base: strings.TrimRight(base, "/"), http: client}, nil
-}
-
-func (c *Client) Repository(path string) common.Repository {
-	name := c.config.Host
-	if name == "github.com" {
-		name = "github"
-	}
-	if name == "gitlab.com" {
-		name = "gitlab"
-	}
-	return common.Repository{Forge: common.Forge{Name: name}, Path: path}
-}
-
-func (c *Client) request(ctx context.Context, method, path string, payload any, dest any) (err error) {
-	defer func() { err = errs.Wrap(err, "forge.request_failed", method, path) }()
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if time.Now().Before(c.cooldown) {
-		return httpFailure(429, &c.cooldown)
-	}
-	var body io.Reader
-	if payload != nil {
-		data, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		body = bytes.NewReader(data)
-	}
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
-	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/json")
-	if c.config.Token != "" {
-		if c.config.Provider == "github" {
-			req.Header.Set("Authorization", "Bearer "+c.config.Token)
-		} else {
-			req.Header.Set("PRIVATE-TOKEN", c.config.Token)
-		}
-	}
-	if err = ctx.Err(); err != nil {
-		return err
-	}
-	response, err := c.http.Do(req)
-	write := method != "GET"
-	if err != nil {
-		if write {
-			return unknownFailure(err)
-		}
-		return err
-	}
-	defer response.Body.Close()
-	data, err := io.ReadAll(io.LimitReader(response.Body, 16*1024*1024+1))
-	if err == nil && len(data) > 16*1024*1024 {
-		err = errors.New("Forge response exceeds 16 MiB")
-	}
-	if err != nil {
-		if write {
-			return unknownFailure(err)
-		}
-		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		httpErr := httpFailure(response.StatusCode, nil)
-		if response.StatusCode == 429 || response.StatusCode == 403 && (response.Header.Get("Retry-After") != "" || response.Header.Get("X-RateLimit-Remaining") == "0") {
-			c.cooldown = time.Now().Add(30 * time.Second)
-			if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil {
-				c.cooldown = time.Now().Add(time.Duration(max(1, seconds)) * time.Second)
-			} else if at, err := http.ParseTime(response.Header.Get("Retry-After")); err == nil {
-				c.cooldown = at
-			}
-			if epoch, err := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil && time.Unix(epoch, 0).After(c.cooldown) {
-				c.cooldown = time.Unix(epoch, 0)
-			}
-			retryAt := c.cooldown
-			httpErr.RetryAt = &retryAt
-		}
-		if write && (response.StatusCode >= 500 || response.StatusCode >= 300 && response.StatusCode < 400) {
-			return unknownFailure(httpErr)
-		}
-		return httpErr
-	}
-	if dest != nil {
-		if err = json.Unmarshal(data, dest); err != nil {
-			if write {
-				return unknownFailure(err)
-			}
-			return err
-		}
-	}
-	return nil
-}
-
-func (c *Client) repositoryPath(repository string) string {
-	if c.config.Provider == "gitlab" {
-		return "/projects/" + url.PathEscape(repository)
-	}
-	parts := strings.Split(repository, "/")
-	for i := range parts {
-		parts[i] = url.PathEscape(parts[i])
-	}
-	return "/repos/" + strings.Join(parts, "/")
-}
-func (c *Client) prPath(repository string, number int) string {
-	kind := "/pulls"
-	if c.config.Provider == "gitlab" {
-		kind = "/merge_requests"
-	}
-	path := c.repositoryPath(repository) + kind
-	if number > 0 {
-		path += "/" + strconv.Itoa(number)
-	}
-	return path
+	return &Client{config: config, transport: transport.New(config.Host, config.Provider, config.Token, strings.TrimRight(base, "/"), client)}, nil
 }
 
 type githubPR struct {
@@ -251,7 +128,7 @@ type gitlabPR struct {
 }
 
 func (c *Client) decodePR(ctx context.Context, repository string, data json.RawMessage) (PullRequest, error) {
-	pr := PullRequest{Key: Key{Repository: c.Repository(repository)}}
+	pr := PullRequest{Key: model.Key{Repository: c.Repository(repository)}}
 	if c.config.Provider == "github" {
 		var wire githubPR
 		if err := json.Unmarshal(data, &wire); err != nil {
@@ -296,7 +173,7 @@ func (c *Client) decodePR(ctx context.Context, repository string, data json.RawM
 			var project struct {
 				Path string `json:"path_with_namespace"`
 			}
-			if err := c.request(ctx, "GET", "/projects/"+strconv.Itoa(wire.SourceID), nil, &project); err != nil {
+			if err := c.transport.Request(ctx, "GET", "/projects/"+strconv.Itoa(wire.SourceID), nil, &project); err != nil {
 				return pr, err
 			}
 			pr.SourceRepository = c.Repository(project.Path)
@@ -314,7 +191,7 @@ func (c *Client) Get(ctx context.Context, repository string, number int) (result
 		return PullRequest{}, errors.New("PR number must be positive")
 	}
 	var data json.RawMessage
-	if err := c.request(ctx, "GET", c.prPath(repository, number), nil, &data); err != nil {
+	if err := c.transport.Request(ctx, "GET", c.transport.PRPath(repository, number), nil, &data); err != nil {
 		return PullRequest{}, err
 	}
 	pr, err := c.decodePR(ctx, repository, data)
@@ -354,7 +231,7 @@ func (c *Client) List(ctx context.Context, repository, state, source, branch str
 			query.Set("sort", "desc")
 		}
 		var rows []json.RawMessage
-		if err := c.request(ctx, "GET", c.prPath(repository, 0)+"?"+query.Encode(), nil, &rows); err != nil {
+		if err := c.transport.Request(ctx, "GET", c.transport.PRPath(repository, 0)+"?"+query.Encode(), nil, &rows); err != nil {
 			return nil, err
 		}
 		if rows == nil {
@@ -399,7 +276,7 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (result PullReques
 		payload["draft"] = r.Draft
 	} else {
 		var target struct{ ID int }
-		if err := c.request(ctx, "GET", c.repositoryPath(r.TargetRepository), nil, &target); err != nil {
+		if err := c.transport.Request(ctx, "GET", c.transport.RepositoryPath(r.TargetRepository), nil, &target); err != nil {
 			return PullRequest{}, err
 		}
 		if target.ID <= 0 {
@@ -415,12 +292,12 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (result PullReques
 		}
 	}
 	var data json.RawMessage
-	if err := c.request(ctx, "POST", c.prPath(repository, 0), payload, &data); err != nil {
+	if err := c.transport.Request(ctx, "POST", c.transport.PRPath(repository, 0), payload, &data); err != nil {
 		return PullRequest{}, err
 	}
 	pr, err := c.decodePR(ctx, r.TargetRepository, data)
 	if err != nil {
-		return pr, unknownFailure(err)
+		return pr, transport.UnknownFailure(err)
 	}
 	if _, err := c.mutate(ctx, pr.Key, func() (PullRequest, error) { return pr, nil }); err != nil {
 		slog.WarnContext(ctx, "PR cache unavailable after successful creation", "repository", pr.Key.Repository.Path, "number", pr.Key.Number, "error", err)
@@ -430,7 +307,7 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (result PullReques
 
 type UpdateRequest struct{ Title, Body, TargetBranch *string }
 
-func (c *Client) Update(ctx context.Context, key Key, r UpdateRequest) (result PullRequest, err error) {
+func (c *Client) Update(ctx context.Context, key model.Key, r UpdateRequest) (result PullRequest, err error) {
 	defer func() { err = errs.Wrap(err, "forge.update_failed", "forge.update", key.Repository.Path) }()
 	payload := map[string]any{}
 	if r.Title != nil {
@@ -448,7 +325,7 @@ func (c *Client) Update(ctx context.Context, key Key, r UpdateRequest) (result P
 	}
 	return c.change(ctx, key, payload)
 }
-func (c *Client) Close(ctx context.Context, key Key) (result PullRequest, err error) {
+func (c *Client) Close(ctx context.Context, key model.Key) (result PullRequest, err error) {
 	defer func() { err = errs.Wrap(err, "forge.close_failed", "forge.close", key.Repository.Path) }()
 	payload := map[string]any{"state": "closed"}
 	if c.config.Provider == "gitlab" {
@@ -456,7 +333,7 @@ func (c *Client) Close(ctx context.Context, key Key) (result PullRequest, err er
 	}
 	return c.change(ctx, key, payload)
 }
-func (c *Client) change(ctx context.Context, key Key, payload any) (PullRequest, error) {
+func (c *Client) change(ctx context.Context, key model.Key, payload any) (PullRequest, error) {
 	if key.Number <= 0 || key.Repository != c.Repository(key.Repository.Path) {
 		return PullRequest{}, errors.New("invalid PR identity")
 	}
@@ -466,17 +343,17 @@ func (c *Client) change(ctx context.Context, key Key, payload any) (PullRequest,
 			method = "PUT"
 		}
 		var data json.RawMessage
-		if err := c.request(ctx, method, c.prPath(key.Repository.Path, key.Number), payload, &data); err != nil {
+		if err := c.transport.Request(ctx, method, c.transport.PRPath(key.Repository.Path, key.Number), payload, &data); err != nil {
 			return PullRequest{}, err
 		}
 		pr, err := c.decodePR(ctx, key.Repository.Path, data)
 		if err != nil {
-			return pr, unknownFailure(err)
+			return pr, transport.UnknownFailure(err)
 		}
 		return pr, nil
 	})
 }
-func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string) (result PullRequest, err error) {
+func (c *Client) Merge(ctx context.Context, key model.Key, expectedSHA, method string) (result PullRequest, err error) {
 	defer func() { err = errs.Wrap(err, "forge.merge_failed", "forge.merge", key.Repository.Path) }()
 	if expectedSHA == "" || key.Number <= 0 || key.Repository != c.Repository(key.Repository.Path) {
 		return PullRequest{}, errors.New("merge requires PR identity and expected SHA")
@@ -493,13 +370,13 @@ func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string)
 			payload = map[string]any{"sha": expectedSHA, "squash": method == "squash", "should_remove_source_branch": false}
 		}
 		var data json.RawMessage
-		if err := c.request(ctx, "PUT", c.prPath(key.Repository.Path, key.Number)+"/merge", payload, &data); err != nil {
+		if err := c.transport.Request(ctx, "PUT", c.transport.PRPath(key.Repository.Path, key.Number)+"/merge", payload, &data); err != nil {
 			return PullRequest{}, err
 		}
 		if c.config.Provider == "github" {
 			var result struct{ Merged bool }
 			if err := json.Unmarshal(data, &result); err != nil {
-				return PullRequest{}, unknownFailure(err)
+				return PullRequest{}, transport.UnknownFailure(err)
 			}
 			if !result.Merged {
 				return PullRequest{}, errors.New("PR was not merged")
@@ -507,8 +384,19 @@ func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string)
 		}
 		pr, err := c.Get(ctx, key.Repository.Path, key.Number)
 		if err != nil {
-			return pr, unknownFailure(err)
+			return pr, transport.UnknownFailure(err)
 		}
 		return pr, nil
+	})
+}
+
+// Repository identifies a resource on this client's configured Forge.
+func (c *Client) Repository(path string) common.Repository { return c.transport.Repository(path) }
+
+// Discussions shares this connection's credentials, HTTP client, budgets and cooldown.
+func (c *Client) Discussions() *discussion.Service {
+	return discussion.New(c.transport, func(ctx context.Context, key model.Key) error {
+		_, err := c.Get(ctx, key.Repository.Path, key.Number)
+		return err
 	})
 }

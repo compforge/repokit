@@ -1,92 +1,28 @@
-package cli
+// Package pr adapts PR lifecycle and discussion operations to Cobra commands.
+package pr
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	repoconfig "github.com/compforge/repokit/toolkit/go/config"
-	"github.com/compforge/repokit/toolkit/go/forge"
-	repostate "github.com/compforge/repokit/toolkit/go/state"
-	"github.com/spf13/cobra"
 	"os"
 	"strconv"
 	"time"
+
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
+	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
+	"github.com/spf13/cobra"
 )
 
-type forgeOptions struct {
-	provider, apiHost   string
-	targets             []string
-	configuration       *repoconfig.Config
-	configurationErr    error
-	configurationLoaded bool
-}
-
-var errNoForgeOrigin = errors.New("checkout has no Forge origin")
-
-func (o *forgeOptions) flags(cmd *cobra.Command) {
-	flags := cmd.PersistentFlags()
-	flags.StringVar(&o.provider, "provider", "", "Forge provider: github or gitlab")
-	flags.StringVar(&o.apiHost, "api-host", "", "Forge API URL override")
-	flags.StringArrayVar(&o.targets, "target-repository", nil, "target repository path; repeat for worktree cleanup")
-}
-func (o *forgeOptions) validate(opts *options) error {
-	if opts.timeout <= 0 {
-		return errors.New("--timeout must be positive")
-	}
-	if o.provider != "" && o.provider != "github" && o.provider != "gitlab" {
-		return errors.New("--provider must be github or gitlab")
-	}
-	return nil
-}
-func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot string) (*forge.Context, error) {
-	identity, err := forge.RepositoryIdentity(ctx, repo)
-	if err != nil {
-		return nil, err
-	}
-	if identity == nil {
-		return nil, errNoForgeOrigin
-	}
-	if !o.configurationLoaded {
-		o.configuration, o.configurationErr = repoconfig.Load(stateRoot)
-		o.configurationLoaded = true
-	}
-	if o.configurationErr != nil {
-		return nil, o.configurationErr
-	}
-	access, err := o.configuration.Forge(identity.Forge.Name)
-	if err != nil {
-		return nil, err
-	}
-	if o.provider != "" && o.provider != access.Provider {
-		return nil, operationFailure("forge.provider_mismatch", "connection", identity.Forge.Name, errors.New("provider override conflicts with configured Forge provider"))
-	}
-	if o.apiHost != "" {
-		access.APIHost = o.apiHost
-	}
-	client, err := forge.NewClient(access)
-	if err != nil {
-		return nil, err
-	}
-	return forge.NewContext(ctx, client, repo, o.targets)
-}
-
-// worktreePullRequests adapts the shared Forge connection for both cleanup commands.
-// Local repositories have no merged-PR stage; connection failures still allow count retention.
-func (o *forgeOptions) worktreePullRequests(ctx context.Context, repo, home string) (repostate.WorktreePullRequests, error) {
-	prContext, err := o.context(ctx, repo, home)
-	if errors.Is(err, errNoForgeOrigin) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return prContext, nil
-}
-
-func newPRCommand(opts *options) *cobra.Command {
+func NewCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{Use: "pr", Short: "Create, query and update GitHub PRs or GitLab MRs"}
-	var connection forgeOptions
-	connection.flags(root)
+	var connection forgeaccess.Options
+	connection.Flags(root)
+	root.AddCommand(newDiscussionCommand(opts, &connection))
 	for _, operation := range []string{"create", "show", "list", "update", "close", "merge"} {
 		var title, bodyFile, sourceBranch, targetBranch, state, expectedSHA, method string
 		var draft bool
@@ -100,7 +36,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			command.Flags().DurationVar(&maxAge, "max-age", time.Minute, "maximum age of cached PR metadata; 0 forces refresh")
 		}
 		command.RunE = func(cmd *cobra.Command, args []string) error {
-			if err := connection.validate(opts); err != nil {
+			if err := connection.Validate(opts); err != nil {
 				return err
 			}
 			number := 0
@@ -111,7 +47,7 @@ func newPRCommand(opts *options) *cobra.Command {
 					return errors.New("PR number must be positive")
 				}
 			}
-			if len(connection.targets) > 1 {
+			if len(connection.Targets) > 1 {
 				return errors.New("PR operations require one --target-repository")
 			}
 			if operation == "create" && (title == "" || targetBranch == "") {
@@ -133,19 +69,19 @@ func newPRCommand(opts *options) *cobra.Command {
 			if cmd.Flags().Changed("body-file") {
 				data, err := os.ReadFile(bodyFile)
 				if err != nil {
-					return executionFailure(err)
+					return errs.Wrap(err, "execution.failed", "execution", "")
 				}
 				value := string(data)
 				body = &value
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
-			prContext, err := connection.context(ctx, opts.repository, opts.home)
+			prContext, err := connection.Context(ctx, opts.Repository, opts.Home)
 			if err != nil {
-				return executionFailure(err)
+				return errs.Wrap(err, "execution.failed", "execution", "")
 			}
 			target := prContext.Targets[0]
-			key := forge.Key{Repository: prContext.Client.Repository(target), Number: number}
+			key := model.Key{Repository: prContext.Client.Repository(target), Number: number}
 			var result any
 			switch operation {
 			case "show":
@@ -154,13 +90,13 @@ func newPRCommand(opts *options) *cobra.Command {
 				result, err = prContext.Client.List(ctx, target, state, "", sourceBranch)
 			case "create":
 				if sourceBranch == "" {
-					info, e := repostate.Checkout(ctx, opts.repository)
+					info, e := repostate.Checkout(ctx, opts.Repository)
 					if e != nil {
-						return executionFailure(e)
+						return errs.Wrap(e, "execution.failed", "execution", "")
 					}
-					entries, e := repostate.ListCheckouts(ctx, opts.repository)
+					entries, e := repostate.ListCheckouts(ctx, opts.Repository)
 					if e != nil {
-						return executionFailure(e)
+						return errs.Wrap(e, "execution.failed", "execution", "")
 					}
 					for _, entry := range entries {
 						if entry.Path == info.Root {
@@ -191,15 +127,15 @@ func newPRCommand(opts *options) *cobra.Command {
 				result, err = prContext.Merge(ctx, key, expectedSHA, method)
 			}
 			if err != nil {
-				return operationFailure("forge.operation_failed", operation, fmt.Sprintf("%s #%d source=%s target=%s", target, number, sourceBranch, targetBranch), err)
+				return errs.Wrap(err, "forge.operation_failed", operation, fmt.Sprintf("%s #%d source=%s target=%s", target, number, sourceBranch, targetBranch))
 			}
-			if !opts.json {
-				recordResult(cmd.OutOrStdout(), result)
+			if !opts.JSON {
+				cmdutil.Record(cmd.OutOrStdout(), result)
 			}
 			// JSON is a stable scripting interface; readable output keeps maintenance diagnostics visible.
-			if opts.json {
-				if err = writeJSON(cmd.OutOrStdout(), result); err != nil {
-					return executionFailure(err)
+			if opts.JSON {
+				if err = cmdutil.JSON(cmd.OutOrStdout(), result); err != nil {
+					return errs.Wrap(err, "execution.failed", "execution", "")
 				}
 				return nil
 			}
