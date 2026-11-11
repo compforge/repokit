@@ -165,3 +165,11 @@ Release 查询与写入的 `data`、确认状态及 `release.*` 阶段成本见 
 `worktree ensure` 的成功条件是 `data.confirmed=true`，action 为 created、resumed 或 reused。
 状态发布失败是 warning；创建后无法核验为 unknown。阶段耗时和完整恢复边界见
 [worktree 创建与复用](worktrees.md#创建与复用)。
+
+### Rebase
+
+`git rebase` 返回 checkout、action、phase、transaction、headSha、conflicts、confirmed、
+writeAttempted、pushAttempted、diagnostics 与 phases。`paused` 是已确认的暂停，不等于完成；
+`finish` 的成功条件是远端分支匹配固定提交。中断后未确认的写操作返回 unknown/uncertain，
+记录发布失败保留已确认 Git 结果并附 warning。阶段耗时映射到 `cost.phases` 的 `git.rebase.*`。
+详细恢复和 status 时效契约见 [rebase](git-rebase.md)。
