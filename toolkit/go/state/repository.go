@@ -89,6 +89,9 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 	if maxAge < 0 {
 		return nil, errors.New("max age must be nonnegative")
 	}
+	if err := RecordAccess(ctx, repo, home); err != nil {
+		return nil, err
+	}
 	directory, info, _, err := stateLocation(ctx, repo, home)
 	if err != nil {
 		return nil, err
@@ -158,6 +161,9 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 // +link=component://docs/state.md
 func Observe(ctx context.Context, repo, home string, reconcile bool) (directory string, err error) {
 	defer func() { err = errs.Wrap(err, "state.observe_failed", "state.observe", repo) }()
+	if err := RecordAccess(ctx, repo, home); err != nil {
+		return "", err
+	}
 	return observeBranch(ctx, repo, home, reconcile, nil)
 }
 

@@ -237,6 +237,15 @@ GitHub/GitLab 的 PR/MR 操作；调用方直接导入库，组织自己的开�
 `repocli diff --units --max-units 8` shows how a diff becomes source fragments and related units.
 Use `--json` for structured output. The Go library exposes the same analysis; see [Fragment and Unit](docs/units.md).
 
+## Inactive cleanup
+
+`repocli clean --dry-run --json` previews disk reclamation across recorded repositories.
+Omit `--dry-run` to apply the existing worktree retention policy and reclaim repository state unused for
+30 days. `--inactive-days` changes the state threshold; `--repo` limits the repository. Both cleanup
+commands use the same worktree service, keeping the configured limits (default 10 linked, 3 prepared),
+primary source checkouts and branches. Missing repository access times count as oldest.
+See [access tracking, protection and space estimates](docs/cleanup.md).
+
 ## Worktree cleanup
 
 `repocli worktree clean --dry-run` previews repository retention; omit `--dry-run` to apply it.

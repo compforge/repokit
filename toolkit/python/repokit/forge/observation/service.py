@@ -14,6 +14,7 @@ from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
 from ...budget import current_budget, operation
+from ...state.activity import record_access
 from ...state.home import resolve_home
 from ...state.identity import repository_key
 from ...state.store import JSON, ObservationStorageError, ObservationStore, digest
@@ -211,6 +212,7 @@ class PullRequestObserver:
                 return observation
 
     def get_pull_request(self, key: PullRequestKey, *, refresh: bool = False) -> PullRequestStatus:
+        record_access(self.store, repository_key(key.repository.forge.name, key.repository.path))
         observed = self._get(key, refresh=refresh)
         snapshot = cast(JSON, observed["snapshot"])
         return PullRequestStatus(

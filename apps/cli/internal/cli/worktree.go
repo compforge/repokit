@@ -37,7 +37,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 			return executionFailure(err)
 		}
 		request := state.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
-		prContext, connectionErr := connection.context(ctx, opts.repository, opts.home)
+		prContext, connectionErr := connection.worktreePullRequests(ctx, opts.repository, opts.home)
 		if connectionErr == nil {
 			request.PullRequests = prContext
 		}

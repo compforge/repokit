@@ -230,3 +230,25 @@ def test_checkout_mutation_survives_state_publication_failure(repo, tmp_path):
     assert "metadata unavailable" in removed.err
     assert not linked.exists()
     assert git.git(repo, "rev-parse", "--verify", "refs/heads/publication-failure").ok
+
+
+def test_activity_tracks_selected_checkout_not_inventory(repo, tmp_path):
+    state = RepositoryState(tmp_path / "state")
+    linked = tmp_path / "linked"
+    assert checkout_state.add_worktree(
+        repo, linked, "HEAD", branch="idle", home=state.store.root
+    ).ok
+    directory = state.observe(repo)
+    activity = directory / "activity.json"
+    record = json.loads(activity.read_text())
+    key = digest_path(str(linked.resolve()))
+    record["lastAccessAt"] = 1
+    for item in record["checkouts"].values():
+        item["lastAccessAt"] = 1
+    activity.write_text(json.dumps(record))
+    state.branch(repo, "idle", max_age=3600)
+    refreshed = json.loads(activity.read_text())
+    assert refreshed["lastAccessAt"] > 1
+    assert refreshed["checkouts"][key]["lastAccessAt"] == 1
+    state.observe(repo, reconcile=True, record_use=False)
+    assert json.loads(activity.read_text()) == refreshed

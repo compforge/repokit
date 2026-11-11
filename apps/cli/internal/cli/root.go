@@ -4,11 +4,13 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"time"
 
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -107,9 +109,10 @@ func newRootCommand(opts *options) *cobra.Command {
 	flags.BoolVar(&opts.json, "json", false, "write structured JSON to stdout")
 	flags.DurationVar(&opts.timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
-	root.AddCommand(newStatsCommand(opts))
+	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
 	root.AddCommand(newWorktreeCommand(opts), newPRCommand(opts))
 	root.AddCommand(newValidationCommand(opts, "format"), newValidationCommand(opts, "validate"), newValidationCommand(opts, "lint"), newValidationCommand(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
+	trackRepositoryCommands(root, opts)
 	return root
 }
 
@@ -132,5 +135,46 @@ func logCommandHandlers(command *cobra.Command, start func()) {
 	}
 	for _, child := range command.Commands() {
 		logCommandHandlers(child, start)
+	}
+}
+
+// Repository commands renew only their selected checkout. Maintenance and statistics never do.
+func trackRepositoryCommands(root *cobra.Command, opts *options) {
+	var visit func(*cobra.Command)
+	visit = func(cmd *cobra.Command) {
+		if cmd.Name() == "clean" {
+			return
+		}
+		if run := cmd.RunE; run != nil {
+			cmd.RunE = func(cmd *cobra.Command, args []string) error {
+				ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+				var accessErr error
+				history, _ := cmd.Flags().GetBool("history")
+				if !history {
+					accessErr = state.RecordAccess(ctx, opts.repository, opts.home)
+				}
+				cancel()
+				err := run(cmd, args)
+				if accessErr != nil && err == nil {
+					if output, ok := cmd.OutOrStdout().(*resultOutput); ok {
+						output.result.Diagnostics = append(output.result.Diagnostics, diagnostic{Code: "state.access_unavailable", Severity: "warning", Phase: "observation", Subject: opts.repository, Message: accessErr.Error()})
+					}
+					if !opts.json {
+						fmt.Fprintln(cmd.ErrOrStderr(), "warning: access record unavailable:", accessErr)
+					}
+				}
+				return err
+			}
+		}
+		for _, child := range cmd.Commands() {
+			visit(child)
+		}
+	}
+	for _, cmd := range root.Commands() {
+		switch cmd.Name() {
+		case "version", "stats", "upgrade", "clean":
+			continue
+		}
+		visit(cmd)
 	}
 }

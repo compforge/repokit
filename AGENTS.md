@@ -38,6 +38,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | view | 捕获内容和布局，构建共享代码图；图、结构上下文和源码作为一个版本展示与刷新，不经过 impact 的候选裁剪。 |
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
+| clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |
 | stats / upgrade | stats 只读汇总保留历史、日志与容量并报告读取缺口；upgrade 由 CLI 显式查询和安装 Release，不访问目标仓库。 |
 
 各入口按需组合输入选择、内容捕获、结构识别和代码分析，不强制经过包含全部分析的 prepare。
@@ -119,5 +120,6 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [Depot](docs/depot.md) / [Makefile 验证](docs/validation.md)：依赖准备、检查规划、执行与结果复用。
 - [Go 错误契约](docs/errors.md)：SDK 结构化错误、cause 链及共享 JSON/text 表达。
 - [CLI 输出契约](docs/cli-output.md)：统一输出结构、结果与诊断、证据、退出状态及兼容性。
+- [闲置清理](docs/cleanup.md)：访问记录、30 天策略、磁盘回收与跨语言 lease。
 - [日志](docs/logging.md) / [统计](docs/stats.md)：执行记录、timeline、重放与只读统计。
 - [发布](docs/release.md) / [CLI 更新](docs/upgrade.md)：模块与包版本、构建、发布和安装。
