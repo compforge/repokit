@@ -15,14 +15,15 @@ type Comment struct {
 
 // Discussion keeps platform capabilities separate from application review verdicts.
 // +spec=Full bodies and replies are retained; conversation comments do not acquire synthetic resolve/reply capabilities
+// +spec=Resolve capability is true, false or unknown (nil); missing platform evidence never means unsupported
 // +link=component://docs/pr.md
 type Discussion struct {
 	PullRequest model.Key `json:"pullRequest"`
 	ID          string    `json:"id"`
 	Comments    []Comment `json:"comments"`
 	Replyable   bool      `json:"replyable"`
-	Resolvable  bool      `json:"resolvable"`
-	Resolution  string    `json:"resolution"` // not_applicable, unresolved, resolved
+	Resolvable  *bool     `json:"resolvable"`
+	Resolution  string    `json:"resolution"` // not_applicable, unknown, unresolved, resolved
 }
 
 type CommentResult struct {

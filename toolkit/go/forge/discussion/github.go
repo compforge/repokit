@@ -164,7 +164,7 @@ func (c *Service) githubList(ctx context.Context, key model.Key) ([]Discussion, 
 		if err != nil {
 			return nil, err
 		}
-		result = append(result, Discussion{PullRequest: key, ID: "issue:" + comment.ID, Comments: []Comment{comment}, Resolution: "not_applicable"})
+		result = append(result, Discussion{PullRequest: key, ID: "issue:" + comment.ID, Comments: []Comment{comment}, Resolvable: new(false), Resolution: "not_applicable"})
 	}
 	roots := map[string]Comment{}
 	replies := map[string][]Comment{}
@@ -192,7 +192,7 @@ func (c *Service) githubList(ctx context.Context, key model.Key) ([]Discussion, 
 		if *thread.Resolved {
 			resolution = "resolved"
 		}
-		result = append(result, Discussion{PullRequest: key, ID: thread.ID, Comments: comments, Replyable: true, Resolvable: true, Resolution: resolution})
+		result = append(result, Discussion{PullRequest: key, ID: thread.ID, Comments: comments, Replyable: true, Resolvable: new(true), Resolution: resolution})
 	}
 	if len(roots) > 0 || len(replies) > 0 {
 		return nil, errors.New("review comments and thread observation disagree; refresh required")

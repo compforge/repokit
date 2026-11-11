@@ -25,7 +25,7 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := strings.Repeat("Long finding\n  indentation\n", 40)
-	notes := []map[string]any{{"id": 1, "body": body, "resolvable": true, "resolved": false, "author": map[string]string{"username": "reviewer"}}}
+	notes := []map[string]any{{"id": 1, "body": body, "author": map[string]string{"username": "reviewer"}}}
 	failWrite := false
 	writes := 0
 	thread := func() map[string]any { return map[string]any{"id": "thread", "individual_note": false, "notes": notes} }
@@ -83,6 +83,11 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 	code, list, _ := run("", "list", "7")
 	if code != 0 || len(list["data"].([]any)) != 1 {
 		t.Fatal(list)
+	}
+	threadData := list["data"].([]any)[0].(map[string]any)
+	capability, present := threadData["resolvable"]
+	if !present || capability != nil || threadData["resolution"] != "unknown" {
+		t.Fatalf("missing GitLab fields must stay unknown: %v", threadData)
 	}
 	code, shown, raw := run("", "show", "7", "thread")
 	if code != 0 || shown["data"].(map[string]any)["comments"].([]any)[0].(map[string]any)["body"] != body {

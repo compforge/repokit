@@ -75,7 +75,7 @@ func TestDiscussionsGitHubPaginationAndFullEvidence(t *testing.T) {
 	for _, thread := range threads {
 		byID[thread.ID] = thread
 	}
-	if len(threads) != 3 || byID["issue:9"].Replyable || byID["issue:9"].Resolvable || byID["issue:9"].Resolution != "not_applicable" {
+	if len(threads) != 3 || byID["issue:9"].Replyable || byID["issue:9"].Resolvable == nil || *byID["issue:9"].Resolvable || byID["issue:9"].Resolution != "not_applicable" {
 		t.Fatal(threads)
 	}
 	thread := byID["thread1"]
@@ -310,7 +310,7 @@ func TestDiscussionGitHubCreateRequiresPRAndAcknowledgement(t *testing.T) {
 	}
 	exists = true
 	thread, err := c.Discussions().Create(context.Background(), key, "message")
-	if err != nil || thread.ID != "issue:10" || thread.Replyable || thread.Resolvable {
+	if err != nil || thread.ID != "issue:10" || thread.Replyable || thread.Resolvable == nil || *thread.Resolvable {
 		t.Fatal(thread, err)
 	}
 	malformed = true

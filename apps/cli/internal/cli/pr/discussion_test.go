@@ -17,3 +17,19 @@ func TestDiscussionTextPreservesBodiesAndReplies(t *testing.T) {
 		t.Fatal(out.String())
 	}
 }
+
+// +case=Text output distinguishes unknown resolve capability from explicit false
+func TestDiscussionTextResolveCapability(t *testing.T) {
+	for _, tc := range []struct {
+		capability *bool
+		want       string
+	}{
+		{nil, "unknown"}, {new(false), "false"}, {new(true), "true"},
+	} {
+		var out bytes.Buffer
+		displayDiscussion(&out, discussion.Discussion{ID: "thread", Resolvable: tc.capability, Resolution: "unknown"}, false)
+		if !strings.Contains(out.String(), "resolvable="+tc.want) {
+			t.Fatal(out.String())
+		}
+	}
+}

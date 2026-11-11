@@ -3,12 +3,17 @@ package pr
 import (
 	"fmt"
 	"io"
+	"strconv"
 
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
 )
 
 func displayDiscussion(w io.Writer, thread discussion.Discussion, full bool) {
-	fmt.Fprintf(w, "Thread %s: %s; %d comment(s); replyable=%t resolvable=%t\n", thread.ID, thread.Resolution, len(thread.Comments), thread.Replyable, thread.Resolvable)
+	resolvable := "unknown"
+	if thread.Resolvable != nil {
+		resolvable = strconv.FormatBool(*thread.Resolvable)
+	}
+	fmt.Fprintf(w, "Thread %s: %s; %d comment(s); replyable=%t resolvable=%s\n", thread.ID, thread.Resolution, len(thread.Comments), thread.Replyable, resolvable)
 	for _, comment := range thread.Comments {
 		if full {
 			displayComment(w, comment)
