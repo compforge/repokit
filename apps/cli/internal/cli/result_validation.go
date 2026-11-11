@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"time"
 
@@ -96,6 +97,7 @@ func writeValidationText(w io.Writer, report repokit.ValidationReport) error {
 				}
 				cost := currentCheckCost(group.Component.Root, check, "")
 				fmt.Fprintf(&b, "%s %s: %s (%s, execute=%.3fs lookup=%.3fs) — %s; %s\n", group.Component.Root, check.Check, status, check.Scope, cost.ExecutionSeconds, cost.LookupSeconds, check.Reason, check.ReuseReason)
+				writeTestTimings(&b, check)
 				if check.Status != "passed" && check.Status != "skipped" {
 					for _, stream := range []struct{ name, text string }{{"stdout", check.Stdout}, {"stderr", check.Stderr}} {
 						if stream.text == "" {
@@ -131,4 +133,52 @@ func logExcerpt(s string) (string, bool) {
 		truncated = true
 	}
 	return s, truncated
+}
+
+func writeTestTimings(w io.Writer, check repokit.CheckResult) {
+	if len(check.TestTimings) == 0 {
+		return
+	}
+	label := "runner elapsed; parallel tests and subtests overlap"
+	if check.Reused {
+		label = "historical runner elapsed; this check was reused"
+	}
+	fmt.Fprintf(w, "  Test timings (%s):\n", label)
+	rows := slices.Clone(check.TestTimings)
+	slices.SortStableFunc(rows, func(a, b repokit.TestTiming) int {
+		if a.Cached != b.Cached {
+			if a.Cached {
+				return 1
+			}
+			return -1
+		}
+		if a.DurationSeconds > b.DurationSeconds {
+			return -1
+		}
+		if a.DurationSeconds < b.DurationSeconds {
+			return 1
+		}
+		return strings.Compare(a.Package+"/"+a.Test, b.Package+"/"+b.Test)
+	})
+	packages, tests := 0, 0
+	for _, timing := range rows {
+		kind, name := "package", timing.Package
+		if timing.Test == "" {
+			if packages == 3 {
+				continue
+			}
+			packages++
+		} else {
+			if tests == 10 {
+				continue
+			}
+			tests++
+			kind, name = "test", timing.Package+"/"+timing.Test
+		}
+		suffix := ""
+		if timing.Cached {
+			suffix = " (Go cache; historical result)"
+		}
+		fmt.Fprintf(w, "    %s %.3fs %s %s%s\n", kind, timing.DurationSeconds, timing.Status, name, suffix)
+	}
 }

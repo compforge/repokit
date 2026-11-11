@@ -71,6 +71,7 @@ func executeMakeStarted(ctx context.Context, cwd string, spec CheckSpec, environ
 	stderr := &checkOutput{limit: 64 << 10, stop: stop}
 	cmd.Stdout = out
 	cmd.Stderr = stderr
+	started := time.Now()
 	slog.InfoContext(ctx, "validation check started", "component", cwd, "check", spec.Check, "scope", spec.Scope)
 	err = cmd.Start()
 	if err == nil {
@@ -81,6 +82,9 @@ func executeMakeStarted(ctx context.Context, cwd string, spec CheckSpec, environ
 	}
 	result.Stdout = out.String()
 	result.Stderr = stderr.String()
+	if spec.Check == "test" {
+		result.TestTimings = goTestTimings(result.Stdout)
+	}
 	switch {
 	case cmd.Process == nil:
 		result.Diagnostic = err.Error()
@@ -99,7 +103,7 @@ func executeMakeStarted(ctx context.Context, cwd string, spec CheckSpec, environ
 			result.Diagnostic = err.Error()
 		}
 	}
-	slog.InfoContext(ctx, "validation check finished", "component", cwd, "check", spec.Check, "status", result.Status)
+	slog.InfoContext(ctx, "validation check finished", "component", cwd, "check", spec.Check, "status", result.Status, "duration_seconds", time.Since(started).Seconds(), "test_timings", len(result.TestTimings))
 	return result
 }
 
