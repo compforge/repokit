@@ -45,3 +45,8 @@ go install github.com/compforge/repokit/apps/cli/cmd/repocli@v0.49.0
 使用 `uv sync --locked` 和 `make format lint test build` 验证并构建 wheel/sdist，包含运行时语言目录和类型标记。
 Python 包复用已发布的 harness-common，不要求本地 quality-harness checkout。发布通过独立的 Python
 包发布流程执行，Git release workflow 只验证，不自动发布 PyPI。安装后的 wheel 应在仓库外验证 inspect/owner。
+
+Tag 发布可使用 `repocli git tag publish <tags...> --target <verified-commit> --repo . --json`；
+每次调用只发布显式 tags，模块 tag 顺序仍按本文的发布契约执行。检查 `outcome=succeeded` 与
+`data.confirmed=true` 后再验收 CI 和 Release assets；tag 确认不等于 Release 或包发布完成。
+幂等、冲突和不确定结果恢复见 [Git tag publication](git.md#tag-publication)。

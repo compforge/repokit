@@ -12,6 +12,7 @@ repokit.go          # 分析 API 与结果类型
 units.go            # diff → Fragment → Unit 的公共 API
 errs/               # 结构化错误、cause 链及 JSON/text 表达
 state/              # 仓库状态业务：观测、checkout 生命周期、保留策略与共享存储
+git/                # 显式 Git 操作：不可变 tag 发布与远端核验，不承担 workflow
 config/             # 用户配置与 host 级 Forge 访问解析；不承载 repository 状态
 forge/              # 原生 PR 查询、写入与成功后维护
 ├── discussion/    # 讨论模型、查询和写入，不承担 maintenance
