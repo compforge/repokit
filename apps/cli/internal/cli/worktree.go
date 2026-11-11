@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -22,7 +21,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		defer cancel()
 		policy, err := state.LoadWorktreePolicy(ctx, opts.repository)
 		if err != nil {
-			return executionError{err}
+			return executionFailure(err)
 		}
 		if cmd.Flags().Changed("max-count") {
 			policy.MaxCount = count
@@ -35,7 +34,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		}
 		home, err := repositoryHome(opts.home)
 		if err != nil {
-			return executionError{err}
+			return executionFailure(err)
 		}
 		request := state.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
 		prContext, connectionErr := connection.context(ctx, opts.repository, opts.home)
@@ -44,14 +43,17 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		}
 		report, err := state.CleanWorktrees(ctx, opts.repository, request)
 		if err != nil {
-			return executionError{err}
+			return executionFailure(err)
 		}
 		if connectionErr != nil && !errors.Is(connectionErr, errNoForgeOrigin) {
 			report.Errors = append(report.Errors, "PR status unavailable: "+connectionErr.Error())
 		}
+		if !opts.json {
+			recordResult(cmd.OutOrStdout(), report)
+		}
 		if opts.json {
-			if err = json.NewEncoder(cmd.OutOrStdout()).Encode(report); err != nil {
-				return executionError{err}
+			if err = writeJSON(cmd.OutOrStdout(), report); err != nil {
+				return executionFailure(err)
 			}
 		} else {
 			for _, action := range report.Actions {
@@ -63,7 +65,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 			}
 		}
 		if len(report.Errors) > 0 {
-			return executionError{errors.New("worktree maintenance incomplete")}
+			return executionFailure(&resultFailure{"worktree maintenance incomplete"})
 		}
 		return nil
 	}}
@@ -80,14 +82,17 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		defer cancel()
 		home, err := repositoryHome(opts.home)
 		if err != nil {
-			return executionError{err}
+			return executionFailure(err)
 		}
 		directory, err := state.Observe(ctx, opts.repository, home, reconcile)
 		if err != nil {
-			return executionError{err}
+			return executionFailure(err)
+		}
+		if !opts.json {
+			recordResult(cmd.OutOrStdout(), map[string]string{"directory": directory})
 		}
 		if opts.json {
-			return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]string{"directory": directory})
+			return writeJSON(cmd.OutOrStdout(), map[string]string{"directory": directory})
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), directory)
 		return nil

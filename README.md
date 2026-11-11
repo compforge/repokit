@@ -140,7 +140,8 @@ repocli diff --repo /path/to/repo --base main --json
 repocli impact --repo /path/to/repo --base main --test-dir tests --json
 ```
 
-Omit `--json` for readable text. For `impact`, repeat `--test-dir` for multiple directories;
+Omit `--json` for readable text. JSON uses a [versioned result envelope](docs/cli-output.md):
+read the domain report from `data`, the operation result from `outcome`, and timing from `cost`. For `impact`, repeat `--test-dir` for multiple directories;
 use `--test-dir .` for tests alongside source files. Production source scope is limited to Components owning diff paths. Tests are discovered independently: by default in those Components and repository-level test locations, or under explicit test directories. Referenced test helpers may join the workset without selecting additional production Components. Empty test candidates are valid.
 `--base` defaults to `HEAD` and compares that commit with the working tree.
 

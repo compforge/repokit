@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -9,10 +8,11 @@ import (
 )
 
 func writeRawDiff(w io.Writer, d repokit.DiffReport, structured bool) error {
+	if !structured {
+		recordResult(w, d)
+	}
 	if structured {
-		e := json.NewEncoder(w)
-		e.SetIndent("", "  ")
-		return e.Encode(d)
+		return writeJSON(w, d)
 	}
 	for _, ch := range d.Changes {
 		if _, err := fmt.Fprintf(w, "diff %s (+%d -%d)\n%s\n", ch.Path(), ch.Insertions, ch.Deletions, ch.Diff); err != nil {

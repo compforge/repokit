@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -15,12 +14,12 @@ func newVersionCommand(opts *options, version string) *cobra.Command {
 		RunE: func(command *cobra.Command, _ []string) error {
 			var err error
 			if opts.json {
-				err = json.NewEncoder(command.OutOrStdout()).Encode(map[string]string{"version": version})
+				err = writeJSON(command.OutOrStdout(), map[string]string{"version": version})
 			} else {
 				_, err = fmt.Fprintf(command.OutOrStdout(), "repocli version %s\n", version)
 			}
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},

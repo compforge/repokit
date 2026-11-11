@@ -122,7 +122,7 @@ func TestDiffLogsFailures(t *testing.T) {
 				cancel()
 			}
 			code := Execute(ctx, []string{"impact", "--repo", repo, "--json"}, strings.NewReader(""), output, &stderr)
-			if code != 1 || stderr.Len() == 0 {
+			if code != 1 || (kind == "output" && stderr.Len() == 0) || (kind != "output" && string(resultData(t, out.Bytes())) != "null") {
 				t.Fatalf("code %d: %s", code, stderr.String())
 			}
 			logs := readLogs(t, home)
@@ -181,7 +181,7 @@ func TestNewCommandInheritsLogging(t *testing.T) {
 	root.AddCommand(&cobra.Command{Use: "future", RunE: func(command *cobra.Command, _ []string) error {
 		fmt.Fprintln(command.OutOrStdout(), "future output")
 		fmt.Fprintln(command.ErrOrStderr(), "future warning")
-		return executionError{fmt.Errorf("future failure")}
+		return executionFailure(fmt.Errorf("future failure"))
 	}})
 	code := execute(context.Background(), root, []string{"future"}, strings.NewReader(""), &stdout, &stderr)
 	if code != 1 {
@@ -370,7 +370,7 @@ func TestLogSizeIsIndependentOfOutput(t *testing.T) {
 	root.AddCommand(&cobra.Command{Use: "future", RunE: func(command *cobra.Command, _ []string) error {
 		fmt.Fprint(command.OutOrStdout(), payload)
 		fmt.Fprint(command.ErrOrStderr(), payload)
-		return executionError{fmt.Errorf("future failure")}
+		return executionFailure(fmt.Errorf("future failure"))
 	}})
 	var stdout, stderr bytes.Buffer
 	if code := execute(context.Background(), root, []string{"future"}, nil, &stdout, &stderr); code != 1 {

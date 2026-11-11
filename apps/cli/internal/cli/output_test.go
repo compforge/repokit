@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/compforge/repokit/toolkit/go"
 )
@@ -37,7 +38,11 @@ func TestTextReportBoundsLocalGapDetails(t *testing.T) {
 	if !strings.Contains(text.String(), "1000 occurrences") || !strings.Contains(text.String(), "997 more") || strings.Count(text.String(), "src/app.ts") != 3 {
 		t.Fatalf("unbounded summary: %s", text.String())
 	}
-	if err := writeReport(&raw, report, true); err != nil {
+	output := &resultOutput{Writer: &raw, started: time.Now()}
+	if err := writeReport(output, report, true); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := output.finish("repocli impact", nil, 0, &text); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Count(raw.String(), `"path": "src/app.ts"`) != 1000 {

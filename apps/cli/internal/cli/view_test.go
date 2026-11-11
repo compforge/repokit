@@ -15,8 +15,15 @@ func TestViewCommandHelpAndUsage(t *testing.T) {
 	for _, flags := range [][]string{{"--json"}, {"--timeout", "0s"}, {"--max-documents", "0"}, {"--addr", "0.0.0.0:5484"}, {"extra"}} {
 		out.Reset()
 		stderr.Reset()
-		if code := Execute(context.Background(), append([]string{"view"}, flags...), nil, &out, &stderr); code != 2 || out.Len() != 0 {
+		if code := Execute(context.Background(), append([]string{"view"}, flags...), nil, &out, &stderr); code != 2 {
 			t.Fatal(flags, code, out.String(), stderr.String())
+		}
+		if flags[0] == "--json" {
+			if stderr.Len() != 0 || string(resultData(t, out.Bytes())) != "null" {
+				t.Fatal(&out, &stderr)
+			}
+		} else if out.Len() != 0 || stderr.Len() == 0 {
+			t.Fatal(&out, &stderr)
 		}
 	}
 }

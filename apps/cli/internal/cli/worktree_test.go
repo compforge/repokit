@@ -43,7 +43,7 @@ func TestWorktreeCleanRepositoryDefaultsAndPartialOverrides(t *testing.T) {
 			t.Fatalf("%d %s", code, &stderr)
 		}
 		var report state.WorktreeCleanReport
-		if err = json.Unmarshal(out.Bytes(), &report); err != nil {
+		if err = json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 			t.Fatal(err)
 		}
 		if report.RemainingCount != test.want {
@@ -77,7 +77,7 @@ func TestWorktreeObserveExplicitStateRoot(t *testing.T) {
 		t.Fatalf("%d %s", code, &stderr)
 	}
 	var result map[string]string
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &result); err != nil {
 		t.Fatal(err)
 	}
 	if result["directory"] != filepath.Join(state, "repositories", "github--owner--project") {

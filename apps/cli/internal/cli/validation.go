@@ -6,11 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/state"
 	"os"
 	"path/filepath"
 
 	"github.com/compforge/repokit/toolkit/go"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -19,15 +19,16 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 	var base string
 	var planOnly, force, showHistory bool
 	var concurrency int
-	var inputsFile, output, historyDir string
+	var inputsFile, historyDir string
 	var changed, checks []string
 	command := &cobra.Command{
-		Use:   name,
-		Short: "Run Makefile-defined Component " + name + " checks",
-		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Missing lint/test targets fall back to the root Component; if absent there too, checks are unavailable.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
-		Args:  cobra.NoArgs,
+		Use:         name,
+		Annotations: map[string]string{"result-json-flags": "plan,history"},
+		Short:       "Run Makefile-defined Component " + name + " checks",
+		Long:        "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Missing lint/test targets fall back to the root Component; if absent there too, checks are unavailable.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
+		Args:        cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
-			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || output != "" || len(checks) > 0 || len(components) > 0) {
+			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
 				return errors.New("--history cannot be combined with check execution options")
 			}
 			if opts.timeout <= 0 {
@@ -49,9 +50,12 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 				home, err := repositoryHome(opts.home)
 				if err != nil {
 					if showHistory {
-						return executionError{fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err)}
+						return executionFailure(fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err))
 					}
-					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
+					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "validation.history_unavailable", Severity: "warning", Phase: "history", Message: err.Error()})
+					if !opts.json {
+						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
+					}
 				} else {
 					historyDir = filepath.Join(home, "repositories")
 				}
@@ -59,86 +63,69 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 			if showHistory {
 				checkout, err := repokit.FindCheckout(ctx, opts.repository)
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 				if checkout == "" {
-					return executionError{errors.New("repository checkout not found")}
+					return executionFailure(errors.New("repository checkout not found"))
 				}
 				history, err := repokit.ReadValidationHistory(ctx, historyDir, checkout)
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(history)
+				return writeJSON(cmd.OutOrStdout(), history)
 			}
 			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.repository, Components: components, Files: files, Concurrency: concurrency, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 				decoder := json.NewDecoder(bytes.NewReader(data))
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&request.Inputs); err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 			}
 			if name != "validate" {
 				request.Checks = []string{name}
 			}
-			encoder := json.NewEncoder(cmd.OutOrStdout())
-			encoder.SetIndent("", "  ")
 			if planOnly {
+				finishPhase := measurePhase(cmd.OutOrStdout(), "planning")
 				plan, err := repokit.PlanValidation(ctx, request)
+				finishPhase()
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
-				return encoder.Encode(plan)
+				return writeJSON(cmd.OutOrStdout(), plan)
 			}
+			finishPhase := measurePhase(cmd.OutOrStdout(), "validation")
 			report, err := repokit.Validate(ctx, request)
-			if err != nil {
-				return executionError{err}
+			finishPhase()
+			// Preserve available check evidence even if final capture or bookkeeping fails.
+			if report.SchemaVersion != 0 {
+				recordResult(cmd.OutOrStdout(), report)
 			}
+			if err != nil {
+				return executionFailure(err)
+			}
+			finishPhase = measurePhase(cmd.OutOrStdout(), "observation")
 			if home, stateErr := repositoryHome(opts.home); stateErr == nil {
 				if _, stateErr = state.Observe(ctx, opts.repository, home, false); stateErr != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
-				}
-			}
-			if output != "" {
-				if err := writeValidationReport(output, report); err != nil {
-					return executionError{err}
-				}
-			}
-			if opts.json {
-				if err := encoder.Encode(report); err != nil {
-					return executionError{err}
-				}
-			} else {
-				for _, group := range append(report.Preparation, report.Components...) {
-					for _, check := range group.Checks {
-						status := check.Status
-						elapsed := check.DurationSeconds
-						if check.Reused {
-							status = "reused"
-							elapsed = check.LookupSeconds
-						}
-						fmt.Fprintf(cmd.OutOrStdout(), "%s %s: %s (%s, %.2fs) — %s; %s\n", group.Component.Root, check.Check, status, check.Scope, elapsed, check.Reason, check.ReuseReason)
-						if check.Stdout != "" {
-							fmt.Fprint(cmd.OutOrStdout(), check.Stdout)
-						}
-						if check.Stderr != "" {
-							fmt.Fprint(cmd.ErrOrStderr(), check.Stderr)
-						}
-						if check.Diagnostic != "" {
-							fmt.Fprintln(cmd.ErrOrStderr(), check.Diagnostic)
-						}
+					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "state.observation_unavailable", Severity: "warning", Phase: "observation", Message: stateErr.Error()})
+					if !opts.json {
+						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
 					}
 				}
-				for _, diagnostic := range report.Diagnostics {
-					fmt.Fprintln(cmd.ErrOrStderr(), diagnostic)
+			}
+			finishPhase()
+			if !opts.json {
+				if err := writeValidationText(cmd.OutOrStdout(), report); err != nil {
+					return executionFailure(err)
 				}
 			}
+
 			if (!report.InputsConsistent && len(report.Components) > 0) || !report.Complete || !report.Passed {
-				return executionError{errors.New("validation did not establish a complete pass")}
+				return executionFailure(&resultFailure{"validation did not establish a complete pass"})
 			}
 			return nil
 		},
@@ -153,29 +140,9 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 	command.Flags().BoolVar(&force, "force", false, "execute checks even when successful history matches")
 	command.Flags().BoolVar(&showHistory, "history", false, "show retained execution and reuse statistics without running checks")
 	command.Flags().StringArrayVar(&changed, "changed-file", nil, "restrict impact seeds to a changed repository-relative path")
-	command.Flags().StringVar(&output, "output", "", "atomically save the ValidationReport to this file")
+	command.Flags().String("output", "", "atomically save the complete command result to this file")
 	if name == "validate" {
 		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test); format runs first, default lint,test")
 	}
 	return command
-}
-
-func writeValidationReport(path string, report repokit.ValidationReport) error {
-	data, err := json.MarshalIndent(report, "", "  ")
-	if err != nil {
-		return err
-	}
-	file, err := os.CreateTemp(filepath.Dir(path), ".validation-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(file.Name())
-	if _, err := file.Write(data); err != nil {
-		file.Close()
-		return err
-	}
-	if err := file.Close(); err != nil {
-		return err
-	}
-	return os.Rename(file.Name(), path)
 }

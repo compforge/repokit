@@ -23,7 +23,7 @@ func TestVersionCommandMatchesFlagWithoutRepository(t *testing.T) {
 		t.Fatal(stderr.String())
 	}
 	var data map[string]string
-	if err := json.Unmarshal(out.Bytes(), &data); err != nil || data["version"] != Version {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &data); err != nil || data["version"] != Version {
 		t.Fatalf("%s: %v", out.String(), err)
 	}
 }

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/compforge/repokit/toolkit/go"
@@ -21,10 +20,13 @@ func newTreeCommand(opts *options) *cobra.Command {
 			defer cancel()
 			report, err := repokit.Tree(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
+			}
+			if !opts.json {
+				recordResult(cmd.OutOrStdout(), report)
 			}
 			if opts.json {
-				return json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+				return writeJSON(cmd.OutOrStdout(), report)
 			}
 			for _, dir := range report.Directories {
 				if _, err = fmt.Fprintf(cmd.OutOrStdout(), "directory %s\n", dir.Path); err != nil {

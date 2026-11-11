@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/forge"
@@ -62,7 +61,7 @@ func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot strin
 		}
 	}
 	if token == "" {
-		return nil, fmt.Errorf("no %s credential", provider)
+		return nil, operationFailure("forge.authentication_required", "connection", provider, fmt.Errorf("no %s credential", provider))
 	}
 	home, err := repositoryHome(stateRoot)
 	if err != nil {
@@ -125,7 +124,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			if cmd.Flags().Changed("body-file") {
 				data, err := os.ReadFile(bodyFile)
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 				value := string(data)
 				body = &value
@@ -134,7 +133,7 @@ func newPRCommand(opts *options) *cobra.Command {
 			defer cancel()
 			prContext, err := connection.context(ctx, opts.repository, opts.home)
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			target := prContext.Targets[0]
 			key := forge.Key{Repository: prContext.Client.Repository(target), Number: number}
@@ -148,11 +147,11 @@ func newPRCommand(opts *options) *cobra.Command {
 				if sourceBranch == "" {
 					info, e := repostate.Checkout(ctx, opts.repository)
 					if e != nil {
-						return executionError{e}
+						return executionFailure(e)
 					}
 					entries, e := repostate.ListCheckouts(ctx, opts.repository)
 					if e != nil {
-						return executionError{e}
+						return executionFailure(e)
 					}
 					for _, entry := range entries {
 						if entry.Path == info.Root {
@@ -183,12 +182,15 @@ func newPRCommand(opts *options) *cobra.Command {
 				result, err = prContext.Merge(ctx, key, expectedSHA, method)
 			}
 			if err != nil {
-				return executionError{err}
+				return operationFailure("forge.operation_failed", operation, fmt.Sprintf("%s #%d source=%s target=%s", target, number, sourceBranch, targetBranch), err)
+			}
+			if !opts.json {
+				recordResult(cmd.OutOrStdout(), result)
 			}
 			// JSON is a stable scripting interface; readable output keeps maintenance diagnostics visible.
 			if opts.json {
-				if err = json.NewEncoder(cmd.OutOrStdout()).Encode(result); err != nil {
-					return executionError{err}
+				if err = writeJSON(cmd.OutOrStdout(), result); err != nil {
+					return executionFailure(err)
 				}
 				return nil
 			}

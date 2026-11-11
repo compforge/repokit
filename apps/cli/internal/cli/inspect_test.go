@@ -20,11 +20,11 @@ func inspectJSON(t *testing.T, dir string, extra ...string) repokit.InspectRepor
 		t.Fatalf("code=%d error=%s", code, stderr.String())
 	}
 	var report repokit.InspectReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatal(err)
 	}
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &raw); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := raw["snapshot"]; ok {
@@ -85,7 +85,7 @@ func TestSnapshotIsIndependentOfRepositoryConfiguration(t *testing.T) {
 		t.Fatal(code, stderr.String())
 	}
 	var raw map[string]json.RawMessage
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &raw); err != nil {
 		t.Fatal(err)
 	}
 	for _, field := range []string{"repository", "components", "observations"} {
@@ -133,7 +133,7 @@ func TestInspectRejectsUnreadableMetadataInsteadOfInventingLayout(t *testing.T) 
 			for _, flags := range [][]string{nil, {"--staged"}, {"--head", "HEAD"}} {
 				var out, stderr bytes.Buffer
 				args := append([]string{"inspect", "--repo", dir, "--json"}, flags...)
-				if code := Execute(context.Background(), args, nil, &out, &stderr); code != 1 || out.Len() != 0 || !strings.Contains(stderr.String(), "metadata package.json") {
+				if code := Execute(context.Background(), args, nil, &out, &stderr); code != 1 || stderr.Len() != 0 || !strings.Contains(out.String(), "metadata package.json") || string(resultData(t, out.Bytes())) != "null" {
 					t.Fatal(code, out.String(), stderr.String())
 				}
 			}

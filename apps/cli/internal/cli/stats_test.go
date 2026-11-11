@@ -59,7 +59,7 @@ func TestStatsCLIAggregatesValidationAndPreservesLogs(t *testing.T) {
 		t.Fatalf("%d %s", code, &stderr)
 	}
 	var report stats.Report
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatalf("%v: %s", err, &out)
 	}
 	if len(report.Validation.Repositories) != 2 || report.Validation.Total.Executions != 2 || report.Validation.Total.Reuses != 2 || report.Validation.ReuseRate != .5 || report.Validation.PassRate != 1 {

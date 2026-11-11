@@ -35,7 +35,7 @@ func newViewCommand(opts *options) *cobra.Command {
 				return repokit.Graph(buildCtx, repokit.InputRequest{Repository: opts.repository}, maxDocuments)
 			}
 			if err := viewer.Run(command.Context(), addr, load, command.OutOrStdout()); err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},

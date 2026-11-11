@@ -64,6 +64,7 @@ are excluded with per-file diagnostics; other valid records remain available.
 Lines are limited to 16 MiB; a larger line diagnoses and stops that file's scan.
 Child symlinks are not traversed for storage, log discovery or repository discovery.
 
-JSON always includes `complete` and `diagnostics`. Partial reports are printed
+JSON uses the [CLI result envelope](cli-output.md); the report in `data` always includes
+`complete` and `diagnostics`. Partial reports are printed
 and exit with status 1. Argument errors exit 2; complete reports exit 0. Fatal
 collection errors such as cancellation exit 1 without claiming complete results.

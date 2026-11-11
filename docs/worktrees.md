@@ -76,8 +76,8 @@ Credentials come from `GH_TOKEN`/`GITHUB_TOKEN` or `GITLAB_TOKEN`; `--provider`,
 and repeatable `--target-repository owner/repo` supply explicit connection/target scope.
 No fork parent or another application's credential configuration is inferred. Without credentials,
 count retention still works and PR observation is reported unavailable. `--dry-run` projects both
-stages without deleting resources. JSON reports expose actions, errors and projected/actual
-remaining counts. Errors return nonzero.
+stages without deleting resources. The [CLI result envelope](cli-output.md) puts actions,
+errors and projected/actual remaining counts in `data`. Errors return nonzero.
 
 Both implementations keep `repokit-releases.json` in the checkout's Git administration directory.
 Each pending relative directory is bound to its device/inode identity before deletion. This

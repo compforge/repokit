@@ -4,7 +4,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"time"
 
@@ -21,10 +20,6 @@ type options struct {
 	json       bool
 	timeout    time.Duration
 }
-
-// executionError distinguishes failed work from Cobra argument/usage errors.
-// Keep the CLI contract: success=0, execution failure=1, invalid usage=2.
-type executionError struct{ error }
 
 // Execute runs a fresh command tree so flags and streams never leak between calls.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -51,25 +46,43 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	defer run.close()
 	root.SetArgs(args)
 	root.SetIn(stdin)
-	root.SetOut(stdout)
+	output := &resultOutput{Writer: stdout, started: time.Now()}
+	jsonRequested := requestedJSON(root, args)
+	root.SetOut(output)
 	root.SetErr(stderr)
 	command, err := root.ExecuteContextC(context.WithValue(ctx, commandLogKey{}, run))
+	if output.writeErr != nil {
+		err = executionFailure(output.writeErr)
+	}
 	code := 0
 	if err != nil {
 		if command == nil || command.Name() != "stats" {
 			start()
 		}
-		fmt.Fprintln(root.ErrOrStderr(), "repocli:", err)
 		code = 2
-		var failure executionError
-		if errors.As(err, &failure) {
+		var failure *commandError
+		var reported *resultFailure
+		switch {
+		case errors.As(err, &failure):
+			code = failure.exitCode
+		case errors.As(err, &reported):
 			code = 1
+		default:
+			err = usageFailure(err)
 		}
 	}
 	name := root.CommandPath()
 	if command != nil {
 		name = command.CommandPath()
 	}
+	parsedJSON, _ := root.PersistentFlags().GetBool("json")
+	if (jsonRequested || parsedJSON) && (output.recorded || err != nil) {
+		output.structured = true
+	}
+	if command != nil && (output.recorded || err != nil) && command.Flags().Lookup("output") != nil {
+		output.exportPath, _ = command.Flags().GetString("output")
+	}
+	code, err = output.finish(name, err, code, stderr)
 	if run.logger != nil {
 		run.finish(name, code, err)
 	}

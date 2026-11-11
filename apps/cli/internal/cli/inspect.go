@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -35,10 +34,10 @@ full-content digest, or submodule capture is performed. Use snapshot for content
 			defer cancel()
 			report, err := repokit.Inspect(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			if err := writeInspect(cmd.OutOrStdout(), report, opts.json); err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},
@@ -50,10 +49,11 @@ full-content digest, or submodule capture is performed. Use snapshot for content
 }
 
 func writeInspect(output io.Writer, report repokit.InspectReport, asJSON bool) error {
+	if !asJSON {
+		recordResult(output, report)
+	}
 	if asJSON {
-		encoder := json.NewEncoder(output)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
+		return writeJSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "input=%s complete=%t components=%d\n", report.Input, report.Complete, len(report.Components)); err != nil {
 		return err
