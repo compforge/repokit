@@ -85,7 +85,8 @@ repokit/
 
 Go 工具包和应用分别拥有 go.mod 与 internal，应用只能消费工具包公共 API。工具包不依赖 Cobra、
 HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕获源码。库负责验证输入约束，不能依赖 CLI 预校验。
-各语言直接完成所支持的解析与操作，不包装 repocli 子进程；TS/Python 运行时不依赖 Go。
+各语言的原生 API 直接完成解析与操作，不依赖 repocli 或 Go。Python 的显式 `repokit.cli`
+入口独立消费已安装 repocli 的版本化协议，不作为原生 API 的隐式回退。
 文件名识别目录由固定版本 Go 依赖生成，共享语料校验语言间的身份、版本、归属与诊断契约。
 
 ## 关键约定

@@ -9,6 +9,9 @@ from harness_common import Repository as Repository
 from harness_common import Tool as Tool
 
 from ._inspect import inspect as inspect
+from .access import forge_client as forge_client
+from .access import pull_request_context as pull_request_context
+from .access import pull_request_identity as pull_request_identity
 from .budget import operation as operation
 from .dependencies import DependencyEnvironment as DependencyEnvironment
 from .dependencies import DependencyPreparation as DependencyPreparation

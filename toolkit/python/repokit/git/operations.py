@@ -26,6 +26,14 @@ class GitResult:
     def ok(self) -> bool:
         return self.rc == 0
 
+    @property
+    def detail(self) -> str:
+        """Human-readable failure context, preserving uncertain operation outcomes."""
+        detail = self.err or self.out
+        if self.uncertain:
+            return f"outcome unknown; inspect Git state before retrying: {detail}"
+        return detail
+
 
 def git(
     repo_dir: str | Path,

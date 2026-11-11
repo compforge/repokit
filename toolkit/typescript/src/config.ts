@@ -31,14 +31,14 @@ export class RepoKitConfig {
    * and caller configuration never supply or override credentials.
    * @see {@link component://docs/configuration.md}
    */
-  forge(name: string): ForgeConnection {
+  forge(name: string, options: { readonly timeoutMs?: number } = {}): ForgeConnection {
     const host = normalizeHost(name);
     const entry = this.#forges.get(host) ?? {};
     const provider = entry.provider || ({"github.com":"github", "gitlab.com":"gitlab"} as Record<string,string>)[host];
     if (provider !== "github" && provider !== "gitlab") throw new ConfigError(`Configure a provider for Forge ${host} in ${join(this.home,"config.json")}`);
     const token = (entry.token ?? "").trim();
     if (!token) throw new ForgeAuthError(`no ${provider} credential for ${host}; configure ${join(this.home,"config.json")}`);
-    return new ForgeConnection({host, provider, token, apiHost: entry.apiHost || undefined, home: this.home});
+    return new ForgeConnection({host, provider, token, apiHost: entry.apiHost || undefined, home: this.home, timeoutMs: options.timeoutMs});
   }
 }
 
