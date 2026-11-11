@@ -70,9 +70,16 @@ primary、当前工作目录所属 checkout、detached、Git lock、进行中的
 
 repository 状态仅按访问过期与状态写入保护决定删除，不依赖 linked checkout 数量、PR 查询结果或
 worktree 删除结果。状态写入 lease 以 `state_locked` 保留；缓存文件的 mtime 不续期访问，也不阻止
-过期回收。回收状态包含该 repository 下的登记位置、
-PR 观察与验证历史，后续使用时按需重建；被保留的 worktree 和 branch refs 不受影响。状态删除后，全局
-扫描不再发现该登记项，直到后续访问重新登记；仍可用 `worktree clean --repo` 直接维护该 clone。
+过期回收。登记与缓存有不同生命周期：
+
+- 有本地 checkout 登记时，保留 `repository.json` 身份和 `activity.json` 中的位置、common Git directory
+  及原访问时间，只删除其余可重建状态，包括 topology、PR 观察与验证历史。仅存在于 topology 的位置
+  先并入登记，再删除缓存；未知访问时间仍为 0，不因维护续期。
+- 后续全局 clean 继续从登记定位 clone，并实时核验 Git/PR。上次因脏文件、锁或 PR 查询失败而保留的
+  worktree，在条件解除后仍可回收，无需先访问仓库。登记是发现线索，不是删除授权；失效路径跳过，
+  身份变化与读取错误仍报告。
+- 没有本地 checkout 登记的过期 repository 状态可整目录删除。轻量本地登记不按缓存年龄过期；
+  被保留的 primary checkout、worktree 和 branch refs 不受缓存回收影响。
 
 日志、共享包缓存、其它 home，以及 `--history-dir` 指向的外部目录不在范围内。
 
@@ -85,6 +92,8 @@ PR 观察与验证历史，后续使用时按需重建；被保留的 worktree �
 `data.errors` 保留失败；text 模式同样把各条错误写到 stderr。部分失败返回非零和 `outcome: partial`，
 成功项目不会被抹掉。`skipped` 保留动作本身不产生错误；跳过资源显示的 0 字节表示未计入回收估算，
 不表示该目录为空。
+`remove_repository_cache` 表示回收缓存并保留登记，`remove_repository_state` 表示无本地登记时整目录回收；
+只剩登记时以 `registration_only` 跳过，保留文件不计入回收字节数。
 `planned` 表示预览候选，`completed` 表示已完成；跳过和失败的资源不计入回收估算。
 
 `estimatedBytes` 是不跟随 symlink 的普通文件逻辑大小之和；dry-run 汇总预计回收动作，执行结果汇总

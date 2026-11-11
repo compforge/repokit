@@ -31,7 +31,8 @@ state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI �
 ```text
 ~/.repokit/
   repositories/<repo-key>/
-    repository.json
+    repository.json                     # 身份；本地登记不随缓存过期
+    activity.json                       # checkout 登记位置与访问事实；不因维护续期
     metadata.json                       # 已观察的 repository metadata（例如 default branch）
     branches/<branch-key>/
       observation.json                  # 按 clone 保留 head、observedAt、checkout keys
@@ -92,7 +93,7 @@ Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer
 ## 资源与回收
 
 repository 与实际被使用的 checkout 的访问事实保存在 `activity.json`，与观测时间分开。
-`repocli clean` 复用 worktree 既有保留策略，并默认按 30 天闲置条件回收 repository 数据；访问来源、并发边界、
+`repocli clean` 复用 worktree 既有保留策略，并默认按 30 天闲置条件回收 repository 缓存；本地身份和 checkout 登记保留，确保后续清理仍可发现资源。访问来源、并发边界、
 缺失时间策略和预览契约见 [闲置清理](cleanup.md)。
 
 Go `state.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
