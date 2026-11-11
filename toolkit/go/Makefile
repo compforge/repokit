@@ -4,10 +4,10 @@ build:
 test:
 	go test ./...
 lint:
-	@test -z "$$(gofmt -l *.go internal forge state)" || (gofmt -l *.go internal forge state; exit 1)
+	@test -z "$$(gofmt -l *.go internal forge state errs)" || (gofmt -l *.go internal forge state errs; exit 1)
 	go vet ./...
 lint-ci: lint
 format:
-	gofmt -w *.go internal forge state
+	gofmt -w *.go internal forge state errs
 generate-languages:
 	go test ./internal/project -run TestLanguageCatalog -update-language-catalog

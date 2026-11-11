@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // GitResult retains the adapter's actual outcome, including uncertain writes.
@@ -25,7 +27,8 @@ type AddWorktreeOptions struct {
 // AddWorktree creates a checkout at an explicit path. It never replaces an existing branch.
 // +spec=`State owns Git mutation and publication. A publication failure retains the successful Git outcome.`
 // +link=component://docs/state.md
-func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktreeOptions) GitResult {
+func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktreeOptions) (operation GitResult) {
+	defer func() { operation = checkoutError(operation, "state.add_worktree", path) }()
 	if options.Branch != "" && options.Detach {
 		return GitResult{ExitCode: -1, Err: errors.New("branch and detach are mutually exclusive")}
 	}
@@ -85,7 +88,8 @@ type RemoveWorktreeOptions struct {
 
 // RemoveWorktree defaults to Git's protection of dirty and locked checkouts.
 // It retains branch refs and does not choose which worktrees are eligible for removal.
-func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktreeOptions) GitResult {
+func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktreeOptions) (operation GitResult) {
+	defer func() { operation = checkoutError(operation, "state.remove_worktree", path) }()
 	args := []string{"worktree", "remove"}
 	if options.Force {
 		args = append(args, "--force", "--force")
@@ -95,6 +99,14 @@ func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktr
 		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			result.Stderr += fmt.Sprintf("\ncheckout removed; metadata unavailable: %v", err)
 		}
+	}
+	return result
+}
+
+func checkoutError(result GitResult, op, path string) GitResult {
+	result.Err = errs.Wrap(result.Err, "state.checkout_failed", op, path)
+	if result.Uncertain && result.Err != nil {
+		result.Err = &errs.Error{Code: "git.outcome_unknown", Message: result.Err.Error(), Op: op, Subject: path, Uncertain: true, Hint: "Inspect the checkout before retrying the write.", Cause: result.Err}
 	}
 	return result
 }

@@ -3,6 +3,7 @@ package repokit
 import (
 	"context"
 
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 )
 
@@ -18,5 +19,6 @@ type DeadcodeReport = analysis.DeadcodeReport
 // levels and self-references. Optional filters omit test-file candidates and Go
 // runtime entrypoints after graph construction; public APIs remain candidates.
 func AnalyzeDeadcode(ctx context.Context, req DeadcodeRequest) (DeadcodeReport, error) {
-	return analysis.AnalyzeDeadcode(ctx, req)
+	result, err := analysis.AnalyzeDeadcode(ctx, req)
+	return result, errs.Wrap(err, "deadcode.failed", "deadcode", req.Repository)
 }

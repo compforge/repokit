@@ -376,7 +376,7 @@ func TestLogSizeIsIndependentOfOutput(t *testing.T) {
 	if code := execute(context.Background(), root, []string{"future"}, nil, &stdout, &stderr); code != 1 {
 		t.Fatalf("exit=%d", code)
 	}
-	if stdout.String() != payload || stderr.String() != payload+"repocli: future failure\n" {
+	if stdout.String() != payload || stderr.String() != payload+"repocli: [execution.failed] execution: future failure\n" {
 		t.Fatal("command output changed")
 	}
 	logs := readLogs(t, home)

@@ -36,13 +36,14 @@ RepoCLI 的 JSON 输出遵循本文的 `schemaVersion: "1.0"` 契约。
 终止命令的错误另有 `error` 对象；检查失败、批量部分失败等已由领域报告解释的结果，
 通过 `diagnostics` 与 `data` 表达，不再附加一个重复的通用 error。
 
-`error` 统一包含稳定 `code`、可读 `message`、`phase`，按需提供 `subject`、`hint` 和
-上游 `httpStatus`。Go 内部保留原始 cause，支持 `errors.Is/As`，不向 JSON 暴露 stack 或原始 cause。
+`error` 直接使用 toolkit 的 [`errs.Error`](errors.md)，包含稳定 `code`、可读 `message`，
+按需提供 `op`、`subject`、`hint`、`uncertain`、上游 `httpStatus` 和 `retryAt`。
+Go 内部保留原始 cause，支持 `errors.Is/As`，不向 JSON 暴露 stack 或原始 cause；文本直接使用 Error.Text()。
 错误分类依据类型和状态码，不能解析 message 推断是否超时、是否可重试。常见 code 包括：
 `usage.invalid_argument`、`execution.failed`、`execution.canceled`、`execution.deadline_exceeded`、
 `forge.authentication_required`、`forge.access_denied`、`forge.not_found`、`forge.rate_limited`、
 `forge.http_error`、`forge.outcome_unknown`、`filesystem.not_found`、`filesystem.permission_denied`、
-`network.failed`；特定操作可提供自己的稳定 code。阶段和目标与 code 独立表达。
+`network.failed`；特定操作可提供自己的稳定 code。操作和目标与 code 独立表达。
 
 每项 diagnostic 包含 `code`、`severity`（warning/error）、`phase`、`message`，按需提供
 `subject`、`path`、`line`、`version`、`evidence` 和 `hint`。`evidence` 是当前最终结果内的

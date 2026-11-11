@@ -2,7 +2,9 @@ package repokit
 
 import (
 	"context"
+
 	cg "github.com/compforge/codegraph"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 	"github.com/compforge/repokit/toolkit/go/internal/units"
 )
@@ -29,24 +31,29 @@ type UnitReport = analysis.UnitReport
 // Exclude applies caller policy before graph construction and splitting.
 // Captured source is reused; no Git or workspace reads occur here.
 func FormUnits(ctx context.Context, input DiffReport, opts UnitOptions) (UnitReport, error) {
-	return analysis.FormUnits(ctx, input, opts)
+	result, err := analysis.FormUnits(ctx, input, opts)
+	return result, errs.Wrap(err, "units.failed", "units.form", "")
 }
 
 // SplitChange partitions captured edits using syntax, without constructing a graph.
 func SplitChange(ctx context.Context, ch Change) ([]Fragment, error) {
-	return units.Split(ctx, ch)
+	result, err := units.Split(ctx, ch)
+	return result, errs.Wrap(err, "units.split_failed", "units.split", "")
 }
 
 // GroupFragments reuses an existing split while retaining shared Fragment identity.
 func GroupFragments(ctx context.Context, fragments []Fragment, before, after *cg.Graph, opts UnitOptions) (UnitResult, error) {
-	return units.Group(ctx, fragments, before, after, opts)
+	result, err := units.Group(ctx, fragments, before, after, opts)
+	return result, errs.Wrap(err, "units.group_failed", "units.group", "")
 }
 
 // FragmentID is stable for the same patch and versioned source owners.
 func FragmentID(f Fragment) string { return units.FragmentID(f) }
 
 // ValidateFragmentEdits checks exact edit coverage before grouping can share references.
-func ValidateFragmentEdits(ch Change, fs []Fragment) error { return units.ValidateEdits(ch, fs) }
+func ValidateFragmentEdits(ch Change, fs []Fragment) error {
+	return errs.Wrap(units.ValidateEdits(ch, fs), "units.invalid_edits", "units.validate_edits", "")
+}
 
 const (
 	ElementUnknown     ElementKind = units.Unknown

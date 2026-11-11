@@ -8,6 +8,7 @@ import (
 	"context"
 
 	cg "github.com/compforge/codegraph"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/impact"
@@ -71,29 +72,34 @@ type GraphSnapshot = analysis.GraphSnapshot
 // Inspect reads the Git file catalog and organization metadata without capturing
 // source bytes, computing a digest or building a graph.
 func Inspect(ctx context.Context, req InputRequest) (InspectReport, error) {
-	return analysis.Inspect(ctx, req)
+	result, err := analysis.Inspect(ctx, req)
+	return result, errs.Wrap(err, "inspect.failed", "inspect", req.Repository)
 }
 
 // Snapshot captures content identity independently of organization configuration.
 func Snapshot(ctx context.Context, req InputRequest) (SnapshotReport, error) {
-	return analysis.CaptureSnapshot(ctx, req)
+	result, err := analysis.CaptureSnapshot(ctx, req)
+	return result, errs.Wrap(err, "snapshot.failed", "snapshot", req.Repository)
 }
 
 // Diff captures changed files, patches, versioned source and document tags
 // without parsing source or building a graph.
 func Diff(ctx context.Context, req DiffRequest) (DiffReport, error) {
-	return analysis.CaptureDiff(ctx, req)
+	result, err := analysis.CaptureDiff(ctx, req)
+	return result, errs.Wrap(err, "diff.failed", "diff", req.Repository)
 }
 
 // AnalyzeImpact preserves the independent impact/test-selection capability.
 func AnalyzeImpact(ctx context.Context, req DiffRequest) (ImpactReport, error) {
-	return analysis.Analyze(ctx, req)
+	result, err := analysis.Analyze(ctx, req)
+	return result, errs.Wrap(err, "impact.failed", "impact", req.Repository)
 }
 
 // Graph captures source bytes and builds a graph from the same version.
 // maxDocuments must be positive; omitted documents are reported as diagnostics.
 func Graph(ctx context.Context, req InputRequest, maxDocuments int) (*GraphSnapshot, error) {
-	return analysis.CaptureGraph(ctx, req, maxDocuments)
+	result, err := analysis.CaptureGraph(ctx, req, maxDocuments)
+	return result, errs.Wrap(err, "graph.failed", "graph", req.Repository)
 }
 
 // TreeReport describes entries independently of Component discovery.
@@ -106,7 +112,10 @@ type File = analysis.File
 type Manifest = analysis.Manifest
 
 // Tree observes paths, kinds and known file roles in the selected version.
-func Tree(ctx context.Context, req InputRequest) (TreeReport, error) { return analysis.Tree(ctx, req) }
+func Tree(ctx context.Context, req InputRequest) (TreeReport, error) {
+	result, err := analysis.Tree(ctx, req)
+	return result, errs.Wrap(err, "tree.failed", "tree", req.Repository)
+}
 
 // GraphSource is an existing read-only material view; graph construction never recaptures it.
 type GraphSource = analysis.GraphSource
@@ -117,7 +126,10 @@ type SourceDirectory = analysis.SourceDirectory
 // SourceTree indexes caller-owned captured files without reopening their origin.
 type SourceTree = analysis.SourceTree
 
-func NewSourceTree(files []SourceFile) (*SourceTree, error) { return analysis.NewSourceTree(files) }
+func NewSourceTree(files []SourceFile) (*SourceTree, error) {
+	result, err := analysis.NewSourceTree(files)
+	return result, errs.Wrap(err, "graph.invalid_source", "graph.source", "")
+}
 
 // GraphOptions configures material admission, priority, and CodeGraph budgets.
 type GraphOptions = analysis.GraphOptions
@@ -127,12 +139,14 @@ type GraphResult = analysis.GraphResult
 
 // OpenGraphSource selects a Git revision/index or live source directory.
 func OpenGraphSource(ctx context.Context, req InputRequest) (GraphSource, error) {
-	return analysis.OpenGraphSource(ctx, req)
+	result, err := analysis.OpenGraphSource(ctx, req)
+	return result, errs.Wrap(err, "graph.source_failed", "graph.source", req.Repository)
 }
 
 // GraphFromSource publishes code and sources from the caller's existing view.
 func GraphFromSource(ctx context.Context, source GraphSource, opts GraphOptions) (*GraphResult, error) {
-	return analysis.GraphFromSource(ctx, source, opts)
+	result, err := analysis.GraphFromSource(ctx, source, opts)
+	return result, errs.Wrap(err, "graph.failed", "graph", "")
 }
 
 // IsSourceMaterial recognizes source/manifest formats; GraphOptions controls admission.

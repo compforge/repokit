@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/compforge/repokit/toolkit/go"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/forge"
 	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
@@ -114,7 +115,7 @@ func TestPRMaintenanceWarningPreservesSuccess(t *testing.T) {
 
 // +case=Unknown Forge write outcomes require reconciliation and are never collapsed into ordinary failure
 func TestUnknownWriteOutcome(t *testing.T) {
-	err := operationFailure("forge.operation_failed", "create", "example/repo source=topic target=main", &forge.OutcomeUnknown{Err: context.DeadlineExceeded})
+	err := operationFailure("forge.operation_failed", "create", "example/repo source=topic target=main", &errs.Error{Code: "forge.outcome_unknown", Message: "write result unknown", Uncertain: true, Hint: "Reconcile before retrying", Cause: context.DeadlineExceeded})
 	var out bytes.Buffer
 	code, stderr := runResultCommand(t, nil, err, &out)
 	if code != 1 || stderr != "" {
@@ -191,10 +192,10 @@ func TestErrorClassificationUsesTypes(t *testing.T) {
 		code string
 	}{
 		{executionFailure(context.Canceled), "execution.canceled"},
-		{executionFailure(&forge.HTTPError{Status: 401}), "forge.authentication_required"},
+		{executionFailure(&errs.Error{Code: "forge.authentication_required", Message: "authentication required", HTTPStatus: 401}), "forge.authentication_required"},
 		{executionFailure(errors.New("network timeout")), "execution.failed"},
 	} {
-		var typed *commandError
+		var typed *errs.Error
 		if !errors.As(executionFailure(tc.err), &typed) || typed.Code != tc.code {
 			t.Fatalf("%+v != %s", typed, tc.code)
 		}
@@ -220,16 +221,16 @@ func TestValidationCostSeparatesReuse(t *testing.T) {
 }
 
 func TestTypedErrorPreservesCauseAndContext(t *testing.T) {
-	original := &forge.OutcomeUnknown{Err: context.DeadlineExceeded}
+	original := &errs.Error{Code: "forge.outcome_unknown", Message: "write result unknown", Uncertain: true, Hint: "Reconcile before retrying", Cause: context.DeadlineExceeded}
 	err := operationFailure("forge.operation_failed", "create", "owner/repo", original)
 	if executionFailure(err) != err || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatal("lost cause or rewrapped typed error")
 	}
-	var unknown *forge.OutcomeUnknown
-	if !errors.As(err, &unknown) || unknown != original {
+	var unknown *errs.Error
+	if !errors.As(err, &unknown) || !unknown.Uncertain {
 		t.Fatal("lost SDK error")
 	}
-	var typed *commandError
+	var typed *errs.Error
 	if !errors.As(err, &typed) || typed.Code != "forge.outcome_unknown" || typed.Subject != "owner/repo" {
 		t.Fatal(err)
 	}
@@ -243,5 +244,38 @@ func TestValidationSummaryDoesNotClaimUnstartedChecksRan(t *testing.T) {
 	}}}})
 	if !strings.Contains(result.Summary, "0 executed") || result.Outcome != "failed" {
 		t.Fatalf("%+v", result)
+	}
+}
+
+// +case=CLI embeds the toolkit error directly and uses its text representation
+func TestCLIUsesToolkitErrorRepresentation(t *testing.T) {
+	original := &errs.Error{Code: "state.read_failed", Op: "state.read", Subject: "repo", Message: "unreadable record", Hint: "Inspect the record", Cause: context.Canceled}
+	var out bytes.Buffer
+	code, stderr := runResultCommand(t, nil, original, &out)
+	if code != 1 || stderr != "" {
+		t.Fatal(code, stderr)
+	}
+	var wire struct {
+		Error json.RawMessage `json:"error"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &wire); err != nil {
+		t.Fatal(err)
+	}
+	expected, err := json.Marshal(original)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, wire.Error); err != nil {
+		t.Fatal(err)
+	}
+	if compact.String() != string(expected) {
+		t.Fatalf("changed SDK error: %s != %s", compact.String(), expected)
+	}
+	out.Reset()
+	var text bytes.Buffer
+	result := &resultOutput{Writer: &out}
+	if code, _ := result.finish("fixture", original, 1, &text); code != 1 || text.String() != "repocli: "+original.Text()+"\n" {
+		t.Fatal(text.String())
 	}
 }

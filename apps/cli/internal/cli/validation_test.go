@@ -292,7 +292,7 @@ func TestValidationExportFailurePreservesReport(t *testing.T) {
 	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatal(err)
 	}
-	if code != 1 || stderr.Len() != 0 || !report.Passed || result.Error == nil || result.Error.Phase != "export" || len(result.Artifacts) != 0 {
+	if code != 1 || stderr.Len() != 0 || !report.Passed || result.Error == nil || result.Error.Op != "export" || len(result.Artifacts) != 0 {
 		t.Fatalf("code=%d result=%s stderr=%s", code, &out, &stderr)
 	}
 	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) != 2 {

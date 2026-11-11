@@ -4,12 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 )
 
 // GitResult retains failed and uncertain outcomes. Cancellation after starting a
@@ -57,6 +59,7 @@ func Run(ctx context.Context, repo string, timeout time.Duration, args ...string
 	uncertain := cmd.Process != nil && ctx.Err() != nil
 	if err != nil {
 		err = fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
+		err = errs.Wrap(err, "git.command_failed", "git."+args[0], repo)
 	}
 	return GitResult{ExitCode: code, Stdout: out.String(), Stderr: stderr.String(), Uncertain: uncertain, Err: err}
 }

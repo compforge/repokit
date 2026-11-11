@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
@@ -34,15 +35,15 @@ type artifact struct {
 }
 
 type commandResult struct {
-	SchemaVersion string        `json:"schemaVersion"`
-	Command       string        `json:"command"`
-	Outcome       string        `json:"outcome"`
-	Summary       string        `json:"summary"`
-	Diagnostics   []diagnostic  `json:"diagnostics"`
-	Data          any           `json:"data"`
-	Artifacts     []artifact    `json:"artifacts"`
-	Error         *commandError `json:"error,omitempty"`
-	Cost          commandCost   `json:"cost"`
+	SchemaVersion string       `json:"schemaVersion"`
+	Command       string       `json:"command"`
+	Outcome       string       `json:"outcome"`
+	Summary       string       `json:"summary"`
+	Diagnostics   []diagnostic `json:"diagnostics"`
+	Data          any          `json:"data"`
+	Artifacts     []artifact   `json:"artifacts"`
+	Error         *errs.Error  `json:"error,omitempty"`
+	Cost          commandCost  `json:"cost"`
 }
 
 // resultOutput retains typed data until the command's final outcome is known.
@@ -106,11 +107,14 @@ func (o *resultOutput) applyError(err error) {
 	if err == nil || errors.As(err, &reported) {
 		return
 	}
-	var problem *commandError
+	var problem *errs.Error
 	if !errors.As(err, &problem) {
 		problem = usageFailure(err)
 	}
-	o.result.Error, o.result.Outcome = problem, problem.outcome
+	o.result.Error, o.result.Outcome = problem, "failed"
+	if problem.Uncertain {
+		o.result.Outcome = "unknown"
+	}
 	if !o.recorded {
 		o.result.Summary = problem.Message
 	} else {
@@ -166,7 +170,16 @@ func (o *resultOutput) finish(command string, err error, code int, stderr io.Wri
 	}
 	if !o.structured {
 		if err != nil {
-			fmt.Fprintln(stderr, "repocli:", err)
+			if r.Error != nil {
+				fmt.Fprintln(stderr, "repocli:", r.Error.Text())
+			} else {
+				fmt.Fprintln(stderr, "repocli:", err)
+			}
+			for _, d := range r.Diagnostics {
+				if d.Code == "output.export_failed" {
+					fmt.Fprintln(stderr, "repocli:", d.Message)
+				}
+			}
 		}
 		return code, err
 	}
@@ -184,11 +197,12 @@ func (o *resultOutput) finish(command string, err error, code int, stderr io.Wri
 	}
 	if deliveryErr != nil {
 		o.writeErr = deliveryErr
-		fmt.Fprintf(stderr, "repocli: output.write_failed: %v; command outcome=%s; reconcile side effects before retrying\n", deliveryErr, r.Outcome)
+		problem := &errs.Error{Code: "output.write_failed", Op: "output", Message: fmt.Sprintf("%v; command outcome=%s", deliveryErr, r.Outcome), Hint: "Reconcile side effects before retrying.", Cause: deliveryErr}
+		fmt.Fprintln(stderr, "repocli:", problem.Text())
 		if code == 0 {
 			code = 1
 		}
-		err = errors.Join(err, executionFailure(deliveryErr))
+		err = errors.Join(err, problem)
 	}
 	return code, err
 }

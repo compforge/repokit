@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/compforge/quality-harness/sdks/go/common"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	repostate "github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -44,14 +45,14 @@ type prRecord struct {
 // Zero always fetches. Get stays a live read for write authorization and cleanup.
 // +spec=`Connection scope includes endpoint, provider and credentials. Failed reads never return cached data as current. Merged lifecycle cannot regress on refresh; mutable metadata can refresh.`
 // +link=component://docs/state.md
-func (c *Client) Load(ctx context.Context, repository string, number int, maxAge time.Duration) (PullRequest, error) {
+func (c *Client) Load(ctx context.Context, repository string, number int, maxAge time.Duration) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.load_failed", "forge.load", repository) }()
 	if maxAge < 0 || number < 1 || repository == "" {
 		return PullRequest{}, errors.New("invalid PR observation request")
 	}
 	key := Key{c.Repository(repository), number}
 	directory, path, connection := c.observationLocation(key)
-	var result PullRequest
-	err := repostate.WithLock(ctx, path, func(owned func() error) error {
+	err = repostate.WithLock(ctx, path, func(owned func() error) error {
 		previous, found, err := c.readObservation(key, path, connection)
 		if err != nil {
 			return err

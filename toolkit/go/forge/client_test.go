@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/compforge/repokit/toolkit/go/errs"
 )
 
 func githubFixture(number int, state string) string {
@@ -58,8 +60,8 @@ func TestWriteFailureIsUncertainAndNeverRetried(t *testing.T) {
 	defer server.Close()
 	client, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
 	_, err := client.Close(context.Background(), Key{client.Repository("acme/repo"), 1})
-	var unknown *OutcomeUnknown
-	if !errors.As(err, &unknown) || calls != 1 {
+	var unknown *errs.Error
+	if !errors.As(err, &unknown) || !unknown.Uncertain || unknown.Code != "forge.outcome_unknown" || unknown.HTTPStatus != 503 || calls != 1 {
 		t.Fatal(err, calls)
 	}
 }
@@ -126,8 +128,8 @@ func TestRateLimitCooldown(t *testing.T) {
 	client, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
 	for i := 0; i < 2; i++ {
 		_, err := client.List(context.Background(), "acme/repo", "open", "", "")
-		var limited *HTTPError
-		if !errors.As(err, &limited) || limited.RetryAt.IsZero() {
+		var limited *errs.Error
+		if !errors.As(err, &limited) || limited.Code != "forge.rate_limited" || limited.RetryAt == nil || limited.RetryAt.IsZero() {
 			t.Fatal(err)
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/spf13/cobra"
 )
 
@@ -60,11 +61,14 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 			start()
 		}
 		code = 2
-		var failure *commandError
+		var failure *errs.Error
 		var reported *resultFailure
 		switch {
 		case errors.As(err, &failure):
-			code = failure.exitCode
+			code = 1
+			if failure.Code == "usage.invalid_argument" {
+				code = 2
+			}
 		case errors.As(err, &reported):
 			code = 1
 		default:

@@ -6,12 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 )
 
 // FindCheckout locates a physical ancestor checkout. Empty means absent; path,
 // metadata or Git failures return errors. Bare metadata is not a checkout.
-func FindCheckout(ctx context.Context, directory string) (string, error) {
+func FindCheckout(ctx context.Context, directory string) (checkout string, err error) {
+	defer func() { err = errs.Wrap(err, "repository.discovery_failed", "repository.discover", directory) }()
 	start, err := filepath.Abs(directory)
 	if err != nil {
 		return "", err
