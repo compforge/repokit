@@ -72,11 +72,16 @@ func TestUpgradeCommand(t *testing.T) {
 					UpdateAvailable bool   `json:"updateAvailable"`
 					Updated         bool   `json:"updated"`
 				}
-				if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				if err := json.Unmarshal(resultData(t, out.Bytes()), &result); err != nil {
 					t.Fatal(err)
 				}
 				if result.CurrentVersion != "0.17.0" || result.UpdateAvailable != tc.available || result.Updated != (tc.installs == 1) {
 					t.Fatalf("bad report %+v", result)
+				}
+			} else if len(tc.args) > 0 && strings.Contains(strings.Join(tc.args, " "), "--json") {
+				var result commandResult
+				if err := json.Unmarshal(out.Bytes(), &result); err != nil || result.Outcome != "failed" || stderr.Len() != 0 {
+					t.Fatalf("bad failure result: %s / %s", &out, &stderr)
 				}
 			} else if out.Len() != 0 {
 				t.Fatalf("failure wrote success report: %s", out.String())
@@ -109,10 +114,10 @@ func TestUpgradeRejectsNonPositiveTimeoutBeforeChecking(t *testing.T) {
 				}
 				var stdout, stderr bytes.Buffer
 				code := execute(context.Background(), root, args, nil, &stdout, &stderr)
-				if code != 2 || !strings.Contains(stderr.String(), "timeout must be positive") {
+				if code != 2 || !strings.Contains(stdout.String(), "timeout must be positive") || stderr.Len() != 0 {
 					t.Fatalf("exit=%d stderr=%q", code, stderr.String())
 				}
-				if client.checkCalls != 0 || client.installCalls != 0 || stdout.Len() != 0 {
+				if client.checkCalls != 0 || client.installCalls != 0 || string(resultData(t, stdout.Bytes())) != "null" {
 					t.Fatalf("invalid arguments reached update work: checks=%d installs=%d stdout=%q",
 						client.checkCalls, client.installCalls, stdout.String())
 				}

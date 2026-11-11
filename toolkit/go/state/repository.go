@@ -5,8 +5,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
-
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +12,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
@@ -84,7 +84,8 @@ var errIncompleteObservation = errors.New("incomplete checkout observation")
 // LoadBranch uses a local observation only within maxAge; zero requests current Git facts.
 // +spec=`Missing, stale or partially published observations are refreshed for the requested branch only. Failed current reads never return stale data as current.`
 // +link=component://docs/state.md
-func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Duration) (*BranchObservation, error) {
+func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Duration) (observation *BranchObservation, err error) {
+	defer func() { err = errs.Wrap(err, "state.branch_failed", "state.load_branch", repo) }()
 	if maxAge < 0 {
 		return nil, errors.New("max age must be nonnegative")
 	}
@@ -155,7 +156,8 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 // Reconcile retires only this clone's absent checkout records and empty branch projections.
 // +spec=`Failed inventory never means absence. Observations are not authority to delete Git resources. History survives checkout reclamation.`
 // +link=component://docs/state.md
-func Observe(ctx context.Context, repo, home string, reconcile bool) (string, error) {
+func Observe(ctx context.Context, repo, home string, reconcile bool) (directory string, err error) {
+	defer func() { err = errs.Wrap(err, "state.observe_failed", "state.observe", repo) }()
 	return observeBranch(ctx, repo, home, reconcile, nil)
 }
 

@@ -10,6 +10,7 @@
 ```text
 repokit.go          # 分析 API 与结果类型
 units.go            # diff → Fragment → Unit 的公共 API
+errs/               # 结构化错误、cause 链及 JSON/text 表达
 state/              # 仓库状态业务：观测、checkout 生命周期、保留策略与共享存储
 forge/              # 原生 PR 查询、写入与成功后维护
 validation.go       # 验证公共类型别名与入口；实现归 internal/validation
@@ -29,6 +30,7 @@ internal/
 ## 关键约定
 
 - 应用只能消费公共 API；不能为了 CLI 或测试放宽 internal 可见性。工具包不依赖 apps、Cobra 或 HTTP 展示。验证历史由 validation 通过显式 HistoryDir 保存；不隐式写入用户目录。
+- 终止操作的错误使用公共 `errs.Error`，在所属组件提供 code、操作与目标；应用直接复用其 JSON/text 表达，退出码和输出通道归应用。领域报告中的失败与缺口仍留在报告中，见 [错误契约](../../docs/errors.md)。
 - context 负责取消与时限；结果保持完整性和诊断，消费策略归调用方。Repository / Component / Product 复用 common。
 - `make lint/test/build` 验证本模块。`../../conformance` 是仓库共享语料，测试需在完整仓库中运行。
 - 文件名目录由 `make generate-languages` 更新，不能手改生成产物；TS/Python 运行时不依赖 Go。

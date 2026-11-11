@@ -29,7 +29,7 @@ func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var plan repokit.ValidationPlan
-			if err := json.Unmarshal(out.Bytes(), &plan); err != nil {
+			if err := json.Unmarshal(resultData(t, out.Bytes()), &plan); err != nil {
 				t.Fatal(err)
 			}
 			want := 1
@@ -45,7 +45,7 @@ func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var report repokit.ValidationReport
-			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+			if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 				t.Fatal(err)
 			}
 			if !report.Complete || !report.Passed || len(report.Components[0].Checks) != want {
@@ -102,8 +102,20 @@ func TestValidationCLIFormatCompositionAndReuseReport(t *testing.T) {
 		var out, stderr bytes.Buffer
 		code := Execute(context.Background(), append(args, "--repo", root, "--json"), nil, &out, &stderr)
 		var report repokit.ValidationReport
-		if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 			t.Fatalf("%d %s %s %v", code, &out, &stderr, err)
+		}
+		var result commandResult
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		if result.Cost.WallSeconds <= 0 || result.Cost.Validation == nil || len(result.Cost.Phases) < 2 || result.Cost.Phases[0].Name != "validation" {
+			t.Fatalf("missing measured cost: %s", &out)
+		}
+		for _, step := range result.Cost.Validation.Steps {
+			if step.Reused && step.ExecutionSeconds != 0 {
+				t.Fatalf("charged historical execution: %+v", step)
+			}
 		}
 		return code, report
 	}
@@ -147,7 +159,7 @@ func TestValidationCLIRootFallbackDeduplicatesExplicitComponents(t *testing.T) {
 		t.Fatalf("exit=%d %s", code, &stderr)
 	}
 	var report repokit.ValidationReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatal(err)
 	}
 	if !report.Passed || len(report.Components) != 1 || report.Components[0].Component.Root != "." || len(report.Components[0].Checks) != 1 {
@@ -189,7 +201,7 @@ func TestValidationCLIHistoryQueryAndPlanAreNotExecutions(t *testing.T) {
 	run("validate", "--check", "lint")
 	run("validate", "--history")
 	var summary repokit.ValidationHistory
-	if err := json.Unmarshal(out.Bytes(), &summary); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &summary); err != nil {
 		t.Fatal(err)
 	}
 	if c := summary.Checks[". lint"]; c.Executions != 1 || c.Reuses != 1 {
@@ -224,20 +236,20 @@ func TestValidationCLIWithoutHome(t *testing.T) {
 				t.Fatalf("run exit=%d: %s", code, &stderr)
 			}
 			var report repokit.ValidationReport
-			if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+			if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 				t.Fatal(err)
 			}
 			if !report.Passed || (name != "format" && !report.InputsConsistent) || report.History != nil {
 				t.Fatalf("%s", &out)
 			}
-			if !strings.Contains(stderr.String(), "validation history disabled") {
+			if !strings.Contains(out.String(), "validation.history_unavailable") {
 				t.Fatalf("missing warning: %s", &stderr)
 			}
 		})
 	}
 	var out, stderr bytes.Buffer
-	if code := Execute(context.Background(), []string{"validate", "--repo", root, "--history"}, nil, &out, &stderr); code != 1 || !strings.Contains(stderr.String(), "--history-dir") {
-		t.Fatalf("query exit=%d: %s", code, &stderr)
+	if code := Execute(context.Background(), []string{"validate", "--repo", root, "--history"}, nil, &out, &stderr); code != 1 || !strings.Contains(out.String(), "--history-dir") || string(resultData(t, out.Bytes())) != "null" {
+		t.Fatalf("query exit=%d: stdout=%s stderr=%s", code, &out, &stderr)
 	}
 	history := t.TempDir()
 	for i := 0; i < 2; i++ {
@@ -247,7 +259,7 @@ func TestValidationCLIWithoutHome(t *testing.T) {
 			t.Fatalf("explicit exit=%d: %s", code, &stderr)
 		}
 		var report repokit.ValidationReport
-		if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 			t.Fatal(err)
 		}
 		if report.Components[0].Checks[0].Reused != (i == 1) {
@@ -258,5 +270,74 @@ func TestValidationCLIWithoutHome(t *testing.T) {
 	stderr.Reset()
 	if code := Execute(context.Background(), []string{"validate", "--repo", root, "--history", "--history-dir", history}, nil, &out, &stderr); code != 0 {
 		t.Fatalf("explicit query exit=%d: %s", code, &stderr)
+	}
+}
+
+// +case=An export failure preserves completed validation results and measured phases
+func TestValidationExportFailurePreservesReport(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, output)
+	}
+	put(t, root, "pyproject.toml", "[project]\nname='fixture'\nversion='0.1.0'\n")
+	put(t, root, "Makefile", "test:\n\t@echo check-completed\n")
+	var out, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"test", "--repo", root, "--json", "--output", filepath.Join(t.TempDir(), "missing", "report.json")}, nil, &out, &stderr)
+	var result commandResult
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	var report repokit.ValidationReport
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
+		t.Fatal(err)
+	}
+	if code != 1 || stderr.Len() != 0 || !report.Passed || result.Error == nil || result.Error.Op != "export" || len(result.Artifacts) != 0 {
+		t.Fatalf("code=%d result=%s stderr=%s", code, &out, &stderr)
+	}
+	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) != 2 {
+		t.Fatalf("lost cost: %s", &out)
+	}
+}
+
+// +case=Execution, planning, and failure exports share the complete stdout JSON contract
+func TestValidationExportsFinalResult(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root := t.TempDir()
+	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, output)
+	}
+	put(t, root, "pyproject.toml", "[project]\nname='fixture'\nversion='0.1.0'\n")
+	put(t, root, "Makefile", "test:\n\t@echo check-completed\n")
+	for _, tc := range []struct {
+		name  string
+		flags []string
+		code  int
+	}{
+		{"execution", nil, 0},
+		{"plan", []string{"--plan"}, 0},
+		{"history", []string{"--history"}, 0},
+		{"argument-failure", []string{"--timeout", "0s"}, 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "result.json")
+			args := append([]string{"test", "--repo", root, "--json", "--output", path}, tc.flags...)
+			var out, stderr bytes.Buffer
+			if code := Execute(context.Background(), args, nil, &out, &stderr); code != tc.code || stderr.Len() != 0 {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, &out, &stderr)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(data, out.Bytes()) {
+				t.Fatalf("different export: %v file=%s stdout=%s", err, data, &out)
+			}
+			resultData(t, data)
+			var result commandResult
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Cost.WallSeconds <= 0 || len(result.Artifacts) != 1 || result.Artifacts[0].Path != path || result.Artifacts[0].Kind != "command_result" {
+				t.Fatalf("missing final metadata: %s", data)
+			}
+		})
 	}
 }

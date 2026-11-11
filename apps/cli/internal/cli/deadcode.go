@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -35,10 +34,10 @@ snapshot completeness and graph diagnostics. Entrypoints and public APIs may app
 			defer cancel()
 			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			if err := writeDeadcode(command.OutOrStdout(), report, opts.json); err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},
@@ -54,10 +53,11 @@ snapshot completeness and graph diagnostics. Entrypoints and public APIs may app
 }
 
 func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool) error {
+	if !asJSON {
+		recordResult(output, report)
+	}
 	if asJSON {
-		encoder := json.NewEncoder(output)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
+		return writeJSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "Deadcode candidates: %d (no incoming usage edges)\n%s input=%s capture_complete=%t documents=%d graph_diagnostics=%d\n", len(report.Nodes), report.Snapshot.Snapshot, report.Snapshot.Input, report.Snapshot.Complete, report.Documents, len(report.Diagnostics)); err != nil {
 		return err

@@ -113,7 +113,7 @@ func TestLibraryAndCLIShareReports(t *testing.T) {
 				if err := json.Unmarshal(stdout.Bytes(), &b); err != nil {
 					t.Fatal(err)
 				}
-				if !reflect.DeepEqual(a, b) {
+				if !reflect.DeepEqual(a, b.(map[string]any)["data"]) {
 					t.Fatalf("%s CLI/library mismatch", report.command)
 				}
 			}

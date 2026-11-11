@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"slices"
@@ -11,10 +10,11 @@ import (
 )
 
 func writeReport(stdout io.Writer, result repokit.ImpactReport, asJSON bool) error {
+	if !asJSON {
+		recordResult(stdout, result)
+	}
 	if asJSON {
-		encoder := json.NewEncoder(stdout)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(result)
+		return writeJSON(stdout, result)
 	}
 	var buffer strings.Builder
 	fmt.Fprintf(&buffer, "%d changed files; impact scope: %s\n", len(result.Changes), result.Scope)

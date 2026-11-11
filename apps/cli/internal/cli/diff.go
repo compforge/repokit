@@ -81,10 +81,10 @@ in-memory patch postimage. Add --units to form Units from the captured diff.`,
 			snapshot := finishDiffTimeline(ctx, id, analysisErr)
 			recordDiff(ctx, request, record, opts.timeout, snapshot, analysisErr)
 			if analysisErr != nil {
-				return executionError{analysisErr}
+				return executionFailure(analysisErr)
 			}
 			if err := output(); err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},

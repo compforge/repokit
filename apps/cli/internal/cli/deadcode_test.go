@@ -25,7 +25,7 @@ func TestDeadcodeCLI(t *testing.T) {
 			t.Fatalf("%d: %s", code, &stderr)
 		}
 		var report repokit.DeadcodeReport
-		if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 			t.Fatal(err)
 		}
 		if len(report.Nodes) != 2 || report.Nodes[0].Name != "main" || report.Nodes[1].Name != "orphan" {
@@ -37,7 +37,7 @@ func TestDeadcodeCLI(t *testing.T) {
 		t.Fatalf("%d: %s", code, &filterErrors)
 	}
 	var report repokit.DeadcodeReport
-	if err := json.Unmarshal(filtered.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(resultData(t, filtered.Bytes()), &report); err != nil {
 		t.Fatal(err)
 	}
 	if len(report.Nodes) != 1 || report.Nodes[0].Name != "orphan" {
@@ -69,9 +69,7 @@ type deadcodeBrokenWriter struct{}
 func (deadcodeBrokenWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
 
 func TestDeadcodeWriterErrors(t *testing.T) {
-	for _, asJSON := range []bool{false, true} {
-		if err := writeDeadcode(deadcodeBrokenWriter{}, repokit.DeadcodeReport{}, asJSON); err == nil {
-			t.Fatal("lost write error")
-		}
+	if err := writeDeadcode(deadcodeBrokenWriter{}, repokit.DeadcodeReport{}, false); err == nil {
+		t.Fatal("lost write error")
 	}
 }

@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -33,24 +32,27 @@ func newStatsCommand(opts *options) *cobra.Command {
 			}
 			path, err := repositoryHome(opts.home)
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 			defer cancel()
 			report, err := stats.Read(ctx, path, top)
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
+			}
+			if !opts.json {
+				recordResult(cmd.OutOrStdout(), report)
 			}
 			if opts.json {
-				err = json.NewEncoder(cmd.OutOrStdout()).Encode(report)
+				err = writeJSON(cmd.OutOrStdout(), report)
 			} else {
 				err = writeStats(cmd.OutOrStdout(), report)
 			}
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			if !report.Complete {
-				return executionError{errors.New("statistics are incomplete; see diagnostics in the report")}
+				return executionFailure(&resultFailure{"statistics are incomplete; see diagnostics in the report"})
 			}
 			return nil
 		},

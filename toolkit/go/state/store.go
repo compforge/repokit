@@ -9,10 +9,13 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/errs"
 )
 
 // Read distinguishes missing observations from corrupt or unreadable observations.
-func Read(path string, value any) (bool, error) {
+func Read(path string, value any) (found bool, err error) {
+	defer func() { err = errs.Wrap(err, "state.read_failed", "state.read", path) }()
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return false, nil
@@ -27,7 +30,8 @@ func Read(path string, value any) (bool, error) {
 }
 
 // Write atomically publishes a private record while the caller owns its refresh lease.
-func Write(path string, value any, owned func() error) error {
+func Write(path string, value any, owned func() error) (err error) {
+	defer func() { err = errs.Wrap(err, "state.write_failed", "state.write", path) }()
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
@@ -63,7 +67,8 @@ func Write(path string, value any, owned func() error) error {
 // WithLock implements the existing Python/proper-lockfile record lease: 30s stale,
 // 10s renewal, an empty .lock directory. Network and Git work use the same deadline.
 // +spec=`All language implementations serialize refresh on the same record path; cancellation or lease loss forbids publication.`
-func WithLock(ctx context.Context, path string, fn func(func() error) error) error {
+func WithLock(ctx context.Context, path string, fn func(func() error) error) (err error) {
+	defer func() { err = errs.Wrap(err, "state.lock_failed", "state.lock", path) }()
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {

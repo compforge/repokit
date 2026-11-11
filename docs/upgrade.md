@@ -23,7 +23,7 @@ checksum 用于验证 Release 附件的一致性，信任来源仍是官方 GitH
 
 ## 自动化输出
 
-`repocli upgrade --check --json` 和 `repocli upgrade --json` 都输出一个 JSON 对象：
+`repocli upgrade --check --json` 和 `repocli upgrade --json` 都输出[统一结果 envelope](cli-output.md)，其中 `data` 为：
 
 ```json
 {"currentVersion":"0.17.0","latestVersion":"0.18.0","updateAvailable":true,"updated":false}
@@ -31,4 +31,4 @@ checksum 用于验证 Release 附件的一致性，信任来源仍是官方 GitH
 
 `updateAvailable` 比较执行前版本与最新稳定版；`updated` 仅在实际替换成功后为 true。
 查询成功即退出 0，包括发现新版；调用者读取字段决定下一步。执行失败退出 1，参数错误退出 2。
-失败时 stdout 不输出成功对象，错误与统一执行日志走 stderr。`--check` 不下载附件或写安装目录。
+失败时 stdout 返回带 `error` 的统一结果，执行日志走 stderr。`--check` 不下载附件或写安装目录。

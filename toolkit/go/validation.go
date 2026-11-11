@@ -3,6 +3,7 @@ package repokit
 import (
 	"context"
 
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/validation"
 )
 
@@ -32,32 +33,38 @@ type ValidationReport = validation.ValidationReport
 
 // PlanValidation reads the checkout and freezes Makefile checks without executing them.
 func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan, error) {
-	return validation.PlanValidation(ctx, req)
+	result, err := validation.PlanValidation(ctx, req)
+	return result, errs.Wrap(err, "validation.plan_failed", "validation.plan", req.Repository)
 }
 
 // ExecuteValidation runs a live frozen plan and verifies its input consistency.
 func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationReport, error) {
-	return validation.ExecuteValidation(ctx, plan)
+	result, err := validation.ExecuteValidation(ctx, plan)
+	return result, errs.Wrap(err, "validation.execution_failed", "validation.execute", plan.Checkout)
 }
 
 // Validate completes optional formatting before planning and executing lint/test.
 func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, error) {
-	return validation.Validate(ctx, req)
+	result, err := validation.Validate(ctx, req)
+	return result, errs.Wrap(err, "validation.failed", "validation", req.Repository)
 }
 
 // Format runs formatting without granting lint/test evidence.
 func Format(ctx context.Context, req ValidationRequest) (ValidationReport, error) {
-	return validation.Format(ctx, req)
+	result, err := validation.Format(ctx, req)
+	return result, errs.Wrap(err, "validation.format_failed", "validation.format", req.Repository)
 }
 
 // Lint plans and executes only lint checks.
 func Lint(ctx context.Context, req ValidationRequest) (ValidationReport, error) {
-	return validation.Lint(ctx, req)
+	result, err := validation.Lint(ctx, req)
+	return result, errs.Wrap(err, "validation.lint_failed", "validation.lint", req.Repository)
 }
 
 // Test plans and executes only test checks.
 func Test(ctx context.Context, req ValidationRequest) (ValidationReport, error) {
-	return validation.Test(ctx, req)
+	result, err := validation.Test(ctx, req)
+	return result, errs.Wrap(err, "validation.test_failed", "validation.test", req.Repository)
 }
 
 // ValidationHistory summarizes retained actual executions and reuse requests.
@@ -70,10 +77,12 @@ type ValidationHistories = validation.ValidationHistories
 // ReadValidationHistories reads existing stores without requiring their checkouts.
 // Missing directories are empty; unreadable stores are excluded with diagnostics.
 func ReadValidationHistories(ctx context.Context, directory string) (ValidationHistories, error) {
-	return validation.ReadValidationHistories(ctx, directory)
+	result, err := validation.ReadValidationHistories(ctx, directory)
+	return result, errs.Wrap(err, "validation.history_failed", "validation.history", directory)
 }
 
 // ReadValidationHistory reads statistics without running checks.
 func ReadValidationHistory(ctx context.Context, directory, checkout string) (ValidationHistory, error) {
-	return validation.ReadValidationHistory(ctx, directory, checkout)
+	result, err := validation.ReadValidationHistory(ctx, directory, checkout)
+	return result, errs.Wrap(err, "validation.history_failed", "validation.history", checkout)
 }

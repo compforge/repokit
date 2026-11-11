@@ -7,9 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"github.com/compforge/quality-harness/sdks/go/common"
-	repohome "github.com/compforge/repokit/toolkit/go/state"
 	"io"
 	"log/slog"
 	"net/http"
@@ -19,6 +16,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/compforge/quality-harness/sdks/go/common"
+	"github.com/compforge/repokit/toolkit/go/errs"
+	repohome "github.com/compforge/repokit/toolkit/go/state"
 )
 
 type Key struct {
@@ -38,19 +39,6 @@ type PullRequest struct {
 	Draft            bool              `json:"draft"`
 }
 
-// OutcomeUnknown means a write may have taken effect; reconcile before retrying.
-type OutcomeUnknown struct{ Err error }
-
-func (e *OutcomeUnknown) Error() string { return "Forge write outcome unknown: " + e.Err.Error() }
-func (e *OutcomeUnknown) Unwrap() error { return e.Err }
-
-type HTTPError struct {
-	Status  int
-	RetryAt time.Time
-}
-
-func (e *HTTPError) Error() string { return fmt.Sprintf("Forge HTTP %d", e.Status) }
-
 type Config struct {
 	Host, Provider, APIHost, Token string
 	Home                           string // explicit option, REPOKIT_HOME, or ~/.repokit
@@ -65,7 +53,8 @@ type Client struct {
 }
 
 // DetectProvider applies the same case-insensitive host policy as Python ForgeConnection.
-func DetectProvider(host, explicit string) (string, error) {
+func DetectProvider(host, explicit string) (provider string, err error) {
+	defer func() { err = errs.Wrap(err, "forge.invalid_provider", "forge.detect_provider", host) }()
 	if explicit != "" {
 		if explicit != "github" && explicit != "gitlab" {
 			return "", errors.New("provider must be github or gitlab")
@@ -79,7 +68,8 @@ func DetectProvider(host, explicit string) (string, error) {
 	return "gitlab", nil
 }
 
-func NewClient(config Config) (*Client, error) {
+func NewClient(config Config) (result *Client, err error) {
+	defer func() { err = errs.Wrap(err, "forge.connection_failed", "forge.connect", config.Host) }()
 	config.Host = strings.ToLower(config.Host)
 	provider, err := DetectProvider(config.Host, config.Provider)
 	if err != nil {
@@ -124,11 +114,12 @@ func (c *Client) Repository(path string) common.Repository {
 	return common.Repository{Forge: common.Forge{Name: name}, Path: path}
 }
 
-func (c *Client) request(ctx context.Context, method, path string, payload any, dest any) error {
+func (c *Client) request(ctx context.Context, method, path string, payload any, dest any) (err error) {
+	defer func() { err = errs.Wrap(err, "forge.request_failed", method, path) }()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if time.Now().Before(c.cooldown) {
-		return &HTTPError{Status: 429, RetryAt: c.cooldown}
+		return httpFailure(429, &c.cooldown)
 	}
 	var body io.Reader
 	if payload != nil {
@@ -160,7 +151,7 @@ func (c *Client) request(ctx context.Context, method, path string, payload any, 
 	write := method != "GET"
 	if err != nil {
 		if write {
-			return &OutcomeUnknown{err}
+			return unknownFailure(err)
 		}
 		return err
 	}
@@ -171,12 +162,12 @@ func (c *Client) request(ctx context.Context, method, path string, payload any, 
 	}
 	if err != nil {
 		if write {
-			return &OutcomeUnknown{err}
+			return unknownFailure(err)
 		}
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		httpErr := &HTTPError{Status: response.StatusCode}
+		httpErr := httpFailure(response.StatusCode, nil)
 		if response.StatusCode == 429 || response.StatusCode == 403 && (response.Header.Get("Retry-After") != "" || response.Header.Get("X-RateLimit-Remaining") == "0") {
 			c.cooldown = time.Now().Add(30 * time.Second)
 			if seconds, err := strconv.Atoi(response.Header.Get("Retry-After")); err == nil {
@@ -187,17 +178,18 @@ func (c *Client) request(ctx context.Context, method, path string, payload any, 
 			if epoch, err := strconv.ParseInt(response.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil && time.Unix(epoch, 0).After(c.cooldown) {
 				c.cooldown = time.Unix(epoch, 0)
 			}
-			httpErr.RetryAt = c.cooldown
+			retryAt := c.cooldown
+			httpErr.RetryAt = &retryAt
 		}
 		if write && (response.StatusCode >= 500 || response.StatusCode >= 300 && response.StatusCode < 400) {
-			return &OutcomeUnknown{httpErr}
+			return unknownFailure(httpErr)
 		}
 		return httpErr
 	}
 	if dest != nil {
 		if err = json.Unmarshal(data, dest); err != nil {
 			if write {
-				return &OutcomeUnknown{err}
+				return unknownFailure(err)
 			}
 			return err
 		}
@@ -316,7 +308,8 @@ func (c *Client) decodePR(ctx context.Context, repository string, data json.RawM
 	return pr, nil
 }
 
-func (c *Client) Get(ctx context.Context, repository string, number int) (PullRequest, error) {
+func (c *Client) Get(ctx context.Context, repository string, number int) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.get_failed", "forge.get", repository) }()
 	if number <= 0 {
 		return PullRequest{}, errors.New("PR number must be positive")
 	}
@@ -332,11 +325,12 @@ func (c *Client) Get(ctx context.Context, repository string, number int) (PullRe
 }
 
 // List returns a complete bounded list; a failed page never becomes an empty list.
-func (c *Client) List(ctx context.Context, repository, state, source, branch string) ([]PullRequest, error) {
+func (c *Client) List(ctx context.Context, repository, state, source, branch string) (result []PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.list_failed", "forge.list", repository) }()
 	if !slices.Contains([]string{"open", "closed", "merged", "all"}, state) {
 		return nil, errors.New("invalid PR state")
 	}
-	result := []PullRequest{}
+	result = []PullRequest{}
 	for page := 1; page <= 100; page++ {
 		query := url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}, "state": {state}}
 		if c.config.Provider == "github" {
@@ -388,7 +382,8 @@ type CreateRequest struct {
 	Draft                                                                       bool
 }
 
-func (c *Client) Create(ctx context.Context, r CreateRequest) (PullRequest, error) {
+func (c *Client) Create(ctx context.Context, r CreateRequest) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.create_failed", "forge.create", r.TargetRepository) }()
 	if r.SourceRepository == "" || r.TargetRepository == "" || r.SourceBranch == "" || r.TargetBranch == "" || r.Title == "" {
 		return PullRequest{}, errors.New("PR source, target, branches and title are required")
 	}
@@ -425,7 +420,7 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (PullRequest, erro
 	}
 	pr, err := c.decodePR(ctx, r.TargetRepository, data)
 	if err != nil {
-		return pr, &OutcomeUnknown{err}
+		return pr, unknownFailure(err)
 	}
 	if _, err := c.mutate(ctx, pr.Key, func() (PullRequest, error) { return pr, nil }); err != nil {
 		slog.WarnContext(ctx, "PR cache unavailable after successful creation", "repository", pr.Key.Repository.Path, "number", pr.Key.Number, "error", err)
@@ -435,7 +430,8 @@ func (c *Client) Create(ctx context.Context, r CreateRequest) (PullRequest, erro
 
 type UpdateRequest struct{ Title, Body, TargetBranch *string }
 
-func (c *Client) Update(ctx context.Context, key Key, r UpdateRequest) (PullRequest, error) {
+func (c *Client) Update(ctx context.Context, key Key, r UpdateRequest) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.update_failed", "forge.update", key.Repository.Path) }()
 	payload := map[string]any{}
 	if r.Title != nil {
 		payload["title"] = *r.Title
@@ -452,7 +448,8 @@ func (c *Client) Update(ctx context.Context, key Key, r UpdateRequest) (PullRequ
 	}
 	return c.change(ctx, key, payload)
 }
-func (c *Client) Close(ctx context.Context, key Key) (PullRequest, error) {
+func (c *Client) Close(ctx context.Context, key Key) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.close_failed", "forge.close", key.Repository.Path) }()
 	payload := map[string]any{"state": "closed"}
 	if c.config.Provider == "gitlab" {
 		payload = map[string]any{"state_event": "close"}
@@ -474,12 +471,13 @@ func (c *Client) change(ctx context.Context, key Key, payload any) (PullRequest,
 		}
 		pr, err := c.decodePR(ctx, key.Repository.Path, data)
 		if err != nil {
-			return pr, &OutcomeUnknown{err}
+			return pr, unknownFailure(err)
 		}
 		return pr, nil
 	})
 }
-func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string) (PullRequest, error) {
+func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string) (result PullRequest, err error) {
+	defer func() { err = errs.Wrap(err, "forge.merge_failed", "forge.merge", key.Repository.Path) }()
 	if expectedSHA == "" || key.Number <= 0 || key.Repository != c.Repository(key.Repository.Path) {
 		return PullRequest{}, errors.New("merge requires PR identity and expected SHA")
 	}
@@ -501,7 +499,7 @@ func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string)
 		if c.config.Provider == "github" {
 			var result struct{ Merged bool }
 			if err := json.Unmarshal(data, &result); err != nil {
-				return PullRequest{}, &OutcomeUnknown{err}
+				return PullRequest{}, unknownFailure(err)
 			}
 			if !result.Merged {
 				return PullRequest{}, errors.New("PR was not merged")
@@ -509,7 +507,7 @@ func (c *Client) Merge(ctx context.Context, key Key, expectedSHA, method string)
 		}
 		pr, err := c.Get(ctx, key.Repository.Path, key.Number)
 		if err != nil {
-			return pr, &OutcomeUnknown{err}
+			return pr, unknownFailure(err)
 		}
 		return pr, nil
 	})

@@ -94,6 +94,8 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 7. **公共仓保持中立。** 不包含内部地址、个人机器路径、凭据或公司专属逻辑。项目、工具包与导入名使用 RepoKit / `repokit`；CLI 二进制和命令名为 `repocli`，用户状态目录为 `~/.repokit`。
 8. **代码改动同步版本。** 同一 PR 修改代码时 bump 根 `VERSION`，默认 patch，新增功能或不兼容变更按 SemVer 选择 minor/major；仅文档改动无需升级。源码构建从 VERSION 注入 CLI 版本，发布 tag 和独立包版本见发布契约。
 
+9. **按目标模型演进。** 设计与实现不受历史数据和旧调用方兼容性约束；直接收敛到明确的职责与契约，不为旧结构保留兼容读取、双格式或迁移支线。
+
 ## 开发验证
 
 在实际改动的 leaf Component 执行 `make format`、`make lint`、`make test`、`make build`，通过
@@ -115,5 +117,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [Fragment 与 Unit](docs/units.md)：变更形成、关系优先级、聚合及预算。
 - [代码图浏览](docs/view.md)：viewer 的版本、展示与刷新契约。
 - [Depot](docs/depot.md) / [Makefile 验证](docs/validation.md)：依赖准备、检查规划、执行与结果复用。
+- [Go 错误契约](docs/errors.md)：SDK 结构化错误、cause 链及共享 JSON/text 表达。
+- [CLI 输出契约](docs/cli-output.md)：统一输出结构、结果与诊断、证据、退出状态及兼容性。
 - [日志](docs/logging.md) / [统计](docs/stats.md)：执行记录、timeline、重放与只读统计。
 - [发布](docs/release.md) / [CLI 更新](docs/upgrade.md)：模块与包版本、构建、发布和安装。

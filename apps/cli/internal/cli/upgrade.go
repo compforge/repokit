@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 
@@ -32,21 +31,21 @@ func newUpgradeCommand(opts *options, version string, client upgradeClient) *cob
 			defer cancel()
 			release, err := client.Check(ctx, version)
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			updated := false
 			if !check && release.UpdateAvailable {
 				executable, err := os.Executable()
 				if err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 				if err := client.Install(ctx, release, executable); err != nil {
-					return executionError{err}
+					return executionFailure(err)
 				}
 				updated = true
 			}
 			if opts.json {
-				err = json.NewEncoder(command.OutOrStdout()).Encode(struct {
+				err = writeJSON(command.OutOrStdout(), struct {
 					upgrade.Release
 					Updated bool `json:"updated"`
 				}{release, updated})
@@ -58,7 +57,7 @@ func newUpgradeCommand(opts *options, version string, client upgradeClient) *cob
 				_, err = fmt.Fprintf(command.OutOrStdout(), "repocli %s is up to date (latest stable %s)\n", release.CurrentVersion, release.LatestVersion)
 			}
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},

@@ -102,7 +102,8 @@ repocli diff --repo /path/to/repo --base main --json
 repocli impact --repo /path/to/repo --base main --test-dir tests --json
 ```
 
-省略 `--json` 输出可读文本。`impact` 的多个测试目录可重复传入 `--test-dir`；测试与源码同目录时，
+省略 `--json` 输出可读文本。JSON 使用[统一结果 envelope](docs/cli-output.md)：
+领域报告位于 `data`，操作结果见 `outcome`，耗时见 `cost`。`impact` 的多个测试目录可重复传入 `--test-dir`；测试与源码同目录时，
 使用 `--test-dir .`。不传测试目录则以仓库内受支持的源码作为候选入口，仍受构图预算约束。`--base` 默认为 `HEAD`，比较该提交与当前工作区。
 
 影响分析自动选择符号、文件或包起点；每个文件报告起点、路径置信度、依赖距离和证据。

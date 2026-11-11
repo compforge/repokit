@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 
@@ -35,10 +34,10 @@ Always check capture completeness before comparing digests.`,
 			defer cancel()
 			result, err := repokit.Snapshot(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
 			if err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			if err := writeSnapshot(command.OutOrStdout(), result, opts.json); err != nil {
-				return executionError{err}
+				return executionFailure(err)
 			}
 			return nil
 		},
@@ -50,10 +49,11 @@ Always check capture completeness before comparing digests.`,
 }
 
 func writeSnapshot(output io.Writer, report repokit.SnapshotReport, asJSON bool) error {
+	if !asJSON {
+		recordResult(output, report)
+	}
 	if asJSON {
-		encoder := json.NewEncoder(output)
-		encoder.SetIndent("", "  ")
-		return encoder.Encode(report)
+		return writeJSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "%s input=%s complete=%t files=%d\n", report.Snapshot, report.Input, report.Complete, report.FileCount); err != nil {
 		return err

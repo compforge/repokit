@@ -180,7 +180,7 @@ CLI 默认使用 `~/.repokit/repositories/<name>/`，`--history-dir` 可指定�
 统计汇总 repository 内的执行与复用，候选 Run 仍要求与本次 checkout 相同；不会跨 checkout 复用。
 工具包通过 `ValidationRequest.HistoryDir` 显式启用历史；空目录配置不持久化、不复用。
 存储目录应在被检查仓库之外，或由项目明确忽略。规划不需要用户目录；无法解析默认目录时，
-普通执行向 stderr 告警并关闭持久化，仍执行检查。显式 `--history` 查询则报错并提示指定 `--history-dir`。
+普通执行报告 warning 并关闭持久化，仍执行检查；JSON 模式放在 diagnostics，文本模式向 stderr 告警。显式 `--history` 查询则报错并提示指定 `--history-dir`。
 
 - `history/`：tidwall/wal 的 JSONL 分段，默认目标 20 MiB，连续序号；业务 JSON 保存在 data 字符串中。
 - `inputs/<id>.json`：完整输入清单，包含路径、类型和摘要，不保存源码正文。
@@ -238,11 +238,14 @@ repocli validate --base HEAD --plan
 repocli validate --base origin/main --json --timeout 10m
 ```
 
-`--plan` 只输出 JSON 计划，不执行 Makefile。`--base` 显式请求先分析 working-tree impact；
+`--plan` 输出 JSON envelope，计划位于 `data`，不执行 Makefile。`--base` 显式请求先分析 working-tree impact；
 不传该参数时，不隐式分析 diff。`--file` 可重复，不能与 --base 混用。
 `--check` 只用于 validate；步骤顺序不影响 format 先完成这一约束。`--changed-file` 在 --base 下限定初始影响分析种子；format 实际改变的路径会加入后续分析，避免漏掉生成内容。
-`--output` 原子写入报告；目录必须存在且应处于 Git 忽略的本地状态中。`--history` 查询历史统计；`--force` 禁用本次复用。
-JSON 报告与目标 stdout/stderr 分离，目标输出作为单项结果字段保存。
+`--output` 原子写入完整命令结果，与 JSON stdout 相同；目录必须存在且应处于 Git 忽略的本地状态中。`--history` 查询历史统计；`--force` 禁用本次复用。
+JSON 使用[统一输出契约](cli-output.md)，报告或历史统计位于 `data`，目标 stdout/stderr 作为单项结果字段保存。
+`cost` 提供本次总耗时、validation/observation 阶段耗时，以及各 Component/check 的执行和查询耗时。
+reuse 只计算本次查询成本，不重复计算历史执行时长；并发检查的累计耗时与总墙钟耗时分别解释。
+文本模式展示判定、耗时和失败日志摘要；JSON stdout 与文件导出均保留捕获日志。
 退出码为 0（完整通过）、1（检查失败或验证不完整）、2（CLI 参数错误）。
 
 Go/Python 共用 `conformance/validation/cases.json`，并分别通过真实 Make 进程验证内容变动、
@@ -259,7 +262,8 @@ Python 原生验证 API 仍只提供 lint/test。
 ## Python 消费 Go 验证报告
 
 `decode_validation_report(payload, checkout=..., checks=("lint", "test"))` 解码并核对 Go CLI 的
-ValidationReport wire schema。协议版本、checkout、Component 路径、结果字段与 requestedComponents
+ValidationReport wire schema；传入 CLI stdout 或导出文件中结果对象的 `data`。
+协议版本、checkout、Component 路径、结果字段与 requestedComponents
 覆盖均由工具包验证；允许真实失败结果与 root fallback 分组，拒绝重复、缺失 check、空 Component 分组
 以及与结果矛盾的汇总状态。无选中任务时允许空 components；执行前输入变化导致的空结果保留为未完成报告，
 format 提前终止的报告不冒充 lint/test 证据。

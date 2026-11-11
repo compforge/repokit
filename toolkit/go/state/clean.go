@@ -5,13 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // WorktreePolicy retains the newest linked checkouts and prepared environments.
@@ -21,7 +23,8 @@ type WorktreePolicy struct {
 	Outputs     []string `json:"outputs,omitempty"`
 }
 
-func (p WorktreePolicy) Validate() error {
+func (p WorktreePolicy) Validate() (err error) {
+	defer func() { err = errs.Wrap(err, "state.invalid_policy", "state.policy", "") }()
 	if p.MaxPrepared < 0 || p.MaxCount < p.MaxPrepared {
 		return errors.New("worktree limits require 0 <= max_prepared <= max_count")
 	}
@@ -46,7 +49,8 @@ func safeRelative(path string) bool {
 }
 
 // LoadWorktreePolicy reads configuration shared by the repository's checkouts.
-func LoadWorktreePolicy(ctx context.Context, repo string) (WorktreePolicy, error) {
+func LoadWorktreePolicy(ctx context.Context, repo string) (policy WorktreePolicy, err error) {
+	defer func() { err = errs.Wrap(err, "state.policy_failed", "state.policy", repo) }()
 	config := struct {
 		Worktree WorktreePolicy `json:"worktree"`
 	}{WorktreePolicy{MaxCount: 10, MaxPrepared: 3}}
@@ -110,7 +114,8 @@ type retentionEntry struct {
 //
 // +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Branch refs are retained.`
 // +link=component://docs/worktrees.md
-func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (WorktreeCleanReport, error) {
+func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (result WorktreeCleanReport, err error) {
+	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.cleanup", repo) }()
 	report := WorktreeCleanReport{Actions: []WorktreeAction{}, Errors: []string{}, DryRun: options.DryRun}
 	policy := options.Policy
 	if policy == nil {

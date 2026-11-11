@@ -19,6 +19,7 @@ internal/
 ## 关键约定
 
 - 仓库识别和代码分析归 toolkit；应用测试通过公共 API 验证结果，不导入工具包 internal。
+- 新增或调整命令输出时，遵循 [CLI 输出契约](../../docs/cli-output.md)，检查结果、诊断、输出通道与退出状态的一致性。
 - viewer 归当前 CLI 应用；库调用不产生 CLI 日志；CLI 为验证工具包显式提供默认历史目录。
 - 在仓库内用 go.work 联合构建；go.mod 声明可发布的工具包版本，不提交本机路径 replace。
 - `make lint/test/build/install` 是本应用入口；构建与安装从根 VERSION 注入版本，go install @version 使用模块构建信息。

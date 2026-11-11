@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go"
 	"io"
@@ -9,10 +8,11 @@ import (
 )
 
 func writeUnits(w io.Writer, r repokit.UnitReport, structured bool) error {
+	if !structured {
+		recordResult(w, r)
+	}
 	if structured {
-		e := json.NewEncoder(w)
-		e.SetIndent("", "  ")
-		return e.Encode(r)
+		return writeJSON(w, r)
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "Diff -> Fragment -> Unit: %d files, %d fragments, %d units\n", len(r.Changes), len(r.Fragments), len(r.Units))

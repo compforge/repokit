@@ -3,16 +3,19 @@ package forge
 import (
 	"context"
 	"errors"
+	"log/slog"
+	"slices"
+
 	"github.com/compforge/quality-harness/sdks/go/common"
+	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 	"github.com/compforge/repokit/toolkit/go/state"
-	"log/slog"
-	"slices"
 )
 
 // RepositoryIdentity observes origin without storing credentials in the identity.
-func RepositoryIdentity(ctx context.Context, path string) (*common.Repository, error) {
+func RepositoryIdentity(ctx context.Context, path string) (result *common.Repository, err error) {
+	defer func() { err = errs.Wrap(err, "forge.identity_failed", "forge.identity", path) }()
 	repo, err := git.Open(ctx, path)
 	if err != nil {
 		return nil, err
@@ -33,7 +36,8 @@ type Context struct {
 	Targets  []string
 }
 
-func NewContext(ctx context.Context, client *Client, checkout string, targets []string) (*Context, error) {
+func NewContext(ctx context.Context, client *Client, checkout string, targets []string) (result *Context, err error) {
+	defer func() { err = errs.Wrap(err, "forge.context_failed", "forge.context", checkout) }()
 	source, err := RepositoryIdentity(ctx, checkout)
 	if err != nil {
 		return nil, err
@@ -60,7 +64,8 @@ func (c *Context) verifyOrigin(ctx context.Context) error {
 
 // MergedPullRequest reuses the same PR query and exact source identity checks as creation.
 // +spec=`Closed is not terminal. Ambiguous associations or a different head never permit merged cleanup.`
-func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (int, error) {
+func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (number int, err error) {
+	defer func() { err = errs.Wrap(err, "forge.merged_lookup_failed", "forge.merged_lookup", branch) }()
 	if err := c.verifyOrigin(ctx); err != nil {
 		return 0, err
 	}
@@ -115,7 +120,8 @@ type OperationResult struct {
 	Maintenance state.WorktreeCleanReport `json:"maintenance"`
 }
 
-func (c *Context) Ensure(ctx context.Context, r CreateRequest) (OperationResult, error) {
+func (c *Context) Ensure(ctx context.Context, r CreateRequest) (operation OperationResult, err error) {
+	defer func() { err = errs.Wrap(err, "forge.ensure_failed", "forge.ensure", r.TargetRepository) }()
 	result := OperationResult{}
 	if err := c.verifyOrigin(ctx); err != nil {
 		return result, err
@@ -148,21 +154,24 @@ func (c *Context) Ensure(ctx context.Context, r CreateRequest) (OperationResult,
 	return result, nil
 }
 
-func (c *Context) Update(ctx context.Context, key Key, r UpdateRequest) (OperationResult, error) {
+func (c *Context) Update(ctx context.Context, key Key, r UpdateRequest) (operation OperationResult, err error) {
+	defer func() { err = errs.Wrap(err, "forge.update_failed", "forge.update", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
 	}
 	pr, err := c.Client.Update(ctx, key, r)
 	return c.afterWrite(ctx, pr, err)
 }
-func (c *Context) Close(ctx context.Context, key Key) (OperationResult, error) {
+func (c *Context) Close(ctx context.Context, key Key) (operation OperationResult, err error) {
+	defer func() { err = errs.Wrap(err, "forge.close_failed", "forge.close", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
 	}
 	pr, err := c.Client.Close(ctx, key)
 	return c.afterWrite(ctx, pr, err)
 }
-func (c *Context) Merge(ctx context.Context, key Key, expectedSHA, method string) (OperationResult, error) {
+func (c *Context) Merge(ctx context.Context, key Key, expectedSHA, method string) (operation OperationResult, err error) {
+	defer func() { err = errs.Wrap(err, "forge.merge_failed", "forge.merge", key.Repository.Path) }()
 	if err := c.authorize(ctx, key); err != nil {
 		return OperationResult{}, err
 	}

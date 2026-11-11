@@ -21,7 +21,7 @@ func snapshotJSON(t *testing.T, dir string, extra ...string) repokit.SnapshotRep
 		t.Fatalf("code=%d stderr=%s", code, stderr.String())
 	}
 	var report repokit.SnapshotReport
-	if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatalf("%s: %v", out.String(), err)
 	}
 	if report.SchemaVersion != 2 || !strings.HasPrefix(report.Snapshot, "sha256:") || len(report.Snapshot) != 71 || report.Diagnostics == nil {
@@ -172,7 +172,7 @@ func TestSnapshotErrorsAndTextOutput(t *testing.T) {
 	} {
 		var out, stderr bytes.Buffer
 		args := append([]string{"snapshot", "--repo", dir, "--json"}, tc.args...)
-		if code := Execute(context.Background(), args, nil, &out, &stderr); code != tc.code || out.Len() != 0 || stderr.Len() == 0 {
+		if code := Execute(context.Background(), args, nil, &out, &stderr); code != tc.code || stderr.Len() != 0 || string(resultData(t, out.Bytes())) != "null" {
 			t.Fatalf("args=%v code=%d out=%s stderr=%s", args, code, out.String(), stderr.String())
 		}
 	}
@@ -188,7 +188,8 @@ func TestSnapshotErrorsAndTextOutput(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	out.Reset()
-	if code := Execute(ctx, []string{"snapshot", "--repo", dir, "--json"}, nil, &out, &stderr); code != 1 || out.Len() != 0 {
+	stderr.Reset()
+	if code := Execute(ctx, []string{"snapshot", "--repo", dir, "--json"}, nil, &out, &stderr); code != 1 || stderr.Len() != 0 || string(resultData(t, out.Bytes())) != "null" {
 		t.Fatalf("cancel exit=%d out=%s", code, out.String())
 	}
 }

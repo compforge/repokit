@@ -39,7 +39,7 @@ func TestDiffUnitsCapturedInputsAndDisplay(t *testing.T) {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var r repokit.UnitReport
-			if err := json.Unmarshal(out.Bytes(), &r); err != nil {
+			if err := json.Unmarshal(resultData(t, out.Bytes()), &r); err != nil {
 				t.Fatal(err)
 			}
 			if len(r.Changes) != 2 || len(r.Fragments) == 0 || len(r.Units) == 0 {
@@ -92,7 +92,7 @@ func TestUnitDisplayShowsChangeTags(t *testing.T) {
 			continue
 		}
 		var report repokit.UnitReport
-		if err := json.Unmarshal(out.Bytes(), &report); err != nil {
+		if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 			t.Fatal(err)
 		}
 		if len(report.Changes) != 1 || len(report.Changes[0].Tags) != 2 || report.Changes[0].Tags[0] != cg.GeneratedTag || report.Changes[0].Tags[1] != cg.SourceTag {

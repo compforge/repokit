@@ -61,7 +61,7 @@ func runJSON(t *testing.T, args []string, input string) repokit.ImpactReport {
 		t.Fatalf("unexpected stderr: %s", stderr.String())
 	}
 	var result repokit.ImpactReport
-	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &result); err != nil {
 		t.Fatalf("invalid JSON: %v\n%s", err, out.String())
 	}
 	return result
@@ -150,7 +150,7 @@ func TestCancellationDoesNotReturnSuccessfulEmptyResult(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var out, stderr bytes.Buffer
-	if code := Execute(ctx, []string{"impact", "--repo", fixture(t), "--json"}, strings.NewReader(""), &out, &stderr); code != 1 || out.Len() != 0 {
+	if code := Execute(ctx, []string{"impact", "--repo", fixture(t), "--json"}, strings.NewReader(""), &out, &stderr); code != 1 || stderr.Len() != 0 || string(resultData(t, out.Bytes())) != "null" {
 		t.Fatalf("code=%d out=%s err=%s", code, out.String(), stderr.String())
 	}
 }
