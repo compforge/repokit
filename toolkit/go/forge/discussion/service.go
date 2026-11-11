@@ -96,7 +96,7 @@ func (c *Service) Create(ctx context.Context, key model.Key, body string) (resul
 		if e != nil {
 			return result, transport.UnknownFailure(e)
 		}
-		return Discussion{PullRequest: key, ID: "issue:" + comment.ID, Comments: []Comment{comment}, Resolution: "not_applicable"}, nil
+		return Discussion{PullRequest: key, ID: "issue:" + comment.ID, Comments: []Comment{comment}, Resolvable: new(false), Resolution: "not_applicable"}, nil
 	}
 	var wire gitlabDiscussion
 	err = c.connection.Request(ctx, "POST", c.connection.PRPath(key.Repository.Path, key.Number)+"/discussions", map[string]any{"body": body}, &wire)
@@ -154,6 +154,8 @@ func (c *Service) Reply(ctx context.Context, key model.Key, id, body string) (re
 }
 
 // Resolve changes platform resolution only. A resolved thread is an observed no-op.
+// +spec=Unknown capability allows one explicit resolve attempt; success still requires confirmed resolution.
+// +link=component://docs/pr.md#pr-discussions
 func (c *Service) Resolve(ctx context.Context, key model.Key, id string) (result Discussion, err error) {
 	defer func() {
 		err = discussionWriteError(err, "forge.resolve_discussion", key, id)
@@ -165,7 +167,7 @@ func (c *Service) Resolve(ctx context.Context, key model.Key, id string) (result
 	if err != nil {
 		return result, err
 	}
-	if !thread.Resolvable {
+	if thread.Resolvable != nil && !*thread.Resolvable {
 		return result, &errs.Error{Code: "forge.unsupported_operation", Message: "this thread cannot be resolved"}
 	}
 	if thread.Resolution == "resolved" {

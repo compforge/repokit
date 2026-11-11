@@ -17,7 +17,7 @@ type gitlabNote struct {
 	} `json:"author"`
 	CreatedAt  string `json:"created_at"`
 	System     bool   `json:"system"`
-	Resolvable bool   `json:"resolvable"`
+	Resolvable *bool  `json:"resolvable"`
 	Resolved   *bool  `json:"resolved"`
 	Position   *struct {
 		NewPath string `json:"new_path"`
@@ -55,8 +55,9 @@ func (w gitlabDiscussion) discussion(key model.Key) (Discussion, error) {
 	if w.ID == "" || w.Individual == nil || len(w.Notes) == 0 {
 		return Discussion{}, errors.New("invalid GitLab discussion response")
 	}
-	result := Discussion{PullRequest: key, ID: w.ID, Comments: []Comment{}, Replyable: !*w.Individual, Resolution: "not_applicable"}
-	allResolved := true
+	result := Discussion{PullRequest: key, ID: w.ID, Comments: []Comment{}, Replyable: !*w.Individual, Resolvable: new(false), Resolution: "not_applicable"}
+	allResolved, unresolved := true, false
+	canResolve, unknownCapability := false, false
 	for _, note := range w.Notes {
 		if note.System {
 			continue
@@ -66,18 +67,31 @@ func (w gitlabDiscussion) discussion(key model.Key) (Discussion, error) {
 			return Discussion{}, err
 		}
 		result.Comments = append(result.Comments, comment)
-		if note.Resolvable {
-			if note.Resolved == nil {
-				return Discussion{}, errors.New("missing GitLab note resolution")
-			}
-			result.Resolvable = true
-			allResolved = allResolved && *note.Resolved
+		if *w.Individual || note.Resolvable != nil && !*note.Resolvable {
+			continue
 		}
+		// +why=Self-managed GitLab may omit capability and state independently; preserve both gaps.
+		if note.Resolvable == nil {
+			unknownCapability = true
+		} else {
+			canResolve = true
+		}
+		allResolved = allResolved && note.Resolved != nil && *note.Resolved
+		unresolved = unresolved || note.Resolved != nil && !*note.Resolved
 	}
-	if result.Resolvable {
-		result.Resolution = "unresolved"
-		if allResolved {
+	if canResolve {
+		result.Resolvable = new(true)
+	} else if unknownCapability {
+		result.Resolvable = nil
+	}
+	if canResolve || unknownCapability {
+		switch {
+		case unresolved:
+			result.Resolution = "unresolved"
+		case allResolved:
 			result.Resolution = "resolved"
+		default:
+			result.Resolution = "unknown"
 		}
 	}
 	return result, nil
