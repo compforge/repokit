@@ -46,7 +46,8 @@ Results carry reasons and risks; they are not safe-deletion verdicts.`,
 		},
 	}
 	command.Flags().StringVar(&base, "base", "", "compare against this ref; follow dependencies from changed documents in both graphs")
-	command.Flags().StringSliceVar(&files, "file", nil, "limit reported candidates to exact snapshot-relative files (repeatable)")
+	// +spec=Each --file occurrence preserves one literal path; an empty argument is invalid.
+	command.Flags().StringArrayVar(&files, "file", nil, "limit reported candidates to exact snapshot-relative files (repeatable)")
 	command.Flags().StringVar(&mode, "mode", "unreferenced", "analysis rule: unreferenced or unreachable")
 	command.Flags().StringArrayVar(&roots, "root", nil, "additional unreachable-mode root: exact node ID or unique qualified name (repeatable)")
 	command.Flags().StringVar(&head, "head", "", "read this exact commit/ref instead of the working tree")

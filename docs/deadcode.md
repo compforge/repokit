@@ -11,8 +11,9 @@ repocli deadcode --head HEAD --exclude-tests --exclude-entrypoints --json
 repocli deadcode --file internal/service.go --file internal/worker.go --json
 ```
 
-`--file` selects exact snapshot-relative candidate paths. A caller outside those
-files still counts. A caller's local graph can supply this file set through the Go
+`--file` selects exact snapshot-relative candidate paths. Each occurrence is one
+literal path, including commas; repeat the flag to select multiple files. An empty
+argument is invalid. A caller outside those files still counts. A caller's local graph can supply this file set through the Go
 API's `DeadcodeRequest.Files`; the analysis still builds the complete snapshot
 graph. Nil `Files` selects the repository; an explicitly empty slice selects no
 candidates. Missing or invalid paths fail instead of silently widening scope.
