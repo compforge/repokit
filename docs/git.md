@@ -35,7 +35,8 @@ gitlink 与其他路径一样作为 entry 返回，保留 mode 与 OID；是否�
 可显式设置本次调用的 `core.editor`（Git 的 editor 环境变量仍优先）；`abort_rebase` 请求 Git 恢复
 rebase 前的状态。两者保留 GitResult，包括失败与 uncertain，不自动重试或管理消费方事务。
 是否继续、终止及何时推送，由调用方决定。
-Worktree 的路径和分支由调用方给出，删除默认拒绝脏内容和锁定状态。
+Worktree 的路径和分支由调用方给出，删除默认拒绝脏内容和锁定状态。Go `RemoveWorktree` 的显式
+`Force` 使用单次 `--force`，允许回收 dirty/submodule checkout，但仍拒绝显式锁定的 checkout。
 Python `git.prune_worktrees` 显式请求 Git 清理失效注册，沿用 Git 的过期及锁定保护规则；
 返回 GitResult，不删除 checkout 目录或分支，清理时机与失败处理由调用方决定。
 

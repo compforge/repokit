@@ -37,8 +37,12 @@ while preserving its branch. A failed merged verification skips that checkout fo
 
 The invoking checkout, primary checkout, detached checkouts, explicit Git worktree locks,
 in-progress Git operations and ancestors of registered nested checkouts are protected.
-Dirty/untracked files and unmanaged ignored files prevent checkout removal. Removal never
-passes `--force`. PR-triggered removal reuses the existing observer's association verification
+Dirty/untracked files and unmanaged ignored files prevent checkout removal. After these checks,
+Go cleanup uses one `git worktree remove --force` to reclaim the entire checkout and its Git
+registration, including initialized submodule clones. It does not archive or separately manage
+gitlinks; explicit worktree locks remain protected because removal never uses double force.
+Status checks use `--ignore-submodules=none` so repository configuration cannot hide unsaved
+submodule changes. PR-triggered removal reuses the existing observer's association verification
 and requires the local HEAD to equal the PR source SHA, including squash merges. New commits
 on a reused branch are therefore not erased merely because an earlier PR merged.
 
@@ -54,7 +58,7 @@ are the interoperable way to pin an otherwise clean checkout during use by anoth
 Arbitrary external editors/installers do not participate in RepoKit's lease.
 
 Skipped/failed actions are reported individually. Protected resources can leave counts above
-the limits; limits do not authorize force removal. Git operations and identity are checked again
+the limits; limits do not bypass protection checks. Git operations and identity are checked again
 at the mutation boundary. Partial environment deletion is reported and can be retried.
 
 ## Entrypoints
