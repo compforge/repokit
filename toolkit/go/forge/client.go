@@ -115,7 +115,12 @@ func (c *Client) Repository(path string) common.Repository {
 }
 
 func (c *Client) request(ctx context.Context, method, path string, payload any, dest any) (err error) {
-	defer func() { err = errs.Wrap(err, "forge.request_failed", method, path) }()
+	return c.requestURL(ctx, method, c.base+path, payload, dest, method != "GET")
+}
+
+// requestURL shares authentication, limits and cooldown with GraphQL queries and mutations.
+func (c *Client) requestURL(ctx context.Context, method, endpoint string, payload any, dest any, write bool) (err error) {
+	defer func() { err = errs.Wrap(err, "forge.request_failed", method, endpoint) }()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if time.Now().Before(c.cooldown) {
@@ -131,7 +136,7 @@ func (c *Client) request(ctx context.Context, method, path string, payload any, 
 	}
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, method, c.base+path, body)
+	req, err := http.NewRequestWithContext(ctx, method, endpoint, body)
 	if err != nil {
 		return err
 	}
@@ -148,7 +153,6 @@ func (c *Client) request(ctx context.Context, method, path string, payload any, 
 		return err
 	}
 	response, err := c.http.Do(req)
-	write := method != "GET"
 	if err != nil {
 		if write {
 			return unknownFailure(err)

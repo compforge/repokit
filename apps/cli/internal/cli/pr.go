@@ -87,6 +87,7 @@ func newPRCommand(opts *options) *cobra.Command {
 	root := &cobra.Command{Use: "pr", Short: "Create, query and update GitHub PRs or GitLab MRs"}
 	var connection forgeOptions
 	connection.flags(root)
+	root.AddCommand(newDiscussionCommand(opts, &connection))
 	for _, operation := range []string{"create", "show", "list", "update", "close", "merge"} {
 		var title, bodyFile, sourceBranch, targetBranch, state, expectedSHA, method string
 		var draft bool
