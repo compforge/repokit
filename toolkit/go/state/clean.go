@@ -115,7 +115,7 @@ type retentionEntry struct {
 
 // CleanWorktrees removes merged checkouts, then old excess checkouts and environments.
 //
-// +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Branch refs are retained.`
+// +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Eligible checkouts are removed whole, including submodule clones; primary repositories and shared branch refs are retained.`
 // +link=component://docs/worktrees.md
 func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (result WorktreeCleanReport, err error) {
 	ctx = maintenanceContext(ctx)
@@ -255,7 +255,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			}
 		}
 		if !options.DryRun {
-			result := RemoveWorktree(ctx, repo, e.Path, RemoveWorktreeOptions{Home: options.Home})
+			// Eligibility belongs to this service; Git removes the entire checkout
+			// and its registration. One force allows submodules but preserves locks.
+			result := RemoveWorktree(ctx, repo, e.Path, RemoveWorktreeOptions{Home: options.Home, Force: true})
 			if result.Err != nil {
 				failure(e, "remove_worktree", result.Err)
 				return
@@ -473,7 +475,7 @@ func withinDirectory(root, path string) bool {
 }
 
 func worktreeRemovalProtection(ctx context.Context, path string, directories []string) (string, error) {
-	status, err := worktreeQuery(ctx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+	status, err := worktreeQuery(ctx, path, "status", "--porcelain=v1", "-z", "--untracked-files=all", "--ignore-submodules=none")
 	if err != nil {
 		return "", err
 	}

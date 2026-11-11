@@ -18,7 +18,8 @@ clone。home 沿用显式参数、`REPOKIT_HOME`、`~/.repokit` 的优先级。`
 
 两个 CLI 入口统一调用 service 层的 `state.CleanWorktrees`，由它加载仓库策略并完成 merged 核验、
 创建时间排序、数量保留、删除保护和依赖环境回收。`clean` 额外负责遍历已登记的 repository/clone，
-并在 worktree 维护后判断是否回收过期 repository 状态；不通过子进程再次运行 CLI。
+并在 worktree 维护后独立判断是否回收过期 repository 状态；worktree 保留或维护失败不阻止缓存过期，
+错误仍进入清理报告。不通过子进程再次运行 CLI。
 
 | 入口 | 范围 | 保留规则 |
 |---|---|---|
@@ -35,7 +36,9 @@ PR 核验失败的 checkout 本轮保留。`--provider`、`--api-host`、`--targ
 
 primary、当前工作目录所属 checkout、detached、Git lock、进行中的 Git 操作、嵌套 checkout 继续保护。
 脏文件、未跟踪文件和未托管的 ignored 文件阻止删除 checkout；但其明确托管的闲置依赖环境仍可释放，
-源码保留。包含当前 RepoKit home 的 checkout 不可回收。操作前重新读取 Git 身份与保护条件，绝不传 `--force`。
+源码保留。包含当前 RepoKit home 的 checkout 不可回收。操作前重新读取 Git 身份与保护条件；通过检查后用单次 `git worktree remove --force` 整体回收目录与
+注册信息，包含其中初始化的 submodule 副本。清理不逐个管理 gitlink，也不为这些副本建立归档；
+不使用可绕过显式 worktree 锁的双重 `--force`。
 
 ## 访问事实
 
@@ -60,13 +63,17 @@ primary、当前工作目录所属 checkout、detached、Git lock、进行中的
 ## 状态回收与并发
 
 访问更新与闲置回收共用 `home/locks/activity/<repository-key>.lock` 的跨语言 lease；锁位于待回收
-目录之外。清理在锁内重新读访问记录。Git 资源操作另外使用现有 repository lease；checkout 创建先释放
-Git lease 再发布访问/状态，避免锁顺序倒置。维护成功后的观察发布不续期。
+目录之外。清理先在短 lease 内读取登记位置，释放后执行 Git/PR 维护，最后重新取得 lease 并读取
+最新访问记录再决定状态删除。远端查询不占 activity lease，也不继承其 30 秒发布期限；查询期间发生的
+前台访问仍能及时续期。删除前再次检查状态写入锁。Git 资源操作另外使用现有 repository lease；checkout
+创建先释放 Git lease 再发布访问/状态，避免锁顺序倒置。维护成功后的观察发布不续期。
 
-repository 状态仅在超过阈值、没有需保留的 linked checkout、没有状态 lease 或近期状态写入时删除。
-清理前发现的近期写入以 `recent_state_write` 保留，状态 lease 以 `state_locked` 保留；
-近期写入不等于当前有进程占用，也不冒充用户访问。某个 checkout 删除失败或仍受保护时，
-其 repository 状态保留以便后续核验和重试。回收状态包含该 repository 下的 PR 观察与验证历史，后续按需重建；
+repository 状态仅按访问过期与状态写入保护决定删除，不依赖 linked checkout 数量、PR 查询结果或
+worktree 删除结果。状态写入 lease 以 `state_locked` 保留；缓存文件的 mtime 不续期访问，也不阻止
+过期回收。回收状态包含该 repository 下的登记位置、
+PR 观察与验证历史，后续使用时按需重建；被保留的 worktree 和 branch refs 不受影响。状态删除后，全局
+扫描不再发现该登记项，直到后续访问重新登记；仍可用 `worktree clean --repo` 直接维护该 clone。
+
 日志、共享包缓存、其它 home，以及 `--history-dir` 指向的外部目录不在范围内。
 
 目录删除限定在所选 home 的 repositories 根内；不跟随其中的源码 symlink。数据回收成功不代表远端 PR

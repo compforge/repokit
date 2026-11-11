@@ -187,8 +187,8 @@ func TestCleanRepositoryStateTreatsMissingActivityAsOldAndPreservesExternalSymli
 	os.Symlink(outside, filepath.Join(home, "repositories", "external"))
 	unknown := filepath.Join(home, "repositories", "unknown")
 	os.MkdirAll(unknown, 0700)
-	busy := writeExpiredRepository(t, home, "busy")
-	os.WriteFile(filepath.Join(busy, "new-observation"), []byte("new"), 0600)
+	refreshed := writeExpiredRepository(t, home, "refreshed")
+	os.WriteFile(filepath.Join(refreshed, "new-observation"), []byte("new"), 0600)
 	broken := writeExpiredRepository(t, home, "broken")
 	os.WriteFile(filepath.Join(broken, "activity.json"), []byte("broken"), 0600)
 	before, _ := os.ReadFile(filepath.Join(expired, "activity.json"))
@@ -210,7 +210,10 @@ func TestCleanRepositoryStateTreatsMissingActivityAsOldAndPreservesExternalSymli
 	if _, err := os.Stat(unknown); !os.IsNotExist(err) {
 		t.Fatal("unknown activity was not treated as old", err)
 	}
-	for _, p := range []string{marker, busy, broken} {
+	if _, err := os.Stat(refreshed); !os.IsNotExist(err) {
+		t.Fatal("cache mtime incorrectly renewed access", err)
+	}
+	for _, p := range []string{marker, broken} {
 		if _, err := os.Stat(p); err != nil {
 			t.Fatal("protected data removed", p, err)
 		}
@@ -434,7 +437,7 @@ func TestGlobalAndDirectWorktreeRetentionAgree(t *testing.T) {
 		}
 		actions := []WorktreeAction{}
 		for _, a := range global.Actions {
-			if a.Action == "retain_repository" {
+			if a.Action == "retain_repository" || a.Action == "remove_repository_state" {
 				continue
 			}
 			row := a.WorktreeAction
@@ -481,6 +484,105 @@ func TestGlobalCleanupUsesLiveMergedVerificationBelowLimits(t *testing.T) {
 		if a.Path == linked && a.Action == "remove_worktree" && a.Reason == "merged" {
 			found = true
 		}
+	}
+	if !found {
+		t.Fatal(report)
+	}
+}
+
+// +case=Cache expiry is independent of retained worktrees and unavailable PR credentials.
+func TestExpiredCacheRemovedDespiteRetainedWorktreeAndPRFailure(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	linked := create("retained", false)
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	directory := ageActivity(t, root, home, old)
+	oldFiles(t, directory, old)
+	for _, dry := range []bool{true, false} {
+		report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, DryRun: dry, PullRequests: func(context.Context, string) (WorktreePullRequests, error) {
+			return nil, errors.New("credentials unavailable")
+		}})
+		if err != nil || len(report.Errors) != 1 {
+			t.Fatal(report, err)
+		}
+		removed := false
+		for _, a := range report.Actions {
+			removed = removed || a.Action == "remove_repository_state"
+		}
+		if !removed {
+			t.Fatal(report)
+		}
+		if _, err := os.Stat(linked); err != nil {
+			t.Fatal("retained checkout deleted", err)
+		}
+	}
+	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+		t.Fatal("expired cache retained", err)
+	}
+	if _, err := worktreeQuery(ctx, root, "rev-parse", "refs/heads/retained"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// +case=Remote work never holds the activity lease; a concurrent access is re-read before cache removal.
+func TestCleanupAllowsAccessDuringRemoteQuery(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	create("retained", false)
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	directory := ageActivity(t, root, home, old)
+	oldFiles(t, directory, old)
+	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, PullRequests: func(query context.Context, _ string) (WorktreePullRequests, error) {
+		budget, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		if query.Value(activityLeaseKey{}) != nil {
+			t.Error("query inherits cache publication lease")
+		}
+		return nil, RecordRepositoryAccess(budget, home, filepath.Base(directory))
+	}})
+	if err != nil || len(report.Errors) != 0 {
+		t.Fatal(report, err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatal("concurrent access lost", err)
+	}
+	found := false
+	for _, a := range report.Actions {
+		found = found || a.Action == "retain_repository" && a.Reason == "recently_accessed"
+	}
+	if !found {
+		t.Fatal(report)
+	}
+}
+
+// +case=A state writer that starts during remote work still prevents cache deletion.
+func TestCleanupRechecksRecordWriterAfterRemoteQuery(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, _ := retentionFixture(t)
+	if err := RecordAccess(ctx, root, home); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	directory := ageActivity(t, root, home, old)
+	oldFiles(t, directory, old)
+	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, PullRequests: func(context.Context, string) (WorktreePullRequests, error) {
+		return nil, os.Mkdir(filepath.Join(directory, "topology.lock"), 0700)
+	}})
+	if err != nil || len(report.Errors) != 0 {
+		t.Fatal(report, err)
+	}
+	if _, err := os.Stat(directory); err != nil {
+		t.Fatal("writer's state removed", err)
+	}
+	found := false
+	for _, a := range report.Actions {
+		found = found || a.Reason == "state_locked"
 	}
 	if !found {
 		t.Fatal(report)

@@ -133,9 +133,9 @@ func TestCleanTextReportsPRConnectionError(t *testing.T) {
 	}
 }
 
-// +case=Retaining recently written or locked state is a successful skip, not incomplete cleanup.
+// +case=Unknown activity expires despite recent cache writes; active state locks are successful skips.
 func TestCleanTextStateProtectionIsNotFailure(t *testing.T) {
-	for _, reason := range []string{"recent_state_write", "state_locked"} {
+	for _, reason := range []string{"access_unknown", "state_locked"} {
 		t.Run(reason, func(t *testing.T) {
 			home := t.TempDir()
 			directory := filepath.Join(home, "repositories", "idle")

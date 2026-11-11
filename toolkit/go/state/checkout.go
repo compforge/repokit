@@ -88,7 +88,8 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 	return result
 }
 
-// RemoveWorktreeOptions requires explicit force to remove dirty or locked checkouts.
+// RemoveWorktreeOptions requires explicit force to remove dirty or submodule checkouts.
+// Explicit Git worktree locks remain protected, including with Force.
 type RemoveWorktreeOptions struct {
 	Force bool
 	Home  string
@@ -100,7 +101,7 @@ func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktr
 	defer func() { operation = checkoutError(operation, "state.remove_worktree", path) }()
 	args := []string{"worktree", "remove"}
 	if options.Force {
-		args = append(args, "--force", "--force")
+		args = append(args, "--force")
 	}
 	result := gitworktree.Run(ctx, repo, 30*time.Second, append(args, "--", path)...)
 	if result.Err == nil {
