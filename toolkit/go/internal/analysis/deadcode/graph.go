@@ -184,7 +184,11 @@ func (d *graphIndex) reachabilityRoots(requested []string) (production, tests []
 	if boundaries == 0 {
 		return nil, nil, fmt.Errorf("unreachable mode requires recognized entrypoints/exports or explicit roots; no application or public API boundary was found")
 	}
+	// +spec=Explicit roots remain production roots even for test-file initializers.
 	for _, node := range d.graph.Nodes {
+		if roots[node.ID] != "" {
+			continue
+		}
 		if node.Kind == shared.DocumentNodeKind {
 			roots[node.ID] = "module_initialization"
 		}

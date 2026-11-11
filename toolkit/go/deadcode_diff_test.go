@@ -246,3 +246,50 @@ func TestDeadcodeScriptReachability(t *testing.T) {
 		})
 	}
 }
+
+// +case:id=deadcode_explicit_initializer_root,desc=`A caller selects a top-level initializer in a source or test document as the API boundary`,expect=`Preserve its explicit reason and retain production reachability through the initializer`
+func TestDeadcodeExplicitInitializationRoots(t *testing.T) {
+	for _, file := range []string{"helpers.go", "helpers_test.go"} {
+		t.Run(file, func(t *testing.T) {
+			root := fixture(t)
+			put(t, root, "main.go", "package lib\nfunc register() int{return 1}\nfunc orphan(){}\n")
+			put(t, root, file, "package lib\nvar registration = register()\n")
+			req := repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: root}, Mode: "unreachable"}
+			graph, err := repokit.Graph(context.Background(), req.InputRequest, 100)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var id, qualifiedName string
+			for _, node := range graph.Nodes {
+				if node.Name == "registration" {
+					id, qualifiedName = node.ID, node.QualifiedName
+				}
+			}
+			if id == "" || qualifiedName == "" {
+				t.Fatal("initializer declaration missing from graph")
+			}
+			for _, selected := range []string{id, qualifiedName} {
+				req.Roots = []string{selected}
+				report, err := repokit.AnalyzeDeadcode(context.Background(), req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(report.Nodes) != 1 || report.Nodes[0].Name != "orphan" || report.Nodes[0].Reason != "unreachable" {
+					t.Fatalf("explicit initializer lost reachability: %+v", report.Nodes)
+				}
+				found := false
+				for _, candidate := range report.Roots {
+					if candidate.ID == id {
+						found = true
+						if candidate.Reason != "explicit" {
+							t.Fatalf("root reason was overwritten: %+v", candidate)
+						}
+					}
+				}
+				if !found {
+					t.Fatal("explicit initializer missing from roots")
+				}
+			}
+		})
+	}
+}
