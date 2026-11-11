@@ -98,3 +98,17 @@ CLI 的 `pr`、`clean`、`worktree clean` 共用同一配置解析与连接组�
 
 接入 devloop 时，使用这些入口替代其 `forge_entry`、`forge_token` 与凭据优先级逻辑；
 PR 目标选择、review 配置和工作流策略仍归 devloop。RepoKit 不保留调用方配置的兼容读取分支。
+
+### 从 Checkout 访问 Forge
+
+Python `forge_client(checkout, home=..., timeout=..., target_repository=...)` 和
+`pull_request_context(checkout, home=..., timeout=..., targets=...)`，以及 TypeScript
+`pullRequestContext(checkout, { home, timeoutMs, targets })` 统一完成 origin → config →
+原生 client/context 的组装。无 Forge origin 返回空；缺少凭据或配置无效保持错误。
+每次操作加载一次配置，不读取调用方配置，不推断 fork 的目标仓库。调用方显式选择 targets，
+并负责 context/observer 的关闭。Python `pull_request_identity` 只解析身份，不读取凭据。
+
+程序选择已有 CLI 查询时，显式导入 Python `repokit.cli` 的 `list_pull_requests` 或
+`pull_request_description`。客户端校验 schema、command、outcome 与数据形状，保留错误，
+共享调用方 operation 预算并限制输出容量；不持有凭据、缓存、重试或工作流目标选择。
+原生 SDK 不调用这个入口；CLI 不可用也不会静默切换到原生 API。

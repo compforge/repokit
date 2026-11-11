@@ -3,7 +3,7 @@
 ## 项目定位与边界
 
 `compforge-repokit`（导入名 `repokit`）提供原生同步 tree / inspect / owner，通过 Git CLI 读取版本控制事实，
-不包装 repocli CLI。身份复用 harness-common；布局与工具证据归本包，消费方拥有执行策略。
+原生 API 不包装 repocli CLI；显式 `repokit.cli` 提供已安装 CLI 的有界查询客户端。身份复用 harness-common；布局与工具证据归本包，消费方拥有执行策略。
 
 ## 代码地图与核心模块
 
@@ -13,6 +13,7 @@ repokit/
 ├── validation/            # engine：原生规划/执行；report：Go wire report 解码
 ├── dependencies.py        # 只读依赖观察与显式锁定安装；workspace 安装根与回执
 ├── _inspect.py            # 输入版本、整次调用预算与一致性观察
+├── access.py / cli.py     # checkout 访问组装 / 显式 CLI 协议客户端
 ├── config.py              # 用户配置与 host 级 Forge 连接组装
 ├── state/                 # 仓库状态业务、checkout 生命周期、metadata、身份与存储
 ├── git/                  # operations、state、index、stash、remote 与内部 catalog/staging
