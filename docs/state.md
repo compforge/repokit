@@ -10,6 +10,8 @@
 状态发布及恢复。Git 适配层负责读取 Git 事实和执行命令，不依赖 state，也不回调 state 发布记录。
 创建、移除与清理 checkout 由 state 协调 Git 操作和状态更新；上层 CLI/Forge 消费 state 的业务入口。
 持久化记录是 state 的实现材料，不能通过直接改 JSON 代替 Git 操作。
+访问记录、worktree 保留与 repository 状态回收分别维护；聚合清理只组合既有 worktree service。
+state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI 展示，也不作为所有持久化数据的总入口。
 
 | 实现 | 目录与入口 |
 |---|---|
@@ -89,6 +91,10 @@ Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer
 
 ## 资源与回收
 
+repository 与实际被使用的 checkout 的访问事实保存在 `activity.json`，与观测时间分开。
+`repocli clean` 复用 worktree 既有保留策略，并默认按 30 天闲置条件回收 repository 数据；访问来源、并发边界、
+缺失时间策略和预览契约见 [闲置清理](cleanup.md)。
+
 Go `state.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
 当前 clone 中已不再注册、且源路径确实不存在的 checkout 记录及其 branch 链接。它只删除明确拥有的
 状态文件和 symlink，不遍历或删除 symlink 指向的源码。未知文件、未知 checkout 路径或读取失败不会
@@ -101,7 +107,7 @@ checkout 消失连带删除历史。仓库根保留信息不会触发全量 Forg
 Python/Go worktree 创建、移除和清理接受显式 state directory，并在成功操作后观察/对账。
 CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同一入口。Python/TS PR context
 查询 branch PR 时使用 Git 当前 inventory，不把 topology 发布作为读取前置条件。CLI validation 在执行后尽力更新 repository 观测；
-观测失败单独报告，不改变检查结果。纯分析与 validation plan 不隐式写入此目录。
+观测失败单独报告，不改变检查结果。原生纯分析 API 不隐式写入此目录；CLI 的仓库命令（含 plan）只额外记录所选 checkout 的访问，不改项目内容。
 
 ```sh
 repocli worktree observe --repo /path/to/repository

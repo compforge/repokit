@@ -42,7 +42,12 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 	if err != nil {
 		return GitResult{ExitCode: -1, Err: err}
 	}
-	defer unlock()
+	released := false
+	defer func() {
+		if !released {
+			unlock()
+		}
+	}()
 	args := []string{"worktree", "add"}
 	if options.Branch != "" {
 		args = append(args, "-b", options.Branch)
@@ -72,8 +77,11 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
 		}
 	}
+	// Publish after releasing the Git lease: cleanup acquires activity before Git.
+	unlock()
+	released = true
 	if result.Err == nil {
-		if _, err := Observe(ctx, repo, options.Home, false); err != nil {
+		if _, err := Observe(ctx, createdPathFor(repo, path), options.Home, false); err != nil {
 			result.Stderr += fmt.Sprintf("\ncheckout created; metadata unavailable: %v", err)
 		}
 	}
@@ -109,4 +117,11 @@ func checkoutError(result GitResult, op, path string) GitResult {
 		result.Err = &errs.Error{Code: "git.outcome_unknown", Message: result.Err.Error(), Op: op, Subject: path, Uncertain: true, Hint: "Inspect the checkout before retrying the write.", Cause: result.Err}
 	}
 	return result
+}
+
+func createdPathFor(repo, path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	return filepath.Join(repo, path)
 }

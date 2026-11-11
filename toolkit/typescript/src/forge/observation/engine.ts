@@ -1,3 +1,4 @@
+import { recordAccess } from "../../state/activity.js";
 import { resolveHome } from "../../state/home.js";
 import { repositoryKey } from "../../state/identity.js";
 import { pullRequestId } from "@compforge/harness-common";
@@ -70,6 +71,8 @@ export class ObservationEngine {
     } finally { requestSignal.removeEventListener("abort", abort); }
   }
   async get(key: PullRequestKey, query: PullRequestObservationQuery = {}): Promise<PullRequestObservationResult> {
+    assertPullRequestKey(key,this.reader.forge);
+    await recordAccess(this.#store,repositoryKey(key.repository.forge.name,key.repository.path),query.signal ?? new AbortController().signal);
     return this.#get(key, query);
   }
   async #get(key: PullRequestKey, query: PullRequestObservationQuery, scopeId?: string): Promise<PullRequestObservationResult> {

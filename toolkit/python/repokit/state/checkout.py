@@ -38,15 +38,21 @@ def add_worktree(
                 created = Path(path) if Path(path).is_absolute() else Path(repo) / path
                 try:
                     record_creation(created)
-                    from .repository import RepositoryState
-
-                    RepositoryState(home).observe(repo)
                 except (OSError, ValueError) as exc:
                     # The checkout exists; never report the creation as safely retryable.
                     return GitResult(
                         result.rc, result.out, f"checkout created; metadata unavailable: {exc}"
                     )
-            return result
+        if result.ok:
+            from .repository import RepositoryState
+
+            try:
+                RepositoryState(home).observe(created)
+            except (OSError, ValueError) as exc:
+                return GitResult(
+                    result.rc, result.out, f"checkout created; metadata unavailable: {exc}"
+                )
+        return result
     except OSError as exc:
         return GitResult(-1, "", str(exc))
 

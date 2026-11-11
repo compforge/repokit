@@ -72,12 +72,14 @@ func LoadWorktreePolicy(ctx context.Context, repo string) (policy WorktreePolicy
 }
 
 type WorktreeAction struct {
-	Action   string `json:"action"`
-	Status   string `json:"status"`
-	Reason   string `json:"reason"`
-	Path     string `json:"path"`
-	Branch   string `json:"branch"`
-	PRNumber int    `json:"pr_number,omitempty"`
+	Action         string  `json:"action"`
+	Status         string  `json:"status"`
+	Reason         string  `json:"reason"`
+	Path           string  `json:"path"`
+	Branch         string  `json:"branch"`
+	PRNumber       int     `json:"pr_number,omitempty"`
+	EstimatedBytes int64   `json:"estimatedBytes,omitempty"`
+	LastAccessAt   float64 `json:"lastAccessAt,omitempty"`
 }
 
 type WorktreeCleanReport struct {
@@ -95,10 +97,11 @@ type WorktreePullRequests interface {
 }
 
 type WorktreeCleanOptions struct {
-	Policy       *WorktreePolicy
-	DryRun       bool
-	PullRequests WorktreePullRequests
-	Home         string
+	Policy         *WorktreePolicy
+	DryRun         bool
+	PullRequests   WorktreePullRequests
+	Home           string
+	ProtectedPaths []string
 }
 
 type retentionEntry struct {
@@ -115,6 +118,7 @@ type retentionEntry struct {
 // +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Branch refs are retained.`
 // +link=component://docs/worktrees.md
 func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (result WorktreeCleanReport, err error) {
+	ctx = maintenanceContext(ctx)
 	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.cleanup", repo) }()
 	report := WorktreeCleanReport{Actions: []WorktreeAction{}, Errors: []string{}, DryRun: options.DryRun}
 	policy := options.Policy
@@ -144,7 +148,10 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	var candidates []*retentionEntry
 	known := true
 	action := func(e *retentionEntry, kind, status, reason string, number int) {
-		report.Actions = append(report.Actions, WorktreeAction{kind, status, reason, e.Path, e.Branch, number})
+		report.Actions = append(report.Actions, WorktreeAction{Action: kind, Status: status, Reason: reason, Path: e.Path, Branch: e.Branch, PRNumber: number})
+		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
+			report.Actions[len(report.Actions)-1].LastAccessAt = lease.record.Checkouts[Digest(e.Path)].LastAccessAt
+		}
 		slog.Info("worktree maintenance", "action", kind, "status", status, "path", e.Path, "reason", reason)
 	}
 	failure := func(e *retentionEntry, kind string, err error) {
@@ -157,6 +164,29 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		e := &retentionEntry{CheckoutEntry: entry}
 		candidates = append(candidates, e)
+		home, homeErr := ResolveHome(options.Home)
+		if homeErr != nil {
+			return report, homeErr
+		}
+		if canonical, e := filepath.EvalSymlinks(home); e == nil {
+			home = canonical
+		}
+		if withinDirectory(e.Path, home) {
+			e.excluded = true
+			action(e, "retain", "skipped", "contains_state_home", 0)
+			continue
+		}
+		for _, path := range options.ProtectedPaths {
+			if withinDirectory(e.Path, path) {
+				e.excluded = true
+				break
+			}
+		}
+		if e.excluded {
+			known = false
+			action(e, "retain", "skipped", "current_checkout", 0)
+			continue
+		}
 		reason, observeErr := protectionInInventory(ctx, info.Root, entry, entries)
 		if observeErr == nil {
 			e.environments, e.unmanaged, observeErr = worktreeEnvironments(ctx, e.Path, *policy, !options.DryRun)
@@ -213,8 +243,19 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			action(e, "remove_worktree", "skipped", protection, number)
 			return
 		}
+		size, err := directoryBytes(ctx, e.Path)
+		if err != nil {
+			failure(e, "remove_worktree", err)
+			return
+		}
+		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
+			if err := lease.owned(); err != nil {
+				failure(e, "remove_worktree", err)
+				return
+			}
+		}
 		if !options.DryRun {
-			result := RemoveWorktree(ctx, repo, e.Path, RemoveWorktreeOptions{})
+			result := RemoveWorktree(ctx, repo, e.Path, RemoveWorktreeOptions{Home: options.Home})
 			if result.Err != nil {
 				failure(e, "remove_worktree", result.Err)
 				return
@@ -226,6 +267,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			status = "planned"
 		}
 		action(e, "remove_worktree", status, reason, number)
+		report.Actions[len(report.Actions)-1].EstimatedBytes = size
 	}
 	if options.PullRequests != nil {
 		for _, e := range candidates {
@@ -311,6 +353,25 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			action(e, "release_environment", "skipped", reason, 0)
 			continue
 		}
+		var size int64
+		for _, directory := range directories {
+			n, e := directoryBytes(ctx, directory)
+			if e != nil {
+				err = e
+				break
+			}
+			size += n
+		}
+		if err != nil {
+			failure(e, "release_environment", err)
+			continue
+		}
+		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
+			if err := lease.owned(); err != nil {
+				failure(e, "release_environment", err)
+				continue
+			}
+		}
 		if !options.DryRun {
 			for _, directory := range directories {
 				if err = releaseEnvironment(ctx, e.Path, directory); err != nil {
@@ -329,6 +390,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			status = "planned"
 		}
 		action(e, "release_environment", status, "max_prepared", 0)
+		report.Actions[len(report.Actions)-1].EstimatedBytes = size
 	}
 	countPrepared := 0
 	for _, e := range candidates {
@@ -342,7 +404,11 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if known {
 		report.RemainingPrepared = &countPrepared
 	}
-	if !options.DryRun {
+	changed := false
+	for _, a := range report.Actions {
+		changed = changed || a.Status == "completed"
+	}
+	if !options.DryRun && changed {
 		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			report.Errors = append(report.Errors, "repository observation: "+err.Error())
 		}

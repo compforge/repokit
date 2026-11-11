@@ -21,6 +21,7 @@ type Store struct {
 	checkout    string
 	repository  string
 	segmentSize int
+	trackAccess bool
 }
 
 func newStore(base, repository, checkout string) *Store {
@@ -48,13 +49,20 @@ func Open(ctx context.Context, base, checkout string) (*Store, error) {
 		}
 		name = repostate.LocalKey(common)
 	}
-	return newStore(base, name, checkout), nil
+	store := newStore(base, name, checkout)
+	store.trackAccess = filepath.Base(base) == "repositories"
+	return store, nil
 }
 
 // WAL caches file offsets and sequence numbers. Hold the OS lock over its entire
 // open/read/write/close lifetime, never across a Make invocation.
 // +spec=Independent CLI processes serialize history access without serializing checks
 func (h *Store) access(ctx context.Context, fn func(*wal.Log) error) (err error) {
+	if h.trackAccess {
+		if err = repostate.RecordAccess(ctx, h.checkout, filepath.Dir(filepath.Dir(h.dir))); err != nil {
+			return err
+		}
+	}
 	if err = os.MkdirAll(h.dir, 0700); err != nil {
 		return err
 	}
@@ -163,6 +171,7 @@ func ReadSummary(ctx context.Context, directory, checkout string) (Summary, erro
 	if err != nil {
 		return Summary{}, err
 	}
+	store.trackAccess = false
 	state, err := store.Read(ctx)
 	if err != nil {
 		return Summary{}, err

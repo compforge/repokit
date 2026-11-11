@@ -15,6 +15,7 @@ from typing import cast
 from ..git import operations as git
 from ..git import state as git_state
 from ..git.remote import parse_remote_url
+from .activity import record_access
 from .home import resolve_home
 from .identity import digest_path, local_key, name_part, repository_key
 from .store import JSON, ObservationStore
@@ -75,6 +76,7 @@ class RepositoryState:
         if not math.isfinite(max_age) or max_age < 0:
             raise ValueError("max_age must be finite and nonnegative")
         key, info, _ = repository_location(repo)
+        record_access(self.store, key, info)
         directory = self.store.root / "repositories" / key
         clone = digest_path(info.common_dir)
         if max_age > 0:
@@ -132,12 +134,17 @@ class RepositoryState:
             source,
         )
 
-    def observe(self, repo: str | Path, *, reconcile: bool = False) -> Path:
+    def observe(
+        self, repo: str | Path, *, reconcile: bool = False, record_use: bool = True
+    ) -> Path:
         """Publish a complete local inventory; reconcile only absent checkout resources.
 
         @spec Detached checkouts have records but no branch link. Checkout reclamation
         never deletes source directories or execution history, and never crosses clones.
         """
+        if record_use:
+            key, info, _ = repository_location(repo)
+            record_access(self.store, key, info)
         return self._observe(repo, reconcile=reconcile)
 
     def _observe(

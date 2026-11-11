@@ -74,6 +74,19 @@ func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot strin
 	return forge.NewContext(ctx, client, repo, o.targets)
 }
 
+// worktreePullRequests adapts the shared Forge connection for both cleanup commands.
+// Local repositories have no merged-PR stage; connection failures still allow count retention.
+func (o *forgeOptions) worktreePullRequests(ctx context.Context, repo, home string) (repostate.WorktreePullRequests, error) {
+	prContext, err := o.context(ctx, repo, home)
+	if errors.Is(err, errNoForgeOrigin) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return prContext, nil
+}
+
 func newPRCommand(opts *options) *cobra.Command {
 	root := &cobra.Command{Use: "pr", Short: "Create, query and update GitHub PRs or GitLab MRs"}
 	var connection forgeOptions

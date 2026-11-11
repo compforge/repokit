@@ -312,7 +312,7 @@ def clean_worktrees(
             from .repository import RepositoryState
 
             try:
-                RepositoryState(home).observe(control, reconcile=True)
+                RepositoryState(home).observe(control, reconcile=True, record_use=False)
             except (OSError, ValueError) as exc:
                 from dataclasses import replace
 

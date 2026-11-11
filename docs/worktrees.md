@@ -4,6 +4,11 @@ RepoKit owns local worktree maintenance. A checkout carries a branch; a branch m
 Remote PRs and local branches do not require a checkout. Removing a checkout retains branch refs,
 PR observations and shared validation history.
 
+The global `repocli clean` and `repocli worktree clean` call the same `state.CleanWorktrees`
+service entry with the policy below. Global cleanup additionally traverses recorded repositories
+and expires repository state after 30 days; that threshold does not change worktree retention.
+See [repository cleanup](cleanup.md).
+
 ## Policy and ordering
 
 Configuration lives in `<git-common-dir>/repokit.json`, shared by every checkout of one repository:

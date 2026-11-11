@@ -1,3 +1,4 @@
+import { recordAccess } from "./activity.js";
 import { resolveHome } from "./home.js";
 import { realpathSync } from "node:fs";
 import { lstat, mkdir, readdir, rename, rmdir, symlink, unlink } from "node:fs/promises";
@@ -36,6 +37,7 @@ export class RepositoryState {
     const maxAge = options.maxAgeMs ?? 0, signal = options.signal ?? new AbortController().signal;
     if (!Number.isFinite(maxAge) || maxAge < 0) throw new Error("maxAgeMs must be nonnegative and finite");
     const {key,info} = location(repo), directory = this.store.path("repositories",key), clone = pathDigest(info.commonDir);
+    await recordAccess(this.store,key,signal,info);
     const read = (source: "cache"|"git") => this.store.locked(join(directory,"topology"),signal,async () => {
       const record = await this.store.read<BranchRecord>(join(directory,"branches",namePart(branch),"observation.json"));
       if (!record) return undefined;
@@ -56,7 +58,8 @@ export class RepositoryState {
     await this.observeBranch(repo,{signal},branch);
     return read("git");
   }
-  async observe(repo: string, options: {reconcile?: boolean; signal?: AbortSignal} = {}): Promise<string> {
+  async observe(repo: string, options: {reconcile?: boolean; signal?: AbortSignal; recordUse?: boolean} = {}): Promise<string> {
+    if(options.recordUse !== false){const {key,info}=location(repo);await recordAccess(this.store,key,options.signal ?? new AbortController().signal,info);}
     return this.observeBranch(repo,options);
   }
   private async observeBranch(repo: string, options: {reconcile?: boolean; signal?: AbortSignal}, selectedBranch?: string): Promise<string> {

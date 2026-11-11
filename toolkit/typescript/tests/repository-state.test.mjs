@@ -78,3 +78,14 @@ test("unknown primary location cannot authorize checkout reclamation",async t=>{
  const row=await state.branch(linked,"main",{maxAgeMs:3600000});assert.equal(row.complete,false);assert.deepEqual(row.checkouts,[]);
  assert(existsSync(join(directory,"checkouts",pathDigest(repo),"observation.json")));
 });
+
+test("activity renews only the selected checkout, not inventory or maintenance", async t => {
+ const {root,repo}=fixture(t),linked=join(root,"idle"),state=new RepositoryState(join(root,"state"));
+ git(repo,"worktree","add","-qb","idle",linked,"HEAD");
+ const directory=await state.observe(linked);await state.observe(repo);
+ const path=join(directory,"activity.json"),record=JSON.parse(readFileSync(path));
+ record.lastAccessAt=1;for(const checkout of Object.values(record.checkouts))checkout.lastAccessAt=1;
+ writeFileSync(path,JSON.stringify(record));await state.branch(repo,"idle",{maxAgeMs:3600000});
+ const refreshed=JSON.parse(readFileSync(path));assert.ok(refreshed.lastAccessAt>1);assert.equal(refreshed.checkouts[pathDigest(linked)].lastAccessAt,1);
+ await state.observe(repo,{reconcile:true,recordUse:false});assert.deepEqual(JSON.parse(readFileSync(path)),refreshed);
+});
