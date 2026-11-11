@@ -7,6 +7,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/forge"
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	repogit "github.com/compforge/repokit/toolkit/go/git"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -15,6 +16,11 @@ import (
 func describeResult(r *commandResult, data any) {
 	r.Outcome = "succeeded"
 	switch v := data.(type) {
+	case repogit.TagPublishReport:
+		r.Summary = fmt.Sprintf("%d tags on %s; confirmed=%t", len(v.Tags), v.Remote, v.Confirmed)
+		for _, phase := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "git.tag." + phase.Name, DurationSeconds: phase.DurationSeconds})
+		}
 	case repokit.InspectReport:
 		r.Summary = fmt.Sprintf("Inspected %d Components; complete=%t", len(v.Components), v.Complete)
 		r.analysisDiagnostics(v.Diagnostics, "inspect", "/data/diagnostics")

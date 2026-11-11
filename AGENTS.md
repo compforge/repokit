@@ -59,6 +59,7 @@ repokit/
 │   │   ├── validation.go     # 验证公共入口；实现归 internal/validation
 │   │   ├── state/            # 仓库状态业务、checkout 生命周期与共享存储
 │   │   ├── config/           # 用户配置与 host 级 Forge 访问解析
+│   │   ├── git/              # 显式 Git 操作与不可变 tag 发布
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排

@@ -13,10 +13,10 @@ build:
 test:
 	go test -json $(GO_TEST_PACKAGES)
 lint:
-	@test -z "$$(gofmt -l *.go internal forge state errs config)" || (gofmt -l *.go internal forge state errs config; exit 1)
+	@test -z "$$(gofmt -l *.go internal forge state errs config git)" || (gofmt -l *.go internal forge state errs config git; exit 1)
 	go vet ./...
 lint-ci: lint
 format:
-	gofmt -w *.go internal forge state errs config
+	gofmt -w *.go internal forge state errs config git
 generate-languages:
 	go test ./internal/project -run TestLanguageCatalog -update-language-catalog

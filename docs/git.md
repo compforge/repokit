@@ -167,3 +167,36 @@ TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出�
 继承的 `GIT_CONFIG_COUNT/KEY_*/VALUE_*` 与 `GIT_CONFIG_PARAMETERS` 按配置项过滤：
 保留 HTTP、credential、URL rewrite、SSH/代理及用户身份配置，重新编码后传给 Git；
 `core.worktree`、include 等可能改变仓库定位或引入额外配置的覆盖不继承。显式每次调用的覆盖仍最后应用。
+
+## Tag publication
+
+Go `git.PublishTags(ctx, repo, git.PublishTagsOptions{Remote, Target, Tags})` 与 CLI 使用同一 service：
+
+```sh
+repocli git tag publish toolkit/go/v1.2.3 apps/cli/v1.2.3 --target <commit-or-local-ref> --repo . --json
+```
+
+`--target` 必填，解析为 commit 后固定用于整个操作；`--remote` 默认 `origin`，必须是已配置
+且只有一个 push URL 的 remote。预检、推送、核验都使用该 push destination，支持 fetch/push URL
+不同的仓库；多个 push URL 无法提供跨目的地原子性，写入前拒绝。认证复用 Git 的 SSH/credential
+配置与现有执行环境，不经过 Forge HTTP 客户端。调用不会创建本地 tag、切换分支或触发 worktree maintenance。
+
+名称遵守 Git ref 语法；版本格式、递增规则、模块发布顺序和 Release/包/部署动作属于调用方。
+重复名称按输入顺序去重。远端已有 lightweight 或 annotated tag 按 peeled commit 比较：同 commit
+视为已满足，不改写 tag 对象；不同 commit 在推送前拒绝整个批次。缺少的 tag 以 lightweight tag
+通过一次 `git push --atomic --no-follow-tags` 发布，不 force、不附带其它 tag；远端不支持 atomic
+时失败，不降级。预检后的并发冲突由 Git 拒绝，不覆写已发布 tag。
+
+结果包含 `remote`、`targetCommit`、`confirmed`、`pushAttempted`、可用的 `pushExitCode` 和 `tags`。
+每个 tag 保留 name/ref、观测到的 peeled objectID（已有 tag 可能指向非 commit），以及 `present` / `missing` / `conflict` / `unknown`。
+`present` 说明远端当前满足目标，不声称一定由本次操作创建。推送成功与否均尝试读取远端核验；
+全部满足目标才成功，因此推送超时但远端已完成仍可返回成功。推送后观察失败、预算耗尽或写入结果
+尚不确定时返回 `git.tag_publish_unknown` / `error.uncertain=true`，不能把预检事实当作最终状态。
+Git porcelain 明确报告拒绝且核验完成时返回确定失败；仅有非零退出码或未收到确认的
+remote failure 仍保留不确定性。不会自动重推；调用方先检查同一 push destination 的目标 refs，再决定恢复。
+
+本地查询每次最多 5 秒，远端观察最多 30 秒，push 最多 120 秒；调用方 context 的更短预算优先。
+push 为最终核验预留剩余预算的 20%（最多 30 秒），取消后不创建脱离调用方的后台任务。
+`phases` 记录 prepare、remote_preflight、push、remote_verify 的实际耗时；CLI 同时映射到
+`cost.phases`，未执行的阶段不补造。错误保留 code/op/subject 和 cause，不将可能含凭据的远端 URL
+或原始 transport stderr 写入公共输出。
