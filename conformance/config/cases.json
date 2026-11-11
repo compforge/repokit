@@ -1,0 +1,228 @@
+[
+  {
+    "name": "public config",
+    "config": {
+      "forges": {
+        "github.com": {
+          "token": "configured"
+        }
+      }
+    },
+    "host": "github",
+    "expected": {
+      "host": "github.com",
+      "provider": "github",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "public environment ignored",
+    "config": {
+      "forges": {
+        "github.com": {
+          "token": "configured"
+        }
+      }
+    },
+    "env": {
+      "GH_TOKEN": " env-token ",
+      "GITHUB_TOKEN": "other"
+    },
+    "host": "GITHUB.COM",
+    "expected": {
+      "host": "github.com",
+      "provider": "github",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "environment cannot supply missing config",
+    "env": {
+      "GITLAB_TOKEN": "public-token"
+    },
+    "host": "gitlab",
+    "error": "credential"
+  },
+  {
+    "name": "private token isolated from provider env",
+    "config": {
+      "forges": {
+        "git.example.com": {
+          "provider": "gitlab",
+          "token": "private"
+        }
+      }
+    },
+    "env": {
+      "GITLAB_TOKEN": "wrong-host"
+    },
+    "host": "git.example.com",
+    "expected": {
+      "host": "git.example.com",
+      "provider": "gitlab",
+      "token": "private",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "private API host",
+    "config": {
+      "forges": {
+        "git.example.com": {
+          "provider": "gitlab",
+          "token": "private",
+          "apiHost": "api.example.com:8443"
+        }
+      }
+    },
+    "env": {
+      "FIXTURE_FORGE_TOKEN": "bound"
+    },
+    "host": "git.example.com",
+    "expected": {
+      "host": "git.example.com",
+      "provider": "gitlab",
+      "token": "private",
+      "apiHost": "api.example.com:8443"
+    }
+  },
+  {
+    "name": "tokenEnv is unsupported",
+    "config": {
+      "forges": {
+        "git.example.com": {
+          "provider": "gitlab",
+          "token": "fallback",
+          "tokenEnv": "FIXTURE_FORGE_TOKEN"
+        }
+      }
+    },
+    "host": "git.example.com",
+    "error": "config"
+  },
+  {
+    "name": "unknown provider fails",
+    "config": {
+      "forges": {
+        "git.example.com": {
+          "token": "private"
+        }
+      }
+    },
+    "host": "git.example.com",
+    "error": "provider"
+  },
+  {
+    "name": "unknown host no token leakage",
+    "config": {
+      "forges": {
+        "a.example.com": {
+          "provider": "gitlab",
+          "token": "a"
+        },
+        "b.example.com": {
+          "provider": "gitlab"
+        }
+      }
+    },
+    "env": {
+      "GITLAB_TOKEN": "wrong-host"
+    },
+    "host": "b.example.com",
+    "error": "credential"
+  },
+  {
+    "name": "invalid provider",
+    "config": {
+      "forges": {
+        "github.com": {
+          "provider": "githbu",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "provider"
+  },
+  {
+    "name": "unknown setting fails",
+    "config": {
+      "forges": {
+        "github.com": {
+          "tokne": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "config"
+  },
+  {
+    "name": "duplicate normalized host",
+    "config": {
+      "forges": {
+        "github": {
+          "token": "a"
+        },
+        "GITHUB.COM": {
+          "token": "b"
+        }
+      }
+    },
+    "host": "github",
+    "error": "duplicate"
+  },
+  {
+    "name": "invalid endpoint rejected",
+    "config": {
+      "forges": {
+        "github.com": {
+          "apiHost": "https://secret-canary@api.example.com",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "host"
+  },
+  {
+    "name": "missing file no credentials",
+    "host": "github",
+    "error": "credential"
+  },
+  {
+    "name": "wrong field type",
+    "config": {
+      "forges": {
+        "github.com": {
+          "token": 42
+        }
+      }
+    },
+    "host": "github",
+    "error": "config"
+  },
+  {
+    "name": "top-level array",
+    "config": [],
+    "host": "github",
+    "error": "object"
+  },
+  {
+    "name": "empty configured token ignores environment",
+    "config": {
+      "forges": {
+        "github.com": {
+          "token": ""
+        }
+      }
+    },
+    "env": {
+      "GH_TOKEN": "ambient",
+      "GITHUB_TOKEN": "ambient"
+    },
+    "host": "github",
+    "error": "credential"
+  }
+]
