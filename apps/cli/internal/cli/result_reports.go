@@ -7,6 +7,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/forge"
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	"github.com/compforge/repokit/toolkit/go/forge/release"
 	repogit "github.com/compforge/repokit/toolkit/go/git"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
@@ -16,6 +17,19 @@ import (
 func describeResult(r *commandResult, data any) {
 	r.Outcome = "succeeded"
 	switch v := data.(type) {
+	case release.QueryResult:
+		r.Summary = "No Release found"
+		if v.Release != nil {
+			r.Summary = fmt.Sprintf("Release %s at %s", v.Release.Tag, v.Release.TargetCommit)
+		}
+		for _, p := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "release." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
+	case release.PublishResult:
+		r.Summary = fmt.Sprintf("Release %s; confirmed=%t; writeAttempted=%t", v.Tag, v.Confirmed, v.WriteAttempted)
+		for _, p := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "release." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
 	case repogit.TagPublishReport:
 		r.Summary = fmt.Sprintf("%d tags on %s; confirmed=%t", len(v.Tags), v.Remote, v.Confirmed)
 		for _, phase := range v.Phases {

@@ -19,6 +19,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
 	"github.com/compforge/repokit/toolkit/go/forge/internal/transport"
 	"github.com/compforge/repokit/toolkit/go/forge/model"
+	"github.com/compforge/repokit/toolkit/go/forge/release"
 	repohome "github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -400,3 +401,6 @@ func (c *Client) Discussions() *discussion.Service {
 		return err
 	})
 }
+
+// Releases shares this client's configured connection without PR lifecycle maintenance.
+func (c *Client) Releases() *release.Service { return release.New(c.transport) }

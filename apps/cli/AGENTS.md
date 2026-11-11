@@ -12,9 +12,10 @@ cmd/repocli/       # 启动、信号、版本与退出
 internal/
 ├── cli/           # 根命令、结果封装、执行日志与 JSONL 历史
 │   ├── git/       # 显式 Git 操作与 tag 发布
+│   ├── release/   # Forge Release 查询与创建
 │   ├── pr/        # PR 生命周期和 discussion 命令及展示
 │   ├── command/   # 共享选项与结果记录契约
-│   └── forgeaccess/ # PR / cleanup 共用的 Forge 访问装配
+│   └── forgeaccess/ # PR / Release / cleanup 共用的 Forge 访问装配
 ├── stats/         # CLI 日志与存储统计；验证历史通过工具包公共 API 读取
 ├── upgrade/       # 显式 Release 查询、checksum 验证与原子安装
 └── viewer/        # HTTP 服务、静态页面及 GraphSnapshot 展示
