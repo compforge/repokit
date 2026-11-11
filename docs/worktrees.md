@@ -9,6 +9,39 @@ service entry with the policy below. Global cleanup additionally traverses recor
 and expires repository state after 30 days; that threshold does not change worktree retention.
 See [repository cleanup](cleanup.md).
 
+## 创建与复用
+
+```sh
+repocli worktree ensure .worktrees/topic --branch topic --base main --remote origin --repo . --json
+repocli depot prepare --repo .worktrees/topic --timeout 10m --json
+```
+
+`worktree ensure` 对应 Go `state.EnsureWorktree`：显式指定路径、branch 和创建基线 Base。
+相对路径以 `--repo` 对应 checkout 根为基准。`--remote` 指定已配置的 remote 名称，此时 Base 是该 remote
+上的分支名；省略 remote 时 Base 是本地 revision。库不选择默认分支、不规定命名或工作目录布局。
+
+| action | 行为 |
+|---|---|
+| created | 分支不存在，解析并固定基线 commit 后创建分支和 checkout；远端基线必须先成功 fetch。 |
+| resumed | 分支存在但未 checkout，在指定的新路径恢复它；不刷新或重置到 Base。 |
+| reused | 路径已注册且实际 checkout 属于同一 clone、同一分支，保持其 HEAD、脏文件与创建时间。 |
+
+存在但未注册的目录、不同仓库/分支、detached checkout、leaf symlink、其它路径已 checkout 的分支以及
+失效注册均报告冲突或核验错误。不会接管目录、prune 注册、移动分支、reset/rebase 或清理其它 checkout。
+创建阶段使用同一 repository lease 与 Depot/cleanup 互斥，锁内重新列举注册并验证身份。
+预算来自调用方 context / CLI `--timeout`；Git 只读查询最多 5 秒，fetch/add 单步最多 2 分钟。
+锁等待没有额外 30 秒截断。跨进程非协作 Git 操作不受 lease 管理，执行后的核验仍需保留。
+
+结果返回 checkout、branch、headSha、action、confirmed、writeAttempted 和新分支的 baseCommit。
+`writeAttempted` 表示尝试执行 worktree add；fetch 的本地 tracking ref 更新单独计入 base 阶段。
+创建后的核验失败为 unknown，不能据此盲目重试；失败不会删除已经创建的目录或分支。
+confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不撤销已确认成功。
+状态发布在释放 Git lease 后执行，避免与 cleanup 的锁顺序冲突。
+
+`cost.phases` 报告 inspect、lock_wait、inventory、branch、base、create、verify、record、observe
+中实际发生的阶段。`ensure` 不隐式安装依赖；调用方决定是否继续运行 `depot prepare` 和验证。
+通用生命周期判断归 state，Git 查询/写入适配归 internal/gitworktree；任务与 session 归属留在调用方。
+
 ## Policy and ordering
 
 Configuration lives in `<git-common-dir>/repokit.json`, shared by every checkout of one repository:
