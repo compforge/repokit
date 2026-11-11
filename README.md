@@ -125,8 +125,11 @@ It requires Git on PATH, shares common identities and uses the same inspection c
 
 `repocli deadcode --json` builds a graph of all captured text documents and reports
 declaration nodes with no incoming usage edges. The Go API is `AnalyzeDeadcode`.
-Results retain snapshot identity and graph diagnostics; public APIs and entrypoints
-may appear. See [rule and limitations](docs/deadcode.md).
+Use `--base HEAD` to follow dependencies from changed documents in both versions,
+including unchanged files. The report distinguishes newly dead code from related
+historical candidates. `--file` limits candidates while keeping whole-graph callers;
+`--mode unreachable` finds dead call chains and cycles from declared roots. Results
+retain snapshot identity, graph diagnostics and risks. See [rules and limitations](docs/deadcode.md).
 
 ## Usage
 

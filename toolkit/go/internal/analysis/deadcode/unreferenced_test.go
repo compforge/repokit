@@ -1,4 +1,4 @@
-package analysis
+package deadcode
 
 import (
 	"context"
@@ -7,10 +7,11 @@ import (
 	"testing"
 
 	cg "github.com/compforge/codegraph/pkg"
+	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 )
 
 func TestDeadcodeIncomingUsageRule(t *testing.T) {
-	graph := &GraphSnapshot{}
+	graph := &analysis.GraphSnapshot{}
 	for _, id := range []string{"unused", "called", "referenced", "weak", "self", "exported", "base", "decorated", "package"} {
 		kind := cg.Function
 		if id == "package" {

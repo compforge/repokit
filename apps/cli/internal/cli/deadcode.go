@@ -4,35 +4,38 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
 func newDeadcodeCommand(opts *options) *cobra.Command {
-	var head string
+	var head, base, mode string
+	var files, roots []string
 	var excludeTests, excludeEntrypoints bool
 	var staged bool
 	var maxNodes, maxRelations int
 	command := &cobra.Command{
 		Use:   "deadcode",
-		Short: "Find declarations with no incoming usage edges",
-		Long: `Build a graph of all captured text documents and list declaration nodes
-with no incoming non-structural relation. All confidence levels and self-references
-count as uses. Results are candidates, not proof that deletion is safe; inspect
-snapshot completeness and graph diagnostics. Entrypoints and public APIs may appear.`,
-		Example: "  repocli deadcode --json\n  repocli deadcode --head HEAD --json",
+		Short: "Find unused declarations and deadcode affected by a diff",
+		Long: `Analyze whole-snapshot usage evidence, optionally reporting only selected files.
+With --base, use changed graph nodes in both snapshots as analysis entrypoints:
+report affected historical candidates as well as declarations that became dead.
+Unreachable mode follows declared roots and reports test-only uses separately.
+Results carry reasons and risks; they are not safe-deletion verdicts.`,
+		Example: "  repocli deadcode --json\n  repocli deadcode --base HEAD --json\n  repocli deadcode --base main --head HEAD --mode unreachable --json\n  repocli deadcode --file internal/service.go --json",
 		Args:    cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			if opts.timeout <= 0 {
 				return fmt.Errorf("--timeout must be positive")
 			}
-			return (repokit.DeadcodeRequest{MaxNodes: maxNodes, MaxRelations: maxRelations}).Validate()
+			return (repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots}).Validate()
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
 			ctx, cancel := context.WithTimeout(command.Context(), opts.timeout)
 			defer cancel()
-			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
+			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
 			if err != nil {
 				return executionFailure(err)
 			}
@@ -42,6 +45,11 @@ snapshot completeness and graph diagnostics. Entrypoints and public APIs may app
 			return nil
 		},
 	}
+	command.Flags().StringVar(&base, "base", "", "compare against this ref; follow dependencies from changed documents in both graphs")
+	// +spec=Each --file occurrence preserves one literal path; an empty argument is invalid.
+	command.Flags().StringArrayVar(&files, "file", nil, "limit reported candidates to exact snapshot-relative files (repeatable)")
+	command.Flags().StringVar(&mode, "mode", "unreferenced", "analysis rule: unreferenced or unreachable")
+	command.Flags().StringArrayVar(&roots, "root", nil, "additional unreachable-mode root: exact node ID or unique qualified name (repeatable)")
 	command.Flags().StringVar(&head, "head", "", "read this exact commit/ref instead of the working tree")
 	command.Flags().BoolVar(&staged, "staged", false, "read the index instead of the working tree")
 	command.Flags().IntVar(&maxNodes, "max-nodes", 0, "graph node budget (0 uses CodeGraph default)")
@@ -59,7 +67,7 @@ func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool)
 	if asJSON {
 		return writeJSON(output, report)
 	}
-	if _, err := fmt.Fprintf(output, "Deadcode candidates: %d (no incoming usage edges)\n%s input=%s capture_complete=%t documents=%d graph_diagnostics=%d\n", len(report.Nodes), report.Snapshot.Snapshot, report.Snapshot.Input, report.Snapshot.Complete, report.Documents, len(report.Diagnostics)); err != nil {
+	if _, err := fmt.Fprintf(output, "Deadcode candidates: %d mode=%s scope=%s\n%s input=%s capture_complete=%t documents=%d graph_diagnostics=%d\n", len(report.Nodes), report.Mode, report.Scope.Kind, report.Snapshot.Snapshot, report.Snapshot.Input, report.Snapshot.Complete, report.Documents, len(report.Diagnostics)); err != nil {
 		return err
 	}
 	for _, node := range report.Nodes {
@@ -71,7 +79,17 @@ func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool)
 		if node.Location != nil {
 			location = fmt.Sprintf("%s:%d", node.Location.Path, node.Location.Line)
 		}
-		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\n", location, node.Kind, name); err != nil {
+		if _, err := fmt.Fprintf(output, "%s\t%s\t%s\treason=%s change=%s risks=%s\n", location, node.Kind, name, node.Reason, node.Change, strings.Join(node.Risks, ",")); err != nil {
+			return err
+		}
+	}
+	if report.Baseline != nil {
+		if _, err := fmt.Fprintf(output, "Compared with %s; before_graph_diagnostics=%d; comparison_complete=%t\n", report.Baseline.Snapshot.Head, len(report.Baseline.Diagnostics), report.Scope.Complete); err != nil {
+			return err
+		}
+	}
+	for _, diagnostic := range report.Scope.Diagnostics {
+		if _, err := fmt.Fprintf(output, "scope: %s: %s\n", diagnostic.Code, diagnostic.Message); err != nil {
 			return err
 		}
 	}
@@ -80,7 +98,7 @@ func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool)
 			return err
 		}
 	}
-	if len(report.Diagnostics) > 0 {
+	if len(report.Diagnostics) > 0 || (report.Baseline != nil && len(report.Baseline.Diagnostics) > 0) {
 		if _, err := fmt.Fprintln(output, "Use --json to inspect graph diagnostics and candidate details."); err != nil {
 			return err
 		}

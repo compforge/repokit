@@ -35,6 +35,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | tree / inspect | tree 查询同版本路径、类型与已知角色；inspect 读取必要配置，解释 Repository、Component、语言与工具证据。不依赖构图，也不执行项目代码。 |
 | snapshot / diff | snapshot 捕获内容身份与完整性；diff 独立捕获前后内容、文件状态与 patch，按需派生同版本布局或形成 Unit。 |
 | impact | 从前后布局确定变更归属，独立发现 Testset；按版本建立有界 Workset 和 CodeGraph，再查询影响、投影测试候选并保留证据与缺口。 |
+| deadcode | 完整快照图提供引用证据；全仓或文件范围筛选候选，diff 前后节点作为入口追踪用途变化，区分本次变化和相关历史候选。分析规则与公开边界由消费者声明，结果不授权删除。 |
 | view | 捕获内容和布局，构建共享代码图；图、结构上下文和源码作为一个版本展示与刷新，不经过 impact 的候选裁剪。 |
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
@@ -59,6 +60,7 @@ repokit/
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
+│   │       │   └── deadcode/ # deadcode 编排、候选规则与前后图比较
 │   │       ├── git/          # Git 材料与内容读取
 │   │       ├── gitworktree/  # checkout 查询与 Git 命令执行适配
 │   │       ├── project/      # 结构识别、组件归属与工具证据
@@ -114,6 +116,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [PR](docs/pr.md)：Forge 身份、读写、持续扫描和观察生命周期。
 - [Snapshot](docs/snapshot.md)：内容捕获、摘要与完整性。
 - [CodeGraph](docs/codegraph.md)：图模型、材料准入、语言解析与关系证据。
+- [Deadcode](docs/deadcode.md)：全仓、文件范围与 diff 依赖入口，候选变化、可达性及风险。
 - [Impact](docs/diff.md) / [使用方式](docs/diff-usage.md)：影响范围、测试候选、缺口与 CLI 参数。
 - [Fragment 与 Unit](docs/units.md)：变更形成、关系优先级、聚合及预算。
 - [代码图浏览](docs/view.md)：viewer 的版本、展示与刷新契约。
