@@ -239,13 +239,13 @@ func TestGlobalCleanReclaimsWorktreeByPolicyAndExpiredStateButNeverPrimary(t *te
 		}
 		removed := false
 		for _, a := range report.Actions {
-			removed = removed || a.Action == "remove_repository_state"
+			removed = removed || a.Action == "remove_repository_cache"
 		}
 		if !removed {
 			t.Fatal(report)
 		}
 	}
-	for _, p := range []string{directory, linked} {
+	for _, p := range []string{filepath.Join(directory, "checkouts"), linked} {
 		if _, err := os.Stat(p); !errors.Is(err, os.ErrNotExist) {
 			t.Fatal("idle resource retained", p, err)
 		}
@@ -437,7 +437,7 @@ func TestGlobalAndDirectWorktreeRetentionAgree(t *testing.T) {
 		}
 		actions := []WorktreeAction{}
 		for _, a := range global.Actions {
-			if a.Action == "retain_repository" || a.Action == "remove_repository_state" {
+			if a.Action == "retain_repository" || a.Action == "remove_repository_cache" {
 				continue
 			}
 			row := a.WorktreeAction
@@ -509,7 +509,7 @@ func TestExpiredCacheRemovedDespiteRetainedWorktreeAndPRFailure(t *testing.T) {
 		}
 		removed := false
 		for _, a := range report.Actions {
-			removed = removed || a.Action == "remove_repository_state"
+			removed = removed || a.Action == "remove_repository_cache"
 		}
 		if !removed {
 			t.Fatal(report)
@@ -518,7 +518,7 @@ func TestExpiredCacheRemovedDespiteRetainedWorktreeAndPRFailure(t *testing.T) {
 			t.Fatal("retained checkout deleted", err)
 		}
 	}
-	if _, err := os.Stat(directory); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(directory, "checkouts")); !os.IsNotExist(err) {
 		t.Fatal("expired cache retained", err)
 	}
 	if _, err := worktreeQuery(ctx, root, "rev-parse", "refs/heads/retained"); err != nil {
@@ -587,4 +587,132 @@ func TestCleanupRechecksRecordWriterAfterRemoteQuery(t *testing.T) {
 	if !found {
 		t.Fatal(report)
 	}
+}
+
+// +case=Expired caches can be reclaimed while a worktree is protected; a later global clean rediscovers and removes it without any foreground access, including topology-only registrations.
+func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
+	for _, scenario := range []string{"dirty", "pr_unavailable", "topology_only"} {
+		t.Run(scenario, func(t *testing.T) {
+			ctx := context.Background()
+			home := t.TempDir()
+			t.Setenv("REPOKIT_HOME", home)
+			root, create := retentionFixture(t)
+			linked := create("retained", false)
+			setCleanupPolicy(t, root, WorktreePolicy{MaxCount: 0, MaxPrepared: 0})
+			directory := ageActivity(t, root, home, time.Now().Add(-40*24*time.Hour))
+			activityPath := filepath.Join(directory, "activity.json")
+			if scenario == "topology_only" {
+				if err := os.Remove(activityPath); err != nil {
+					t.Fatal(err)
+				}
+			}
+			before, err := readActivity(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := Write(filepath.Join(directory, "history", "run.json"), map[string]string{"result": "expired"}, func() error { return nil }); err != nil {
+				t.Fatal(err)
+			}
+			note := filepath.Join(linked, "unsaved")
+			if scenario != "pr_unavailable" {
+				if err := os.WriteFile(note, []byte("keep until saved"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ready := false
+			pr := &cleanupMergedPR{}
+			options := CleanOptions{Home: home, InactiveDays: 30}
+			wantErrors := 0
+			if scenario == "pr_unavailable" {
+				// A live PR query failure must retain the checkout even above the count limit.
+				options.PullRequests = func(context.Context, string) (WorktreePullRequests, error) {
+					if !ready {
+						return cleanupUnavailablePR{}, nil
+					}
+					return pr, nil
+				}
+				wantErrors = 1
+			}
+			var cacheBytes int64
+			entries, err := os.ReadDir(directory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, entry := range entries {
+				if entry.Name() != "activity.json" && entry.Name() != "repository.json" {
+					size, err := directoryBytes(ctx, filepath.Join(directory, entry.Name()))
+					if err != nil {
+						t.Fatal(err)
+					}
+					cacheBytes += size
+				}
+			}
+			for _, dry := range []bool{true, false} {
+				options.DryRun = dry
+				report, err := Clean(ctx, options)
+				if err != nil || len(report.Errors) != wantErrors || report.EstimatedBytes != cacheBytes || cacheBytes == 0 {
+					t.Fatal(report, err, cacheBytes)
+				}
+				if _, err := os.Stat(linked); err != nil {
+					t.Fatal("protected checkout removed", err)
+				}
+				after, err := readActivity(directory)
+				if err != nil || after.LastAccessAt != before.LastAccessAt {
+					t.Fatal("maintenance renewed access", after, err)
+				}
+				if dry {
+					if !reflect.DeepEqual(before, after) {
+						t.Fatal("preview changed registration", before, after)
+					}
+					if scenario == "topology_only" {
+						if _, err := os.Stat(activityPath); !os.IsNotExist(err) {
+							t.Fatal("preview created registration", err)
+						}
+					}
+				}
+			}
+			entries, err = os.ReadDir(directory)
+			if err != nil || len(entries) != 2 || entries[0].Name() != "activity.json" || entries[1].Name() != "repository.json" {
+				t.Fatal("cache not reclaimed independently of registration", entries, err)
+			}
+			registration, err := readActivity(directory)
+			if err != nil || registration.Checkouts[Digest(root)].Path != root || registration.Checkouts[Digest(linked)].Path != linked {
+				t.Fatal("checkout registration lost", registration, err)
+			}
+			for key, access := range registration.Checkouts {
+				if access.LastAccessAt != before.Checkouts[key].LastAccessAt {
+					t.Fatal("checkout access renewed", access)
+				}
+			}
+			if scenario != "pr_unavailable" {
+				if err := os.Remove(note); err != nil {
+					t.Fatal(err)
+				}
+			}
+			ready = true
+			report, err := Clean(ctx, options)
+			if err != nil || len(report.Errors) != 0 {
+				t.Fatal(report, err)
+			}
+			if _, err := os.Stat(linked); !os.IsNotExist(err) {
+				t.Fatal("later global clean lost the retained checkout", err)
+			}
+			if _, err := os.Stat(root); err != nil {
+				t.Fatal("primary checkout removed", err)
+			}
+			if _, err := worktreeQuery(ctx, root, "rev-parse", "refs/heads/retained"); err != nil {
+				t.Fatal("branch removed", err)
+			}
+			report, err = Clean(ctx, options)
+			if err != nil || len(report.Errors) != 0 || len(report.Actions) != 1 || report.Actions[0].Reason != "registration_only" || report.EstimatedBytes != 0 {
+				t.Fatal("registration-only cleanup did not converge", report, err)
+			}
+		})
+	}
+}
+
+type cleanupUnavailablePR struct{}
+
+func (cleanupUnavailablePR) MergedPullRequest(context.Context, string, string) (int, error) {
+	return 0, errors.New("PR temporarily unavailable")
 }

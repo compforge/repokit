@@ -40,7 +40,7 @@ type CleanReport struct {
 }
 
 // Clean applies repository worktree retention and reclaims expired repository state. Source repositories and branch refs are never deleted.
-// +spec=Dry-run shares eligibility and deletion protections with execution. Worktree cleanup uses CleanWorktrees and its repository policy. Cleanup never renews activity; missing repository activity sorts oldest. Worktree retention and errors do not prevent expired cache removal; access and writer protections still apply.
+// +spec=Dry-run shares eligibility and deletion protections with execution. Worktree cleanup uses CleanWorktrees and its repository policy. Cleanup never renews activity; missing repository activity sorts oldest. Worktree retention and errors do not prevent expired cache removal; checkout registration survives expiry, and access and writer protections still apply.
 // +link=component://docs/cleanup.md
 func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err error) {
 	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.clean", options.Home) }()
@@ -202,32 +202,11 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 				appendAction(key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: reason, Path: directory, LastAccessAt: lease.record.LastAccessAt})
 				return nil
 			}
-			size, e := directoryBytes(ctx, directory)
+			action, e := reclaimRepositoryState(ctx, lease, options.DryRun)
 			if e != nil {
 				return e
 			}
-			if e = lease.owned(); e != nil {
-				return e
-			}
-			status := "planned"
-			if !options.DryRun {
-				// Root-relative deletion does not follow symlinks out of the state tree.
-				boundary, e := os.OpenRoot(root)
-				if e != nil {
-					return e
-				}
-				e = boundary.RemoveAll(key)
-				closeErr := boundary.Close()
-				if e = errors.Join(e, closeErr); e != nil {
-					return e
-				}
-				status = "completed"
-			}
-			reason = "inactive"
-			if lease.record.LastAccessAt == 0 {
-				reason = "access_unknown"
-			}
-			appendAction(key, WorktreeAction{Action: "remove_repository_state", Status: status, Reason: reason, Path: directory, EstimatedBytes: size, LastAccessAt: lease.record.LastAccessAt})
+			appendAction(key, action)
 			return nil
 		})
 		if e != nil {
