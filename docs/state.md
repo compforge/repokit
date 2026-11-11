@@ -140,3 +140,9 @@ CLI 日志、PR、topology、统计与验证默认历史根都从同一 home 派
 - PR 连接身份、跨连接观察任务共存、写后读取、完整字段补查、merged 终态防回退。
 - 部分发布后读取自动修复；无关分支损坏不阻断单分支读取；真实取消和 lease 替换禁止发布。
 - 继承另一个 checkout 的 Git 环境时，查询与 Make 验证仍操作显式目标。
+
+## 显式确保 checkout
+
+`EnsureWorktree` 将已存在 checkout 的身份核验、已有分支恢复和新分支创建组织为同一生命周期入口。
+它复用 Git 适配和 creation record；命名、基线选择与依赖准备时机仍由调用方决定。
+三类结果、取消/失败和阶段成本见 [worktree 创建与复用](worktrees.md#创建与复用)。

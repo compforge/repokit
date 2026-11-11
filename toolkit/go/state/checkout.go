@@ -48,32 +48,9 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			unlock()
 		}
 	}()
-	args := []string{"worktree", "add"}
-	if options.Branch != "" {
-		args = append(args, "-b", options.Branch)
-	}
-	if options.Detach {
-		args = append(args, "--detach")
-	}
-	result := gitworktree.Run(ctx, repo, 30*time.Second, append(args, "--", path, ref)...)
+	result := gitworktree.Add(ctx, repo, path, ref, options.Branch, options.Detach)
 	if result.Err == nil {
-		createdPath := path
-		if !filepath.IsAbs(createdPath) {
-			createdPath = filepath.Join(repo, createdPath)
-		}
-		info, err := Checkout(ctx, createdPath)
-		if err == nil {
-			data, marshalErr := json.Marshal(struct {
-				Version   int   `json:"version"`
-				CreatedAt int64 `json:"created_at"`
-			}{1, time.Now().UnixNano()})
-			err = marshalErr
-			if err == nil {
-				err = os.WriteFile(filepath.Join(info.GitDir, "repokit-created.json"), data, 0600)
-			}
-		}
-		if err != nil {
-			// Creation succeeded. Losing its optional timestamp must not invite a retry.
+		if err := recordCheckoutCreation(ctx, createdPathFor(repo, path)); err != nil {
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
 		}
 	}
@@ -125,4 +102,19 @@ func createdPathFor(repo, path string) string {
 		return path
 	}
 	return filepath.Join(repo, path)
+}
+
+func recordCheckoutCreation(ctx context.Context, path string) error {
+	info, err := gitworktree.Local(ctx, path)
+	if err != nil {
+		return err
+	}
+	data, err := json.Marshal(struct {
+		Version   int   `json:"version"`
+		CreatedAt int64 `json:"created_at"`
+	}{1, time.Now().UnixNano()})
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(info.GitDir, "repokit-created.json"), data, 0600)
 }

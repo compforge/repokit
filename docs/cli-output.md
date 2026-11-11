@@ -159,3 +159,9 @@ thread/comment 的独立 ID、完整正文及平台能力；具体字段和命�
 读取失败不输出已知空数组；写入响应不能确认结果时 outcome 为 unknown，不能从退出码推断未生效。
 
 Release 查询与写入的 `data`、确认状态及 `release.*` 阶段成本见 [Forge Releases](forge-releases.md)。
+
+## Worktree ensure
+
+`worktree ensure` 的成功条件是 `data.confirmed=true`，action 为 created、resumed 或 reused。
+状态发布失败是 warning；创建后无法核验为 unknown。阶段耗时和完整恢复边界见
+[worktree 创建与复用](worktrees.md#创建与复用)。

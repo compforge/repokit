@@ -101,6 +101,14 @@ func describeResult(r *commandResult, data any) {
 		}
 	case repokit.ValidationHistory:
 		r.Summary = "Read retained validation history"
+	case state.EnsureWorktreeReport:
+		r.Summary = fmt.Sprintf("Worktree %s %s; confirmed=%t", v.Action, v.Checkout, v.Confirmed)
+		for _, p := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "worktree." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
+		for i, d := range v.Diagnostics {
+			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "worktree", Path: v.Checkout, Message: d.Message, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
+		}
 	case state.CleanReport:
 		r.Summary = fmt.Sprintf("%d cleanup actions; %d estimated bytes; %d errors", len(v.Actions), v.EstimatedBytes, len(v.Errors))
 		if len(v.Errors) > 0 {

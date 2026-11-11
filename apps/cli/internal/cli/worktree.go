@@ -13,6 +13,7 @@ import (
 
 func newWorktreeCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{Use: "worktree", Short: "Maintain linked worktrees"}
+	root.AddCommand(newWorktreeEnsureCommand(opts))
 	var dryRun bool
 	var count, prepared int
 	var connection forgeaccess.Options
