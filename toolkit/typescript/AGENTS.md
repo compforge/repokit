@@ -12,6 +12,7 @@ Repository、PullRequest、Component、Product 复用 harness-common；业务决
 - `src/forge.ts`、`forge/`：common PR 契约、只读 GitHub/GitLab 客户端；query/page 管范围与单页，scan 管有界扫描与覆盖，评审读取独立于基础事实。
 - `src/forge/observation/`：PR 缓存、持久化、刷新与终态收敛；契约见 [PR 观察](../../docs/pr.md#持续观察)。
 - `src/inspect.ts`：输入版本、统一时限及完整性判定。
+- `src/config.ts`：用户配置与 host 级 Forge 连接组装；契约见 [用户配置](../../docs/configuration.md)。
 - `src/state/`：RepositoryState、home、身份编码和共享记录存储；Git 适配不依赖 state。
 - `src/git/`：operations、checkout/ref 状态、remote 解析与内部 catalog 读取；`index.ts` 汇总公共导出。
 - `src/layout.ts`：manifest / Makefile 组件发现、语言和工具证据。

@@ -13,6 +13,7 @@ repokit/
 ├── validation/            # engine：原生规划/执行；report：Go wire report 解码
 ├── dependencies.py        # 只读依赖观察与显式锁定安装；workspace 安装根与回执
 ├── _inspect.py            # 输入版本、整次调用预算与一致性观察
+├── config.py              # 用户配置与 host 级 Forge 连接组装
 ├── state/                 # 仓库状态业务、checkout 生命周期、metadata、身份与存储
 ├── git/                  # operations、state、index、stash、remote 与内部 catalog/staging
 ├── _process.py           # 有界子进程

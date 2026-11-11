@@ -12,3 +12,5 @@ export { tree } from "./tree.js";
 export type { TreeReport, Directory, File, Manifest } from "./tree.js";
 
 export * from "./state/index.js";
+
+export { loadConfig, RepoKitConfig, ConfigError } from "./config.js";

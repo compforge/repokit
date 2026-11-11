@@ -31,7 +31,7 @@ worktree 数量沿用 `<git-common-dir>/repokit.json` 的 `worktree.max_count` �
 回收超额 checkout 和依赖环境。未知创建时间排最老；30 天访问阈值不替代数量策略，也不导致限额内的
 普通 worktree 被全部删除。完整规则见 [worktree retention](worktrees.md)。
 
-两个入口共用 Forge 连接与实时 PR 查询能力；未配置凭据时报告 PR 状态不可用，仍可执行数量回收。
+两个入口共用 [RepoKit 用户配置](configuration.md)、Forge 连接与实时 PR 查询能力；未配置凭据时报告 PR 状态不可用，仍可执行数量回收。
 PR 核验失败的 checkout 本轮保留。`--provider`、`--api-host`、`--target-repository` 使用同一配置语义。
 
 primary、当前工作目录所属 checkout、detached、Git lock、进行中的 Git 操作、嵌套 checkout 继续保护。

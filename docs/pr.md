@@ -357,7 +357,8 @@ print(result.pull_request.web_url, result.created)
 ## 连接与观察入口
 
 Python `ForgeConnection` / TypeScript `ForgeConnection` 接收显式 `host`、provider、token 与可选 API host，
-统一构造 provider client、Repository 身份和 PR context。调用方读取自己的配置、选择凭据与目标仓；
+统一构造 provider client、Repository 身份和 PR context。使用 RepoKit 用户配置时，由独立
+[config 模块](configuration.md) 加载并组装连接；调用方也可直接传入凭据，目标仓始终显式选择。
 host 与 API host 按小写规范化，大小写不改变身份或缓存；逻辑 Forge 身份来自 host，
 API host 只决定传输地址。Python client 切换 repository 后仍保留逻辑身份与传输配置。
 工具包不读取应用配置，也不推断 fork parent。缺少凭据是不可用，不能解释成没有 PR。

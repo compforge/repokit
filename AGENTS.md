@@ -16,6 +16,7 @@ RepoKit 是 Repository 理解与操作工具包：结合仓库布局、代码、
 | Snapshot / Comparison | Snapshot 标识捕获内容并报告缺口；Comparison 配对前后版本、文件变化及源码。布局、图、位置和显示源码必须属于相同版本，前后版本的证据路径不能混用。 |
 | Fragment / Unit | Fragment 表达同一对象上的实际编辑，Unit 按关系强度聚合相关 Fragment；容量和数量约束由工具包负责，评审与验证决策归调用方。 |
 | CodeGraph | 共享 CodeGraph 拥有语言声明、语法与绑定事实；RepoKit 拥有仓库上下文解析、材料准入和影响策略。Changeset、Testset、Workset 属于 RepoKit，不进入通用图模型。 |
+| Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见配置专题。 |
 | State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 state 专题。 |
 | PullRequest / Forge | PR 由目标 Repository 与仓内编号确定；源仓、分支、revision 和状态不参与身份。Forge 适配平台读写与查询，观察层维护显式启用的刷新和持久化；调用方拥有关注范围、时效要求、进程生命周期与业务动作。 |
 | Validation | 项目 Makefile 定义检查语义，工具包拥有规划、执行、输入证据、历史与复用；调用方决定依赖准备时机、检查要求和门禁，不维护第二套检查缓存。 |
@@ -57,6 +58,7 @@ repokit/
 │   │   ├── units.go          # Fragment / Unit 公共 API
 │   │   ├── validation.go     # 验证公共入口；实现归 internal/validation
 │   │   ├── state/            # 仓库状态业务、checkout 生命周期与共享存储
+│   │   ├── config/           # 用户配置与 host 级 Forge 访问解析
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
@@ -92,7 +94,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 2. **事实、推断和完整性分开。** 已知结果与未知部分同时保留，失败不转成空集合。inspect 的布局观察、snapshot 的内容捕获和 impact 的分析完整性独立；`complete: true` 不证明运行时依赖或测试覆盖完整，命令成功也不证明目标项目正确。
 3. **内容版本与范围明确。** 同一分析复用同版本材料；删除、重命名及配置变化使用各自版本。源码读取、解析和扩展受时间与容量约束，缓存只复用适用上下文中的事实，截断结果不能标为完整。测试推荐不反向扩大生产源码 Component 集合。
 4. **生命周期由业务组件协调。** state 拥有状态复用、更新和恢复；目录存在或缓存命中不授权删除、合并。Git 默认保护脏工作区，强制行为和 lease push 必须显式指定；副作用成功后的记录失败不能变成可盲目重试的动作失败。
-5. **调用方拥有工作流。** 任务归属、账号与目标选择、操作顺序、验证门禁、合并授权和清理时机属于调用方；RepoKit 不读取调用方配置或保存其 session。取消与预算使用 Go context、TS AbortSignal/timeoutMs、Python Event/timeout；库不隐式创建 CLI 日志或 timeline。
+5. **调用方拥有工作流。** 任务归属、目标选择、操作顺序、验证门禁、合并授权和清理时机属于调用方；Repository 访问配置由 RepoKit config 统一解析，也可显式传入连接参数。RepoKit 不读取调用方配置或保存其 session。取消与预算使用 Go context、TS AbortSignal/timeoutMs、Python Event/timeout；库不隐式创建 CLI 日志或 timeline。
 6. **契约随 owner 维护。** 全局核心模型、职责与约束直接维护在本文件；能力细节归对应 `docs/<topic>.md`，实现约定归子项目 `AGENTS.md`。公共 API 和版本化 JSON 各自承担契约责任，内部算法及语法树保持私有；新增语言按实际需求接入，不预建空 SDK。
 7. **公共仓保持中立。** 不包含内部地址、个人机器路径、凭据或公司专属逻辑。项目、工具包与导入名使用 RepoKit / `repokit`；CLI 二进制和命令名为 `repocli`，用户状态目录为 `~/.repokit`。
 8. **代码改动同步版本。** 同一 PR 修改代码时 bump 根 `VERSION`，默认 patch，新增功能或不兼容变更按 SemVer 选择 minor/major；仅文档改动无需升级。源码构建从 VERSION 注入 CLI 版本，发布 tag 和独立包版本见发布契约。
@@ -113,6 +115,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [仓库结构识别](docs/repository.md)：tree / inspect、Component、语言与工具证据。
 - [仓库状态](docs/state.md)：state 业务边界、身份、持久化、复用与对账。
 - [Git](docs/git.md) / [worktree retention](docs/worktrees.md)：查询、操作、checkout 拓扑及回收保护。
+- [用户配置](docs/configuration.md)：RepoKit home 配置、host 级凭据与 SDK 接入。
 - [PR](docs/pr.md)：Forge 身份、读写、持续扫描和观察生命周期。
 - [Snapshot](docs/snapshot.md)：内容捕获、摘要与完整性。
 - [CodeGraph](docs/codegraph.md)：图模型、材料准入、语言解析与关系证据。

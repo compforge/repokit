@@ -180,7 +180,8 @@ It reports repository identity, component roots, languages and package-tool evid
 input. Components provide the granularity for lint, test and packaging operations; callers choose and
 run those operations. Discovery prefers project manifests such as `go.mod` and `package.json`, then
 Makefiles with unknown language. Without either, the repository has no recognized components.
-No RepoKit-specific configuration file is required or generated.
+Repository inspection requires no RepoKit-specific configuration file. Forge operations can use
+host-scoped credentials from `~/.repokit/config.json`; see [user configuration](docs/configuration.md).
 See [repository inspection](docs/repository.md) for discovery rules and limits.
 
 `snapshot` identifies repository contents without running change or impact analysis:

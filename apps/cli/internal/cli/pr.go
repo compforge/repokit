@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	repoconfig "github.com/compforge/repokit/toolkit/go/config"
 	"github.com/compforge/repokit/toolkit/go/forge"
 	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
@@ -13,8 +14,11 @@ import (
 )
 
 type forgeOptions struct {
-	provider, apiHost string
-	targets           []string
+	provider, apiHost   string
+	targets             []string
+	configuration       *repoconfig.Config
+	configurationErr    error
+	configurationLoaded bool
 }
 
 var errNoForgeOrigin = errors.New("checkout has no Forge origin")
@@ -42,32 +46,24 @@ func (o *forgeOptions) context(ctx context.Context, repo string, stateRoot strin
 	if identity == nil {
 		return nil, errNoForgeOrigin
 	}
-	host := identity.Forge.Name
-	if host == "github" {
-		host = "github.com"
+	if !o.configurationLoaded {
+		o.configuration, o.configurationErr = repoconfig.Load(stateRoot)
+		o.configurationLoaded = true
 	}
-	if host == "gitlab" {
-		host = "gitlab.com"
+	if o.configurationErr != nil {
+		return nil, o.configurationErr
 	}
-	provider, err := forge.DetectProvider(host, o.provider)
+	access, err := o.configuration.Forge(identity.Forge.Name)
 	if err != nil {
 		return nil, err
 	}
-	token := os.Getenv("GITLAB_TOKEN")
-	if provider == "github" {
-		token = os.Getenv("GH_TOKEN")
-		if token == "" {
-			token = os.Getenv("GITHUB_TOKEN")
-		}
+	if o.provider != "" && o.provider != access.Provider {
+		return nil, operationFailure("forge.provider_mismatch", "connection", identity.Forge.Name, errors.New("provider override conflicts with configured Forge provider"))
 	}
-	if token == "" {
-		return nil, operationFailure("forge.authentication_required", "connection", provider, fmt.Errorf("no %s credential", provider))
+	if o.apiHost != "" {
+		access.APIHost = o.apiHost
 	}
-	home, err := repositoryHome(stateRoot)
-	if err != nil {
-		return nil, err
-	}
-	client, err := forge.NewClient(forge.Config{Host: host, Provider: provider, APIHost: o.apiHost, Token: token, Home: home})
+	client, err := forge.NewClient(access)
 	if err != nil {
 		return nil, err
 	}
