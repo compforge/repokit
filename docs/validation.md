@@ -62,8 +62,44 @@ test:
 	uv run pytest $(TEST_FILES)
 ```
 
-项目负责实现这些语义。RepoKit 不解析测试框架输出，也不能从一个返回 0 的空 recipe 证明实际检查发生。
+项目负责实现这些语义。检查通过与否由命令退出码决定；框架输出只提供可选的耗时观测，
+不能从一个返回 0 的空 recipe 证明实际检查发生。
 依赖安装应在验证前完成；Python 调用方可使用已有的 `inspect_dependencies` / `prepare_dependencies`。
+
+### 本仓 Go 测试选择与耗时
+
+`toolkit/go` 和 `apps/cli` 的 Makefile 接入 `TEST_FILES`：Go 文件按所属 package 去重后执行，
+保留同包 helper、fixture 和其它测试文件；不把 `go test file_test.go` 当成文件过滤。
+CLI 的 Node 测试按所选 `*_test.cjs` 文件执行；仅选择 Go 文件时不重复跑 Node，反之亦然。
+空列表执行完整 suite；无法识别的文件类型保守执行完整 suite。`scope=focused` 描述文件选择请求，
+具体执行粒度由 Makefile 决定，本仓 Go 粒度是 package，不承诺只跑该文件中的 test。
+
+```sh
+repocli test --repo . --component toolkit/go --file toolkit/go/state/clean_test.go --json
+```
+
+两个入口都使用 `go test -json`。Go 执行器从捕获的 stdout 提取有终态和 `Elapsed` 的事件，存入
+`data.components[].checks[].testTimings[]`，原始 stdout/stderr 仍完整保留在捕获预算内。
+不识别的输出、格式损坏或没有 elapsed 的事件不产生耗时条目，也不改变检查的判定和 scope。
+中断时仅保留已经观测到的终态；没有条目不表示测试没有运行。
+
+| 字段 | 含义 |
+|---|---|
+| `package` | Go package import path |
+| `test` | Test/Example/Benchmark 名称；保留 subtest 的斜线层级；省略表示 package |
+| `status` | `passed` / `failed` / `skipped` |
+| `durationSeconds` | runner 报告的 elapsed，单位秒 |
+| `cached` | Go 自身缓存重放；与整个 Check 的 `reused` 分开 |
+
+文本输出每个检查最多展示 3 个 package、10 个 test 的慢项，优先展示本次真实运行的事件；JSON
+保留所有提取到的明细。package、父 test/subtest 与并行 case 的耗时相互重叠，不能相加作为总成本，
+也不增加 `cost.validation.executionSeconds`。Go cached 事件标记为历史结果；RepoKit 复用整个检查时，
+保留该 Run 的原始明细并用 `reused` 标明，当前 execution 仍为 0。构建、排队、fixture 准备等未被
+runner 分解的部分仍包含在 check 的总耗时内，不以相减方式伪造这些阶段的耗时。
+
+检查完成日志包含 `duration_seconds` 与提取的 `test_timings` 条数；明细在命令完成后随报告输出。
+事件格式以 [Go test2json 契约](https://pkg.go.dev/cmd/test2json) 为准。
+
 `validate --check format,lint,test` 显式先运行 format，再重新分析和规划 lint/test。缺少可选 format 不阻止后续检查；
 format 失败或中断时不启动检查。独立 `format` 缺少目标时返回 unavailable。验证不隐式安装依赖。
 

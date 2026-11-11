@@ -88,18 +88,19 @@ type ValidationPlan struct {
 // A passed command is not reusable evidence unless report inputs stayed consistent.
 type CheckResult struct {
 	CheckSpec
-	Status          string    `json:"status"`
-	CheckedAt       time.Time `json:"checkedAt"`
-	RunID           string    `json:"runID"`
-	RequestedAt     time.Time `json:"requestedAt"`
-	LookupSeconds   float64   `json:"lookupSeconds"`
-	Reused          bool      `json:"reused"`
-	ReuseReason     string    `json:"reuseReason"`
-	ExitCode        *int      `json:"exitCode"`
-	DurationSeconds float64   `json:"durationSeconds"`
-	Stdout          string    `json:"stdout"`
-	Stderr          string    `json:"stderr"`
-	Diagnostic      string    `json:"diagnostic,omitempty"`
+	Status          string       `json:"status"`
+	CheckedAt       time.Time    `json:"checkedAt"`
+	RunID           string       `json:"runID"`
+	RequestedAt     time.Time    `json:"requestedAt"`
+	LookupSeconds   float64      `json:"lookupSeconds"`
+	Reused          bool         `json:"reused"`
+	ReuseReason     string       `json:"reuseReason"`
+	ExitCode        *int         `json:"exitCode"`
+	DurationSeconds float64      `json:"durationSeconds"`
+	TestTimings     []TestTiming `json:"testTimings,omitempty"`
+	Stdout          string       `json:"stdout"`
+	Stderr          string       `json:"stderr"`
+	Diagnostic      string       `json:"diagnostic,omitempty"`
 }
 
 type ComponentValidationResult struct {

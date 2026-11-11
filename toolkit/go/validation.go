@@ -25,6 +25,9 @@ type ValidationPlan = validation.ValidationPlan
 // CheckResult records command outcome independently of round-level consistency.
 type CheckResult = validation.CheckResult
 
+// TestTiming is runner-reported package or test elapsed time; durations can overlap.
+type TestTiming = validation.TestTiming
+
 // ComponentValidationResult groups check outcomes by execution Component.
 type ComponentValidationResult = validation.ComponentValidationResult
 

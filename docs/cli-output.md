@@ -98,6 +98,9 @@ validation 还提供 `cost.phases[]` 和 `cost.validation`：
 相加当成总耗时。目前没有把 validation 内部规划、锁等待、扫描等进一步拆开；缺少测量不报告为 0。
 
 文本验证结果先展示判定和成本，再列出每个 Component/check 的 scope、执行/复用及耗时。
+有 Go JSON 事件时，检查的 `testTimings[]` 额外提供 package/test/subtest 耗时，文本展示有界的慢项。
+它们是可重叠的 runner 观测，不能累加到 command/check 成本；Go `cached` 与整轮检查 `reused`
+分别标记历史来源。字段和提取边界见 [测试耗时](validation.md#本仓-go-测试选择与耗时)。
 只展示失败检查日志的尾部，每个 stdout/stderr 最多 20 行、2000 字符；展示截断有明确标记。
 JSON stdout 与 `--output` 导出结果的 `data` 均保留已捕获的检查输出；
 执行器自身的输出预算与超限语义见 [验证契约](validation.md#执行与预算)。
