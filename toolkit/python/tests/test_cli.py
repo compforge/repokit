@@ -119,7 +119,8 @@ def test_nonzero_exit_preserves_structured_remote_error():
             repocli.list_pull_requests("/repo", branch="topic", state="open")
 
 
-def test_expired_operation_never_launches_cli():
+def test_cancelled_operation_never_launches_cli():
+    """+case=Parent cancellation rejects CLI queries before any process is created."""
     from threading import Event
 
     import pytest
@@ -127,7 +128,14 @@ def test_expired_operation_never_launches_cli():
     from repokit import operation
 
     cancel = Event()
-    with operation(timeout=10, cancel=cancel):
+    with (
+        operation(timeout=10, cancel=cancel),
+        patch(
+            "repokit._process.subprocess.Popen", side_effect=AssertionError("CLI process launched")
+        ) as launch,
+    ):
         cancel.set()
-        with pytest.raises(ForgeError, match="unavailable"):
+        with pytest.raises(ForgeError) as failure:
             repocli.list_pull_requests("/repo", branch="topic", state="open")
+        assert isinstance(failure.value.__cause__, InterruptedError)
+        launch.assert_not_called()
