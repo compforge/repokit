@@ -264,3 +264,9 @@ Run `repocli validate` before committing/pushing code and submitting its PR; val
 Create requires `--title`, `--base` and optionally `--body-file`; it reuses an unambiguous open PR.
 Merge requires `--expected-sha`. Successful writes perform best-effort repository maintenance.
 See [PR operations](docs/pr.md#go-cli-and-toolkit).
+
+## Forge Releases
+
+`repocli release latest/show/create` reads and publishes GitHub/GitLab Releases.
+Creation requires an explicit target and notes file, verifies the remote tag commit and Release
+content, and never overwrites conflicting releases. See [Release operations and recovery](docs/forge-releases.md).

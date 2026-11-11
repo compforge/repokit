@@ -130,4 +130,5 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [CLI 输出契约](docs/cli-output.md)：统一输出结构、结果与诊断、证据、退出状态及兼容性。
 - [闲置清理](docs/cleanup.md)：访问记录、30 天策略、磁盘回收与跨语言 lease。
 - [日志](docs/logging.md) / [统计](docs/stats.md)：执行记录、timeline、重放与只读统计。
+- [Forge Releases](docs/forge-releases.md)：远端 Release 查询、确认发布与未知结果恢复。
 - [发布](docs/release.md) / [CLI 更新](docs/upgrade.md)：模块与包版本、构建、发布和安装。

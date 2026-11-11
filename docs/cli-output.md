@@ -155,3 +155,5 @@ JSON 模式不受颜色、终端宽度或本地化影响，特殊字符与文件
 `pr discussion list/show/create/reply/resolve` 使用同一 envelope。`data` 保留 PR 身份、
 thread/comment 的独立 ID、完整正文及平台能力；具体字段和命令见 [PR discussions](pr.md#pr-discussions)。
 读取失败不输出已知空数组；写入响应不能确认结果时 outcome 为 unknown，不能从退出码推断未生效。
+
+Release 查询与写入的 `data`、确认状态及 `release.*` 阶段成本见 [Forge Releases](forge-releases.md)。
