@@ -115,7 +115,7 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 			if e := checkoutLocations(directory, lease.record.Checkouts); e != nil {
 				return e
 			}
-			busy, e := stateBusy(ctx, directory, report.InactiveBefore)
+			protection, e := stateProtection(ctx, directory, report.InactiveBefore)
 			if e != nil {
 				return e
 			}
@@ -179,9 +179,7 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 				reason = "worktrees_retained"
 			}
 			if reason == "" {
-				if busy {
-					reason = "state_in_use"
-				}
+				reason = protection
 			}
 			if reason != "" {
 				appendAction(key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: reason, Path: directory, LastAccessAt: lease.record.LastAccessAt})
@@ -224,8 +222,8 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 }
 
 // State writers use record leases; recent writes protect data even when they did not update activity.
-func stateBusy(ctx context.Context, directory string, cutoff time.Time) (bool, error) {
-	busy := false
+func stateProtection(ctx context.Context, directory string, cutoff time.Time) (string, error) {
+	reason := ""
 	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, e error) error {
 		if e != nil {
 			return e
@@ -238,7 +236,7 @@ func stateBusy(ctx context.Context, directory string, cutoff time.Time) (bool, e
 		}
 		if d.IsDir() {
 			if strings.HasSuffix(d.Name(), ".lock") {
-				busy = true
+				reason = "state_locked"
 				return filepath.SkipAll
 			}
 			return nil
@@ -251,12 +249,12 @@ func stateBusy(ctx context.Context, directory string, cutoff time.Time) (bool, e
 			return e
 		}
 		if info.ModTime().After(cutoff) {
-			busy = true
+			reason = "recent_state_write"
 			return filepath.SkipAll
 		}
 		return nil
 	})
-	return busy, err
+	return reason, err
 }
 func directoryBytes(ctx context.Context, path string) (int64, error) {
 	var total int64

@@ -64,7 +64,8 @@ primary、当前工作目录所属 checkout、detached、Git lock、进行中的
 Git lease 再发布访问/状态，避免锁顺序倒置。维护成功后的观察发布不续期。
 
 repository 状态仅在超过阈值、没有需保留的 linked checkout、没有状态 lease 或近期状态写入时删除。
-清理前发现的近期写入用于保护仍有写入者的数据，不冒充用户访问。某个 checkout 删除失败或仍受保护时，
+清理前发现的近期写入以 `recent_state_write` 保留，状态 lease 以 `state_locked` 保留；
+近期写入不等于当前有进程占用，也不冒充用户访问。某个 checkout 删除失败或仍受保护时，
 其 repository 状态保留以便后续核验和重试。回收状态包含该 repository 下的 PR 观察与验证历史，后续按需重建；
 日志、共享包缓存、其它 home，以及 `--history-dir` 指向的外部目录不在范围内。
 
@@ -74,7 +75,9 @@ repository 状态仅在超过阈值、没有需保留的 linked checkout、没�
 ## 输出与空间
 
 结果遵循 [CLI envelope](cli-output.md)：`data.actions` 列出 repository、动作、路径、状态、原因与可用的 `lastAccessAt`，
-`data.errors` 保留失败；部分失败返回非零和 `outcome: partial`，成功项目不会被抹掉。
+`data.errors` 保留失败；text 模式同样把各条错误写到 stderr。部分失败返回非零和 `outcome: partial`，
+成功项目不会被抹掉。`skipped` 保留动作本身不产生错误；跳过资源显示的 0 字节表示未计入回收估算，
+不表示该目录为空。
 `planned` 表示预览候选，`completed` 表示已完成；跳过和失败的资源不计入回收估算。
 
 `estimatedBytes` 是不跟随 symlink 的普通文件逻辑大小之和；dry-run 汇总预计回收动作，执行结果汇总
