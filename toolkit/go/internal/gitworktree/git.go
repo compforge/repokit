@@ -1,10 +1,8 @@
-package worktree
+package gitworktree
 
 import (
 	"bytes"
 	"context"
-	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 	"os"
@@ -41,7 +39,7 @@ type CheckoutInfo struct {
 	Linked    bool
 }
 
-func worktreeGit(ctx context.Context, repo string, timeout time.Duration, args ...string) GitResult {
+func Run(ctx context.Context, repo string, timeout time.Duration, args ...string) GitResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...)
@@ -65,7 +63,7 @@ func worktreeGit(ctx context.Context, repo string, timeout time.Duration, args .
 
 // ListWorktrees reads NUL-delimited Git records; failure never means an empty inventory.
 func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
-	result := worktreeGit(ctx, repo, 5*time.Second, "worktree", "list", "--porcelain", "-z")
+	result := Run(ctx, repo, 5*time.Second, "worktree", "list", "--porcelain", "-z")
 	if result.Err != nil {
 		return nil, result.Err
 	}
@@ -90,10 +88,10 @@ func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
 	return entries, nil
 }
 
-// checkoutLocal resolves checkout paths without enumerating registered worktrees.
-func checkoutLocal(ctx context.Context, repo string) (CheckoutInfo, error) {
+// Local resolves checkout paths without enumerating registered worktrees.
+func Local(ctx context.Context, repo string) (CheckoutInfo, error) {
 	query := func(path, flag string) (string, error) {
-		result := worktreeGit(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
+		result := Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
 		if result.Err != nil {
 			return "", result.Err
 		}
@@ -124,16 +122,16 @@ func Checkout(ctx context.Context, repo string) (CheckoutInfo, error) {
 	if err != nil {
 		return CheckoutInfo{}, err
 	}
-	return checkoutWithEntries(ctx, repo, entries)
+	return WithEntries(ctx, repo, entries)
 }
 
-func checkoutWithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (CheckoutInfo, error) {
-	info, err := checkoutLocal(ctx, repo)
+func WithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (CheckoutInfo, error) {
+	info, err := Local(ctx, repo)
 	if err != nil {
 		return info, err
 	}
 	query := func(path, flag string) (string, error) {
-		result := worktreeGit(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
+		result := Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
 		if result.Err != nil {
 			return "", result.Err
 		}
@@ -167,7 +165,7 @@ func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	info, err := checkoutWithEntries(ctx, repo, entries)
+	info, err := WithEntries(ctx, repo, entries)
 	if err != nil {
 		return nil, err
 	}
@@ -188,87 +186,4 @@ func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
 		out = append(out, CheckoutEntry{Path: path, SHA: entry.SHA, Branch: entry.Branch, Primary: i == 0})
 	}
 	return out, nil
-}
-
-// AddWorktreeOptions chooses a new branch or a detached checkout. Both empty
-// leaves Git's normal branch selection intact. Naming and ownership are caller policy.
-type AddWorktreeOptions struct {
-	Branch string
-	Detach bool
-	Home   string
-}
-
-// AddWorktree creates a checkout at an explicit path. It never replaces an existing branch.
-func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktreeOptions) GitResult {
-	if options.Branch != "" && options.Detach {
-		return GitResult{ExitCode: -1, Err: errors.New("branch and detach are mutually exclusive")}
-	}
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
-	info, err := Checkout(ctx, repo)
-	if err != nil {
-		return GitResult{ExitCode: -1, Err: err}
-	}
-	unlock, err := repositoryLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
-	if err != nil {
-		return GitResult{ExitCode: -1, Err: err}
-	}
-	defer unlock()
-	args := []string{"worktree", "add"}
-	if options.Branch != "" {
-		args = append(args, "-b", options.Branch)
-	}
-	if options.Detach {
-		args = append(args, "--detach")
-	}
-	result := worktreeGit(ctx, repo, 30*time.Second, append(args, "--", path, ref)...)
-	if result.Err == nil {
-		createdPath := path
-		if !filepath.IsAbs(createdPath) {
-			createdPath = filepath.Join(repo, createdPath)
-		}
-		info, err := Checkout(ctx, createdPath)
-		if err == nil {
-			data, marshalErr := json.Marshal(struct {
-				Version   int   `json:"version"`
-				CreatedAt int64 `json:"created_at"`
-			}{1, time.Now().UnixNano()})
-			err = marshalErr
-			if err == nil {
-				err = os.WriteFile(filepath.Join(info.GitDir, "repokit-created.json"), data, 0600)
-			}
-		}
-		if err != nil {
-			// Creation succeeded. Losing its optional timestamp must not invite a retry.
-			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
-		}
-	}
-	if result.Err == nil {
-		if _, err := Observe(ctx, repo, options.Home, false); err != nil {
-			result.Stderr += fmt.Sprintf("\ncheckout created; metadata unavailable: %v", err)
-		}
-	}
-	return result
-}
-
-// RemoveWorktreeOptions requires explicit force to remove dirty or locked checkouts.
-type RemoveWorktreeOptions struct {
-	Force bool
-	Home  string
-}
-
-// RemoveWorktree defaults to Git's protection of dirty and locked checkouts.
-// It retains branch refs and does not choose which worktrees are eligible for removal.
-func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktreeOptions) GitResult {
-	args := []string{"worktree", "remove"}
-	if options.Force {
-		args = append(args, "--force", "--force")
-	}
-	result := worktreeGit(ctx, repo, 30*time.Second, append(args, "--", path)...)
-	if result.Err == nil {
-		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
-			result.Stderr += fmt.Sprintf("\ncheckout removed; metadata unavailable: %v", err)
-		}
-	}
-	return result
 }

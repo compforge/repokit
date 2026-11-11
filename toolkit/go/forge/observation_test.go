@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/repostate"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"net/http"
 	"net/http/httptest"
 	"os"

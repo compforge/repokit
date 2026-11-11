@@ -3,20 +3,21 @@
 ## 项目定位与边界
 
 `github.com/compforge/repokit/toolkit/go` 是可独立导入的 Repository 解析与分析工具包。
-分析入口在 `repokit.go`，显式 worktree 操作在 `worktree/`，共享模型和职责见 [内核](../../docs/kernel.md)。
+分析入口在 `repokit.go`，仓库状态与 checkout 生命周期在 `state/`，共享模型和职责见 [项目约定](../../AGENTS.md)。
 
 ## 代码地图与核心模块
 
 ```text
 repokit.go          # 分析 API 与结果类型
 units.go            # diff → Fragment → Unit 的公共 API
-worktree/           # Git worktree 查询、操作、保留策略与环境回收
+state/              # 仓库状态业务：观测、checkout 生命周期、保留策略与共享存储
 forge/              # 原生 PR 查询、写入与成功后维护
 validation.go       # 验证公共类型别名与入口；实现归 internal/validation
 internal/
 ├── validation/    # Makefile 规划、格式化、检查执行、输入身份与结果复用
 │   └── history/   # 执行记录、WAL、统计、清理与文件锁；不依赖 validation 父包
 ├── analysis/      # 输入选择、识别、捕获、构图与变更分析编排
+├── gitworktree/   # Git checkout 查询与命令执行适配，不依赖 state
 ├── git/           # 只读 Git 材料与容量边界
 ├── project/       # common 身份、目录布局、语言、工具证据及归属
 ├── diff/          # patch、变更行与 postimage

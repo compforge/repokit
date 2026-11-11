@@ -1,5 +1,4 @@
-// Package home resolves RepoKit's shared user directory without filesystem writes.
-package home
+package state
 
 import (
 	"errors"
@@ -8,9 +7,9 @@ import (
 	"strings"
 )
 
-// Resolve gives explicit options precedence over REPOKIT_HOME and ~/.repokit.
+// ResolveHome gives explicit options precedence over REPOKIT_HOME and ~/.repokit.
 // +spec=`Resolving a home neither creates directories nor enables a resource operation.`
-func Resolve(explicit string) (string, error) {
+func ResolveHome(explicit string) (string, error) {
 	value := explicit
 	if value == "" {
 		value = os.Getenv("REPOKIT_HOME")

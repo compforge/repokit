@@ -1,8 +1,9 @@
 # Snapshot
 
-`snapshot` reports the content identity and capture completeness defined by the
-[project kernel](kernel.md). This document specifies its input and digest contracts.
-The command captures content without interpreting project configuration or constructing a graph.
+Snapshot identifies the contents observed from a working tree, index or commit and
+retains capture gaps. Its digest is a comparison aid, not a backup or an atomic
+filesystem snapshot. The command captures content without interpreting project
+configuration or constructing a graph.
 Use [inspect](repository.md) for repository organization and package-tool evidence.
 
 ```sh
@@ -69,8 +70,9 @@ produce `snapshot_incomplete`; read/Git failures exit 1 without a report. A retu
 report, including an incomplete one, exits 0. Project configuration validity does not affect capture; its bytes still contribute to the digest. Invalid CLI usage exits 2.
 
 Compare only compatible digest contracts with `complete: true`; check the intended
-checkout and input source separately. The [kernel](kernel.md) distinguishes capture
-completeness from dependency completeness and any caller decision to reuse results.
+checkout and input source separately. Capture completeness does not establish complete
+dependencies or authorize reuse of execution results; [validation](validation.md)
+owns the input evidence and reuse decision.
 
 ## Native workspace captures
 

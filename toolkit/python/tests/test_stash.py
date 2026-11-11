@@ -3,6 +3,7 @@ from unittest.mock import patch
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit.git import stash as stash
 
 
@@ -25,7 +26,7 @@ def test_restore_keeps_partial_staging_and_untracked_content(repo):
 
 def test_shared_stash_tip_cannot_change_saved_identity(repo, tmp_path):
     other = tmp_path / "other"
-    assert git.add_worktree(repo, other, "HEAD", detach=True).ok
+    assert checkout_state.add_worktree(repo, other, "HEAD", detach=True).ok
     (repo / "测试.py").write_text("ours")
     (other / "测试.py").write_text("theirs")
     original = git.git

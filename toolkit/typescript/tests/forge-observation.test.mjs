@@ -1,4 +1,4 @@
-import { digest } from "../dist/storage.js";
+import { digest } from "../dist/state/store.js";
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { mkdtemp, readFile, readdir, mkdir, rm, appendFile } from 'node:fs/promises';

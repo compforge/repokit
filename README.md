@@ -84,7 +84,7 @@ changes and possible impact; `Graph` returns nodes, relations and their captured
 Pass a context with the required deadline. Calls may invoke Git, but do not launch the
 repocli binary or write CLI logs/history. Analysis does not run project commands;
 explicit Makefile validation does. Results retain completeness
-and diagnostics so the caller can choose its policy. See [toolkit boundaries](docs/kernel.md).
+and diagnostics so the caller can choose its policy. See [toolkit responsibilities and boundaries](AGENTS.md).
 
 The Go toolkit lives in `toolkit/go`; the CLI is a separate module in `apps/cli`.
 Use the repository workspace for joint development. See [build and release details](docs/release.md).

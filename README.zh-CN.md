@@ -86,7 +86,7 @@ component := report.Owner("server/main.go") // 无所属组件时返回 nil
 `Inspect` 提供仓库组织，`Snapshot` 提供内容身份，`Diff` 提供变更，`FormUnits` 组装 Unit，`AnalyzeImpact` 提供影响证据，`Graph` 提供节点、
 关系和对应版本的源码。调用方通过 context 设置超时与取消，并决定如何处理不完整结果。
 库可以调用 Git，但不会启动 repocli 进程、执行目标项目命令或写入 CLI 日志与历史。
-边界见 [工具包内核](docs/kernel.md)。
+边界见 [工具包职责与边界](AGENTS.md)。
 
 Go 工具包位于 `toolkit/go`，CLI 是 `apps/cli` 下的独立 module；仓库通过 go.work 联合开发。
 构建与发布约定见 [发布契约](docs/release.md)。

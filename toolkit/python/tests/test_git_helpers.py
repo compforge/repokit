@@ -5,6 +5,7 @@ import pytest
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit.git.state import git_path, list_checkouts, local_default_branch
 
 
@@ -45,7 +46,7 @@ def test_add_exclude_uses_shared_metadata_from_linked_checkout(repo, separate):
     if separate:
         run(repo, "init", "--separate-git-dir", str(repo.parent / (repo.name + "-metadata")))
     linked = repo.parent / (repo.name + "-linked")
-    assert git.add_worktree(repo, linked, "HEAD", branch="linked").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="linked").ok
     path = git_path(repo, "info/exclude")
     path.unlink()
     assert git.add_exclude(linked, "/scratch/")
@@ -92,7 +93,7 @@ def test_add_exclude_propagates_git_and_write_errors(repo, tmp_path):
 def test_prune_worktrees_removes_stale_metadata_but_preserves_live_locked_and_branches(repo):
     paths = {name: repo.parent / (repo.name + "-" + name) for name in ("live", "stale", "locked")}
     for name, path in paths.items():
-        assert git.add_worktree(repo, path, "HEAD", branch=name).ok
+        assert checkout_state.add_worktree(repo, path, "HEAD", branch=name).ok
     run(repo, "worktree", "lock", str(paths["locked"]))
     for name in ("stale", "locked"):
         shutil.rmtree(paths[name])

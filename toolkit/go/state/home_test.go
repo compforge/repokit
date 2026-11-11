@@ -1,4 +1,4 @@
-package home
+package state
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestSharedHomePrecedence(t *testing.T) {
-	data, err := os.ReadFile("../../../../conformance/home.json")
+	data, err := os.ReadFile("../../../conformance/home.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestSharedHomePrecedence(t *testing.T) {
 	for _, row := range rows {
 		t.Run(row.Name, func(t *testing.T) {
 			t.Setenv("REPOKIT_HOME", expand(row.Environment))
-			got, err := Resolve(expand(row.Explicit))
+			got, err := ResolveHome(expand(row.Explicit))
 			want := expand(row.Expected)
 			if err != nil || got != want {
 				t.Fatalf("%s %v want %s", got, err, want)

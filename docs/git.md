@@ -5,7 +5,7 @@
 
 ## 使用方式
 
-Python 提供 `repokit.git` 和 `repokit.git.state`；TypeScript 提供原生 Git 查询，Go 提供显式 worktree 操作。
+Python 的 `repokit.git` 和 `repokit.git.state` 提供 Git 适配；checkout 生命周期由 `repokit.state` 拥有。TypeScript 提供原生 Git 查询，Go 的 state 包拥有显式 worktree 操作。
 各语言直接调用 Git，不启动 repocli CLI，也不要求分析器参与写操作；工作区内容捕获见 [Snapshot](snapshot.md)。
 
 ```python
@@ -71,7 +71,7 @@ Python 的 `committed_paths` / `range_paths` 与 TypeScript 的 `committedPaths`
 独立 Git 目录没有反向记录原 checkout 时，`main_root` / `mainRoot` 为未知；调用方决定共享状态
 放在可确认的主 checkout 还是 common directory。库不创建 `.devloop`、Session 或清理计划。
 
-Go 消费方从 `github.com/compforge/repokit/toolkit/go/worktree` 导入并使用 `ListWorktrees`、`Checkout`、`AddWorktree`、`RemoveWorktree`。
+Go 消费方从 `github.com/compforge/repokit/toolkit/go/state` 导入并使用 `ListWorktrees`、`Checkout`、`AddWorktree`、`RemoveWorktree`。
 查询接受 context，Git 读取每次最多 5 秒，写操作最多 30 秒；调用方更短的时限优先。
 Go `GitResult.Err` 表示操作错误，`Uncertain` 表示启动后取消导致结果不确定；
 Python 使用 `ok` / `uncertain`。新分支与 detached 模式互斥，remove 默认保护脏内容与锁定 checkout。
@@ -147,7 +147,7 @@ symlink 替换必须作为类型差异返回，不能借用 live index OID 得�
 ## 实现布局
 
 Python Git 能力集中在 `repokit/git/`：包入口导出显式操作，`operations.py` 执行动作，
-`state.py` 观察 checkout/ref，`index.py` 观察 index，`stash.py` 和 `remote.py` 处理各自语义。
+`git/state.py` 观察 checkout/ref，`index.py` 观察 index，`stash.py` 和 `remote.py` 处理各自语义。
 `_catalog.py` 与 `_staging.py` 是内部读取和 index 事务实现。公开子模块使用
 `repokit.git.state`、`repokit.git.index`、`repokit.git.stash`、`repokit.git.remote`；调用方直接迁移导入。
 TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出，包根 API 保持不变，

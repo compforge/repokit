@@ -4,6 +4,7 @@ import pytest
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit.git.index import staged_changes, status_entries
 from repokit.git.state import git_path
 
@@ -84,7 +85,7 @@ def test_validated_stage_uses_git_index_location(repo, tmp_path, layout):
     root = repo
     if layout == "linked":
         root = tmp_path / "linked"
-        assert git.add_worktree(repo, root, "HEAD", detach=True).ok
+        assert checkout_state.add_worktree(repo, root, "HEAD", detach=True).ok
     elif layout == "separate":
         root = tmp_path / "separate"
         root.mkdir()

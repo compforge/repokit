@@ -4,6 +4,26 @@
 共用 repository 身份与已有事实，并由 RepoKit 负责按需获取、更新与回收。目录可被 `ls/tree` 浏览
 是附带收益；目录不声明远端全集、实时同步或当前操作的授权依据。
 
+## 代码组织与职责
+
+`state` 是 Repository 状态的业务组件，负责身份与关联、观测复用、checkout 生命周期、
+状态发布及恢复。Git 适配层负责读取 Git 事实和执行命令，不依赖 state，也不回调 state 发布记录。
+创建、移除与清理 checkout 由 state 协调 Git 操作和状态更新；上层 CLI/Forge 消费 state 的业务入口。
+持久化记录是 state 的实现材料，不能通过直接改 JSON 代替 Git 操作。
+
+| 实现 | 目录与入口 |
+|---|---|
+| Go | `toolkit/go/state`：`LoadBranch`、`Observe`、`AddWorktree`、`RemoveWorktree`、`CleanWorktrees`；Git checkout 适配在 `internal/gitworktree` |
+| Python | `toolkit/python/repokit/state`：`RepositoryState`、`default_branch`、`add_worktree`、`remove_worktree`、`clean_worktrees`；Git 适配在 `repokit/git` |
+| TypeScript | `toolkit/typescript/src/state`：`RepositoryState`；Git 适配在 `src/git` |
+
+各语言的 state 目录同时拥有 home 解析、身份编码、记录存储和 lease 协议。Forge 的 PR 查询与
+观察流程复用这套存储能力，validation 继续拥有自己的执行历史格式与保留规则。
+源码模块的组织不改变下面的磁盘布局和跨语言记录协议。
+
+结构信息复用、动态观测的新鲜度、操作前实时核验分别属于 state 的读取与操作契约。
+当前 branch 读取已有 read-through；checkout 结构查询仍读取 Git，尚未实现跨调用的结构信息复用。
+
 ## 目录与身份
 
 ```text
@@ -47,7 +67,7 @@
 | branch head、checkout 拓扑 | 按 clone 与明确时效读取；`max_age=0` 请求 Git 当前事实 |
 | 删除、合并等操作前置条件 | 在操作边界重新读取 Git/Forge；目录存在或缓存命中不能授权操作 |
 
-查询者不自己实现“读文件、判断是否过期、再调 Forge”的第二套逻辑。Go `worktree.LoadBranch`、
+查询者不自己实现“读文件、判断是否过期、再调 Forge”的第二套逻辑。Go `state.LoadBranch`、
 Python `RepositoryState.branch`、TS `RepositoryState.branch` 负责 read-through，并返回来源、观测时间与 checkout 位置完整性 `complete`。
 无法定位的注册 checkout 不会伪装成完整的空集合；缺失或版本不一致的 checkout 投影由读取流程按分支从 Git 重建。
 单分支读取只发布该分支和相关 checkout，不依赖其他分支的状态文件。恢复失败仍返回错误，不伪造不存在。
@@ -69,7 +89,7 @@ Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer
 
 ## 资源与回收
 
-Go `worktree.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
+Go `state.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
 当前 clone 中已不再注册、且源路径确实不存在的 checkout 记录及其 branch 链接。它只删除明确拥有的
 状态文件和 symlink，不遍历或删除 symlink 指向的源码。未知文件、未知 checkout 路径或读取失败不会
 变成删除授权。仍存在的非注册源码目录保留其旧记录，供后续核对。

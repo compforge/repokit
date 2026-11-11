@@ -9,16 +9,16 @@ from typing import cast
 
 from harness_common import Repository
 
-from ..._state_paths import name_part, repository_key
 from ...budget import operation
 from ...git import state as git_state
 from ...git.remote import remote
-from ...worktrees import WorktreeCleanReport, clean_worktrees
+from ...state.identity import name_part, repository_key
+from ...state.store import JSON, digest
+from ...state.worktrees import WorktreeCleanReport, clean_worktrees
 from ..creation import PullRequestCreation, ensure_pull_request
 from ..model import Forge, ForgeError, PullRequest
 from .model import BranchPullRequests, PullRequestKey
 from .service import PullRequestObserver, epoch, iso, key_from_json, key_json, repository_json
-from .store import JSON, digest
 
 logger = logging.getLogger(__name__)
 

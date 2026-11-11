@@ -15,7 +15,7 @@ from typing import Any
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
-from ..home import resolve_home
+from ..state.home import resolve_home
 from ._http_state import HttpState
 from ._page import page_continuation, page_position
 from ._rest import RestClient

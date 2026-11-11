@@ -54,16 +54,15 @@ at the mutation boundary. Partial environment deletion is reported and can be re
 
 ## Entrypoints
 
-The native Python operation is `repokit.worktrees.clean_worktrees`. `PullRequestContext.refresh()`
+The native Python operation is `repokit.state.clean_worktrees`. `PullRequestContext.refresh()`
 owns observation plus maintenance; its `ensure_pull_request`, `update`, `merge` and `close` methods
 invoke that lifecycle after success. Maintenance errors are logged and available in
 `last_lifecycle`, without changing the successful remote operation's result. There is no
 `after_success` callback. Raw Forge clients, `get_branch`, `local_branches` and other ordinary
 queries do not invoke filesystem maintenance.
 
-The Go implementation lives in `toolkit/go/worktree`; the CLI directly calls this package.
+The Go implementation lives in `toolkit/go/state`; the CLI directly calls this package.
 Python provides a toolkit only: the `repokit-worktree` console entry point has been removed.
-The former root-package Go worktree exports have moved to `github.com/compforge/repokit/toolkit/go/worktree`.
 
 ```sh
 repocli worktree clean --repo /path/to/repository --dry-run --json

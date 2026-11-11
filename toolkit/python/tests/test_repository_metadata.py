@@ -4,7 +4,7 @@ import pytest
 from test_operations import run
 
 from repokit.forge.model import Forge, ForgeError
-from repokit.repository import default_branch
+from repokit.state.metadata import default_branch
 
 
 def test_default_branch_cache_owns_ttl_and_invalidates_on_origin_change(repo, tmp_path):

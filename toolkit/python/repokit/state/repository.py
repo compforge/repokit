@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
-from ._state_paths import digest_path, local_key, name_part, repository_key
-from ._storage import JSON, ObservationStore
-from .git import operations as git
-from .git import state as git_state
-from .git.remote import parse_remote_url
+from ..git import operations as git
+from ..git import state as git_state
+from ..git.remote import parse_remote_url
 from .home import resolve_home
+from .identity import digest_path, local_key, name_part, repository_key
+from .store import JSON, ObservationStore
 
 logger = logging.getLogger(__name__)
 

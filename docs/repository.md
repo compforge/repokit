@@ -3,6 +3,11 @@
 Go API `repokit.Inspect`、TypeScript/Python API `inspect` 与命令 `repocli inspect` 报告选定版本的 Repository、Component、语言、tools 和 Depot 声明。身份类型复用
 quality-harness 各语言的 common；布局发现、文件归属和包工具识别由 RepoKit 负责。
 
+Repository 是稳定身份，Checkout 是本次读取的本地工作区；同一个 Repository 可以有多个 clone/worktree。
+Forge、Repository、Component 和 Product 的身份复用 common；`ComponentBinding` 组合共享 Component
+与本次解析的目录、产品关联和工具证据，不另造同名身份类型。一个 Product 可以使用多个 Component，
+一个 Component 也可以服务多个 Product；RepoKit 不从本地布局推断这类关系。
+
 ## 基础内容视图
 
 `repocli tree` / Go `Tree` / Python、TypeScript `tree` 返回目录、文件及已知文件角色。
@@ -17,7 +22,9 @@ repocli tree --head HEAD --json
 
 结果包含 checkout、input、head、directories、files、complete 和 diagnostics；CLI JSON schema 为 1。
 Directory 以 path 表达，根为 `.`；仅返回 Git 条目隐含的目录，不扫描忽略目录或空目录。
-File 包含 path、kind、mode，以及可确定时的 oid。kind 为 regular、symlink 或 gitlink；role 可为
+File 包含 path、kind、mode，以及可确定时的 oid。Project Manifest 是描述项目的普通文件，如 go.mod、
+pyproject.toml、package.json、Cargo.toml；它是工程边界候选和工具输入，不证明目录可独立构建。
+锁文件表达解析结果，不独立触发 Component 发现。kind 为 regular、symlink 或 gitlink；role 可为
 manifest、build_script 或 lockfile，未知角色省略。Manifest 另保留 path、ecosystem；文件角色与
 Git kind 不混用，名为 go.mod 的符号链接不会被当作 Manifest。
 
@@ -191,7 +198,7 @@ if (first.nextCursor) {
 
 ## 默认分支观察
 
-Python `repokit.repository.default_branch(repo, forge=...)` 统一处理默认分支查询、持久缓存和
+Python `repokit.state.default_branch(repo, forge=...)` 统一处理默认分支查询、持久缓存和
 远端刷新。默认缓存一天；缓存以 common Git directory 与 origin 配置隔离，linked checkout 共享
 观察，origin 变更不会复用旧仓事实。记录位于工具包状态目录的 `repositories/*/metadata.json`。
 刷新优先使用 Forge，失败或无客户端时尝试远端 HEAD；失败返回显式 stale 观察及诊断，

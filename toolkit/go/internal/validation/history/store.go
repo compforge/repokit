@@ -11,7 +11,7 @@ import (
 
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
-	"github.com/compforge/repokit/toolkit/go/internal/repostate"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"github.com/tidwall/wal"
 )
 

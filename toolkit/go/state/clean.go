@@ -1,10 +1,11 @@
-package worktree
+package state
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -161,7 +162,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			failure(e, "retain", observeErr)
 			continue
 		}
-		metadata, observeErr := checkoutLocal(ctx, e.Path)
+		metadata, observeErr := gitworktree.Local(ctx, e.Path)
 		if observeErr == nil {
 			var data []byte
 			data, observeErr = os.ReadFile(filepath.Join(metadata.GitDir, "repokit-created.json"))
@@ -345,7 +346,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 }
 
 func worktreeQuery(ctx context.Context, repo string, args ...string) (string, error) {
-	result := worktreeGit(ctx, repo, 5*time.Second, args...)
+	result := gitworktree.Run(ctx, repo, 5*time.Second, args...)
 	return result.Stdout, result.Err
 }
 
@@ -371,7 +372,7 @@ func protectionInInventory(ctx context.Context, current string, entry CheckoutEn
 	if entry.Branch == "" {
 		return "detached_checkout", nil
 	}
-	info, err := checkoutLocal(ctx, entry.Path)
+	info, err := gitworktree.Local(ctx, entry.Path)
 	if err != nil {
 		return "", err
 	}

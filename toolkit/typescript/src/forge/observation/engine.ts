@@ -1,5 +1,5 @@
-import { resolveHome } from "../../home.js";
-import { repositoryKey } from "../../state-paths.js";
+import { resolveHome } from "../../state/home.js";
+import { repositoryKey } from "../../state/identity.js";
 import { pullRequestId } from "@compforge/harness-common";
 import { setTimeout as delay } from "node:timers/promises";
 import { assertPullRequestKey, pullRequestKey } from "../key.js";
@@ -7,7 +7,7 @@ import { scopeKey } from "../query.js";
 import { readIssue } from "../issues.js";
 import { ForgeError, type PullRequestKey, type PullRequestScanCursor, type PullRequestScope } from "../model.js";
 import { createPullRequestScanner } from "../scan.js";
-import { digest, ObservationStorageError, ObservationStore } from "./store.js";
+import { digest, ObservationStorageError, ObservationStore } from "../../state/store.js";
 import type { ObservationReader, PullRequestObservationOptions, PullRequestObservationQuery, PullRequestObservationResult,
   PullRequestWatch, PullRequestObservationBatch, StoredObservation } from "./model.js";
 

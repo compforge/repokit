@@ -9,7 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/compforge/quality-harness/sdks/go/common"
-	repohome "github.com/compforge/repokit/toolkit/go/internal/home"
+	repohome "github.com/compforge/repokit/toolkit/go/state"
 	"io"
 	"log/slog"
 	"net/http"
@@ -86,7 +86,7 @@ func NewClient(config Config) (*Client, error) {
 		return nil, err
 	}
 	config.Provider = provider
-	config.Home, err = repohome.Resolve(config.Home)
+	config.Home, err = repohome.ResolveHome(config.Home)
 	if err != nil {
 		return nil, err
 	}

@@ -15,7 +15,6 @@ from .dependencies import DependencyPreparation as DependencyPreparation
 from .dependencies import dependency_witnesses as dependency_witnesses
 from .dependencies import inspect_dependencies as inspect_dependencies
 from .dependencies import prepare_dependencies as prepare_dependencies
-from .home import resolve_home as resolve_home
 from .model import ComponentBinding as ComponentBinding
 from .model import Diagnostic as Diagnostic
 from .model import InspectReport as InspectReport
@@ -43,6 +42,3 @@ from .validation import lint as lint
 from .validation import plan_validation as plan_validation
 from .validation import test as test
 from .validation import validate as validate
-from .worktrees import WorktreeCleanReport as WorktreeCleanReport
-from .worktrees import WorktreePolicy as WorktreePolicy
-from .worktrees import clean_worktrees as clean_worktrees

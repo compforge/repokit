@@ -1,8 +1,28 @@
 # Impact analysis
 
-Repository identity, Snapshot/Comparison, evidence semantics and module boundaries
-are defined in the [project kernel](kernel.md). This document describes how `impact`
-turns a comparison into changed source and best-effort affected files, with optional test recommendations.
+`impact` turns a comparison into changed source and best-effort affected files, with
+optional test recommendations. Repository identity and ownership follow
+[repository discovery](repository.md); content identity and capture gaps follow
+[Snapshot](snapshot.md).
+
+## Comparison and analysis scope
+
+Comparison pairs before/after versions, file statuses, patches and captured source.
+`Diff` provides these facts independently of layout or syntax analysis.
+`DiffReport.Inspect` derives layout from those captured versions; `FormUnits` forms
+[Fragments and Units](units.md), while `AnalyzeImpact` explicitly requests impact analysis.
+An input patch reconstructs the target in memory from the matching base. Deleted
+and renamed files retain their respective version's paths, contents and configuration.
+
+- Changeset contains changed Documents present in a given version; changed Symbols
+  are query seeds, not a second material collection.
+- Testset is independently discovered test candidates. Only its members can appear
+  in test recommendations; an empty Testset is valid.
+- Workset contains the selected Component sources, tests and referenced test support
+  actually admitted to the bounded graph. The complete captured catalog remains
+  available for resolution without requiring every catalogued file to be parsed.
+
+These sets belong to RepoKit's impact model, not to the shared CodeGraph model.
 
 ## Flow
 
@@ -35,7 +55,7 @@ Whole-module imports retain a module seed alongside declaration seeds. Added, re
 or changed test files also use file seeds. Each seed reports its granularity and basis. Go uses
 package granularity because its imports do not name individual declarations.
 
-Following the kernel's version isolation rule, reverse queries use each side's changed
+Reverse queries use each version's changed
 symbols or files. Deleted imports retain their old evidence. Once a dependent file is reached,
 transitive propagation uses file granularity. Queries prefer stronger evidence, then shorter dependency distance, and terminate
 across cycles. Path confidence is the weakest edge tier: exact, strong, then weak
@@ -112,7 +132,7 @@ is not an instruction to run a full suite, and `complete: true` is not permissio
 
 ## Repository boundary
 
-Within the kernel's repository boundary, a submodule change remains one gitlink
+Within the [snapshot repository boundary](snapshot.md), a submodule change remains one gitlink
 file change containing a revision. Imports below that root are external dependencies,
 so a pointer update does not imply source or module changes in parent consumers.
 The parent project owns any integration checks required for a dependency update. Configuration references crossing the gitlink boundary remain explicit resolution gaps;

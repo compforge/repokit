@@ -8,11 +8,18 @@ from unittest.mock import patch
 import pytest
 from test_pr_observation import REPO, Reader, checkout, git, observer
 
+from repokit import state as checkout_state
 from repokit.dependencies import inspect_dependencies
 from repokit.forge import PullRequestContext
 from repokit.forge.model import ForgeError
-from repokit.git import operations, state
-from repokit.worktrees import CREATED, WorktreePolicy, clean_worktrees, load_policy, worktree_lease
+from repokit.git import state
+from repokit.state.worktrees import (
+    CREATED,
+    WorktreePolicy,
+    clean_worktrees,
+    load_policy,
+    worktree_lease,
+)
 
 
 @pytest.fixture
@@ -28,7 +35,7 @@ def repo(tmp_path):
 
 def linked(repo, name, *, legacy=False, prepared=False):
     path = repo.parent / name
-    result = operations.add_worktree(repo, path, "HEAD", branch=name)
+    result = checkout_state.add_worktree(repo, path, "HEAD", branch=name)
     assert result.ok, result.err
     if legacy:
         (Path(state.checkout_info(path).git_dir) / CREATED).unlink()
@@ -80,7 +87,7 @@ def test_current_locked_detached_and_primary_are_protected(repo):
     locked = linked(repo, "locked", prepared=True)
     git(repo, "worktree", "lock", str(locked))
     detached = repo.parent / "detached"
-    assert operations.add_worktree(repo, detached, "HEAD", detach=True).ok
+    assert checkout_state.add_worktree(repo, detached, "HEAD", detach=True).ok
     report = clean_worktrees(current, policy=WorktreePolicy(0, 0))
     assert all(path.exists() for path in (repo, current, locked, detached))
     assert report.remaining_count == 3
@@ -254,7 +261,7 @@ def test_failed_pr_write_does_not_run_maintenance(repo, tmp_path):
 
 
 def test_identity_rechecked_after_file_inventory(repo, tmp_path):
-    from repokit import worktrees
+    from repokit.state import worktrees
 
     path = linked(repo, "proposal")
     context = context_for(repo, tmp_path, "proposal")
@@ -285,12 +292,12 @@ def test_lease_wait_resolves_topology_once_and_returns_git_result(repo):
                     pytest.fail("busy lease acquired")
             assert observe.call_count == 1
         with operation(timeout=0.15):
-            result = operations.add_worktree(repo, path, "HEAD", branch="waited")
+            result = checkout_state.add_worktree(repo, path, "HEAD", branch="waited")
         assert not result.ok and not result.uncertain and not path.exists()
         result_holder = []
         thread = threading.Thread(
             target=lambda: result_holder.append(
-                operations.add_worktree(repo, path, "HEAD", branch="waited")
+                checkout_state.add_worktree(repo, path, "HEAD", branch="waited")
             )
         )
         thread.start()
@@ -301,7 +308,7 @@ def test_lease_wait_resolves_topology_once_and_returns_git_result(repo):
 
 
 def test_partial_environment_release_keeps_ownership_for_retry(repo):
-    from repokit import worktrees
+    from repokit.state import worktrees
 
     path = linked(repo, "partial", prepared=True)
     directory = path / "node_modules"
@@ -319,7 +326,7 @@ def test_partial_environment_release_keeps_ownership_for_retry(repo):
 
 
 def test_replaced_environment_is_not_deleted_by_release_journal(repo):
-    from repokit import worktrees
+    from repokit.state import worktrees
 
     path = linked(repo, "replacement", prepared=True)
     directory = path / "node_modules"
@@ -335,7 +342,7 @@ def test_replaced_environment_is_not_deleted_by_release_journal(repo):
 def test_completed_release_journal_recovers_without_touching_replacement(repo):
     import shutil
 
-    from repokit import worktrees
+    from repokit.state import worktrees
 
     path = linked(repo, "completed", prepared=True)
     directory = path / "node_modules"

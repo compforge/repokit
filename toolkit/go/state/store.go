@@ -1,4 +1,4 @@
-package repostate
+package state
 
 import (
 	"context"

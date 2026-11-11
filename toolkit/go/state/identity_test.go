@@ -1,4 +1,4 @@
-package repostate
+package state
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 )
 
 func TestSharedIdentity(t *testing.T) {
-	data, err := os.ReadFile("../../../../conformance/repository-state.json")
+	data, err := os.ReadFile("../../../conformance/repository-state.json")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -61,7 +61,6 @@ export function parsePullRequestNumber(value: string): number | undefined {
 
 export { PullRequestObserver, PullRequestStatusUnavailable } from "./forge/observation/service.js";
 export type { PullRequestStatus, PullRequestObserverOptions, PullRequestObserverHealth } from "./forge/observation/service.js";
-export { ObservationStorageError } from "./forge/observation/store.js";
 export { PullRequestContext } from "./forge/observation/context.js";
 export type { BranchPullRequests, PullRequestContextOptions } from "./forge/observation/context.js";
 

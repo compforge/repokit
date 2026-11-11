@@ -1,5 +1,4 @@
-// Package repostate defines the shared repository information layout.
-package repostate
+package state
 
 import (
 	"crypto/sha256"

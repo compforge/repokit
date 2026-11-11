@@ -1,11 +1,12 @@
-package worktree
+package state
 
 import (
 	"context"
 	"encoding/hex"
 	"errors"
 	"fmt"
-	repohome "github.com/compforge/repokit/toolkit/go/internal/home"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
-	"github.com/compforge/repokit/toolkit/go/internal/repostate"
 )
 
 type checkoutObservation struct {
@@ -52,12 +52,12 @@ type BranchObservation struct {
 }
 
 func stateLocation(ctx context.Context, repo, home string) (string, CheckoutInfo, any, error) {
-	resolved, err := repohome.Resolve(home)
+	resolved, err := ResolveHome(home)
 	if err != nil {
 		return "", CheckoutInfo{}, nil, err
 	}
 	home = resolved
-	info, err := checkoutLocal(ctx, repo)
+	info, err := gitworktree.Local(ctx, repo)
 	if err != nil {
 		return "", info, nil, err
 	}
@@ -70,10 +70,10 @@ func stateLocation(ctx context.Context, repo, home string) (string, CheckoutInfo
 		return "", info, nil, err
 	}
 	identity := project.FromOrigin(origin)
-	key := repostate.LocalKey(info.CommonDir)
+	key := LocalKey(info.CommonDir)
 	var record any = map[string]string{"local": info.CommonDir}
 	if identity != nil {
-		key = repostate.RepositoryKey(identity.Forge.Name, identity.Path)
+		key = RepositoryKey(identity.Forge.Name, identity.Path)
 		record = identity
 	}
 	return filepath.Join(home, "repositories", key), info, record, nil
@@ -92,12 +92,12 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 	if err != nil {
 		return nil, err
 	}
-	clone := repostate.Digest(info.CommonDir)
+	clone := Digest(info.CommonDir)
 	var result *BranchObservation
 	read := func(source string) error {
-		return repostate.WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
+		return WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
 			var record branchRecord
-			found, err := repostate.Read(filepath.Join(directory, "branches", repostate.Part(branch), "observation.json"), &record)
+			found, err := Read(filepath.Join(directory, "branches", Part(branch), "observation.json"), &record)
 			if err != nil || !found {
 				return err
 			}
@@ -114,7 +114,7 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 					return errors.New("invalid checkout observation key")
 				}
 				var row checkoutObservation
-				found, err := repostate.Read(filepath.Join(directory, "checkouts", key, "observation.json"), &row)
+				found, err := Read(filepath.Join(directory, "checkouts", key, "observation.json"), &row)
 				if err != nil {
 					return err
 				}
@@ -164,8 +164,8 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 	if err != nil {
 		return "", err
 	}
-	clone := repostate.Digest(info.CommonDir)
-	err = repostate.WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
+	clone := Digest(info.CommonDir)
+	err = WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
 		out, err := worktreeQuery(ctx, repo, "for-each-ref", "--format=%(refname)%00%(objectname)", "refs/heads/")
 		if err != nil {
 			return err
@@ -209,7 +209,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 			} else if err != nil {
 				return err
 			}
-			rows[repostate.Digest(path)] = checkoutObservation{1, clone, info.CommonDir, path, e.SHA, e.Branch, e.Primary, at}
+			rows[Digest(path)] = checkoutObservation{1, clone, info.CommonDir, path, e.SHA, e.Branch, e.Primary, at}
 		}
 		previous := map[string]checkoutObservation{}
 		paths, err := filepath.Glob(filepath.Join(directory, "checkouts", "*", "observation.json"))
@@ -221,7 +221,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 				break
 			}
 			var row checkoutObservation
-			found, err := repostate.Read(path, &row)
+			found, err := Read(path, &row)
 			if err != nil {
 				return err
 			}
@@ -229,12 +229,12 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 				previous[filepath.Base(filepath.Dir(path))] = row
 			}
 		}
-		if err := repostate.Write(filepath.Join(directory, "repository.json"), identity, owned); err != nil {
+		if err := Write(filepath.Join(directory, "repository.json"), identity, owned); err != nil {
 			return err
 		}
 		for key, row := range rows {
 			root := filepath.Join(directory, "checkouts", key)
-			if err := repostate.Write(filepath.Join(root, "observation.json"), row, owned); err != nil {
+			if err := Write(filepath.Join(root, "observation.json"), row, owned); err != nil {
 				return err
 			}
 			if err := stateLink(filepath.Join(root, "path"), row.Path, owned); err != nil {
@@ -265,7 +265,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 				break
 			}
 			var record branchRecord
-			found, err := repostate.Read(path, &record)
+			found, err := Read(path, &record)
 			if err != nil {
 				return err
 			}
@@ -276,10 +276,10 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 			}
 		}
 		for branch := range names {
-			root := filepath.Join(directory, "branches", repostate.Part(branch))
+			root := filepath.Join(directory, "branches", Part(branch))
 			path := filepath.Join(root, "observation.json")
 			record := branchRecord{1, branch, map[string]cloneBranch{}}
-			if _, err := repostate.Read(path, &record); err != nil {
+			if _, err := Read(path, &record); err != nil {
 				return err
 			}
 			if record.Version != 1 || record.Branch != branch || record.Clones == nil {
@@ -310,7 +310,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 			} else {
 				delete(record.Clones, clone)
 			}
-			if err := repostate.Write(path, record, owned); err != nil {
+			if err := Write(path, record, owned); err != nil {
 				return err
 			}
 			for key := range branchKnown {

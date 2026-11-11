@@ -7,13 +7,13 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import git
-from ._state_paths import local_key, repository_key
-from .forge.model import Forge, ForgeError
-from .forge.observation.store import ObservationStore
-from .git import state as git_state
-from .git.remote import parse_remote_url
+from .. import git
+from ..forge.model import Forge, ForgeError
+from ..git import state as git_state
+from ..git.remote import parse_remote_url
 from .home import resolve_home
+from .identity import local_key, repository_key
+from .store import ObservationStore
 
 logger = logging.getLogger(__name__)
 

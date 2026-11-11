@@ -15,7 +15,7 @@ from harness_common import Repository
 
 from repokit.forge import PullRequestContext, PullRequestKey, PullRequestObserver
 from repokit.forge.model import Forge, ForgeError, PullRequest
-from repokit.forge.observation.store import ObservationStore
+from repokit.state.store import ObservationStore
 
 REPO = Repository(ForgeIdentity("github"), "owner/project")
 KEY = PullRequestKey(REPO, 1)

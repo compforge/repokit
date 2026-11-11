@@ -3,6 +3,7 @@ import subprocess
 import pytest
 
 from repokit import git, snapshot
+from repokit import state as checkout_state
 
 
 def run(root, *args):
@@ -34,12 +35,12 @@ def test_literal_stage_preserves_other_index_entries(repo):
 
 def test_worktree_dirty_removal_and_remote_lease(repo, tmp_path):
     path = repo.parent / (repo.name + "-checkout")
-    assert git.add_worktree(repo, path, "HEAD", branch="feature").ok
+    assert checkout_state.add_worktree(repo, path, "HEAD", branch="feature").ok
     (path / "scratch").write_text("keep me")
-    assert not git.remove_worktree(repo, path).ok
+    assert not checkout_state.remove_worktree(repo, path).ok
     assert (path / "scratch").read_text() == "keep me"
     (path / "scratch").unlink()
-    assert git.remove_worktree(repo, path).ok
+    assert checkout_state.remove_worktree(repo, path).ok
     remote = repo.parent / (repo.name + "-remote.git")
     subprocess.run(["git", "init", "--bare", "-q", str(remote)], check=True)
     run(repo, "remote", "add", "origin", str(remote))

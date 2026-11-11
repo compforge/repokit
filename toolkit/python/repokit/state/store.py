@@ -13,7 +13,7 @@ from pathlib import Path
 from threading import Event, RLock, Thread
 from typing import cast
 
-from .budget import current_budget
+from ..budget import current_budget
 
 JSON = dict[str, object]
 

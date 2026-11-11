@@ -1,12 +1,12 @@
-import { resolveHome } from "../../home.js";
-import { repositoryKey, namePart } from "../../state-paths.js";
+import { resolveHome } from "../../state/home.js";
+import { repositoryKey, namePart } from "../../state/identity.js";
 import { remote, type Remote } from "../../git/remote.js";
 import type { RepositoryKey, PullRequestSnapshot } from "@compforge/harness-common";
 import { currentBranch, localBranches, listCheckouts, isAncestor, type CheckoutEntry } from "../../git/state.js";
 import { ForgeError, type PullRequestKey } from "../model.js";
 import { ObservationEngine } from "./engine.js";
 import type { ObservationReader, PullRequestObservationOptions } from "./model.js";
-import { digest, ObservationStore } from "./store.js";
+import { digest, ObservationStore } from "../../state/store.js";
 
 export interface BranchPullRequests {
   readonly repository: RepositoryKey;

@@ -2,8 +2,10 @@
 
 本文描述 diff 消费的仓库关系投影。view 直接展示共享 CodeGraph 的完整事实，见 [代码图浏览](view.md)。
 
-CodeGraph 构建并查询带证据的局部代码关系图。业务与构图的职责边界、内容版本隔离和通用完整性约定
-见 [项目内核](kernel.md)；本文描述图内部的概念、流程和查询语义。
+CodeGraph 构建并查询带证据的局部代码关系图。RepoKit 负责仓库定位、内容捕获、材料准入与仓库上下文；
+共享 CodeGraph 负责语法、声明与语言绑定事实，RepoKit 不根据名称或结构边重新推导语言规则。
+每张图属于一个内容版本；图、关系位置和显示源码使用同一份捕获内容。前后版本分别构图和查询，
+不能把两侧的边拼成一条证据路径。关系聚合、距离排序、测试推荐及 Web 布局由消费者决定。
 
 RepoKit 通过共享 [`compforge/codegraph`](https://github.com/compforge/codegraph) 获取跨语言声明类别、
 源码范围、细分语义依赖。公开值模型来自 `codegraph/pkg`，影响查询保留原始 relation kind 与证据，仅投影仓库查询所需的节点身份。仓库级模块解析通过 ResolutionContext 提供给构图；import 的探索与影响关系、配置继承、
@@ -16,7 +18,18 @@ MaxNodes / MaxRelations 约束共享图的发布规模，内部语义工作由 C
 
 ## 概念
 
-**File** 表示某一版本中的仓库相对路径。**Symbol** 表示文件中的具名声明，包含所属作用域和该版本的源码范围。
+共享 CodeGraph 组合 GoGraph 的属性图与 Cypher、gotreesitter 的语法与事实提取、pond 的异步调度。
+**Document** 是共享图的输入材料及节点，**Directory** 表达已接纳材料的祖先路径，通过 `in_directory`
+连接直接子项。NodeKind / RelationKind 表达实体与关系；source、documentation、resource、tooling、
+generated、dependency 等物料分类使用 Tags。Language 保存 grammar，Gitlink 保存子模块 commit，
+清单元数据和格式语义独立于路径标签。
+
+具体声明通过 `declares` 关联 Document，词法嵌套通过 `encloses` 表达。源码发生点与 `BindsTo` 是导航事实，
+与声明依赖分开消费，不把 Reads/Writes/UsesType/Captures/UsesResource 压成泛化引用。
+RepoKit 使用共享 `codegraph/pkg` 的开放 RelationKind，仓库专有关系扩展同一个类型。
+
+**File** 是 RepoKit 对某一版本中仓库相对路径的称呼，file/symbol 投影服务于查询，不替代共享图的具体节点类别。
+**Symbol** 表示文件中的具名声明，包含所属作用域和该版本的源码范围。
 同名方法通过 owner 区分，例如 `A.work` 与 `B.work`。行号用于定位，不充当跨版本身份。
 显式 import 指向的名字可以先作为 binding 节点存在；这证明引用了该名字，不证明已经找到其声明。
 Module 节点表达语言层面的聚合，例如 Python 模块的整体引用、Go 的 package。
@@ -78,7 +91,9 @@ Python 祖先初始化文件仍是加载依赖，只有模块目标参与符号�
 ### 局部构图由业务范围驱动
 
 调用方加入的文件沿 import 展开中间入口、re-export 和有限候选目标。文件目录为解析提供候选，
-未进入 workset 的源码无需建立 AST；局部范围的设计理由见 [项目内核](kernel.md)。
+未进入 workset 的源码无需建立 AST。完整目录用于解析引用和配置，独立的源码准入集合限制实际解析；
+以裁剪快照代替建图边界会丢失解析依据。Changeset、Testset 和 Workset 的范围由 [impact](diff.md#comparison-and-analysis-scope) 定义，
+未选中组件的生产源码不因 import 或测试归属而自动准入。
 
 构图和查询有不同的生命周期。`NewBuilder` 接受单个版本的文件目录和构建选项，创建空图；
 `Add` 接受一批入口，批量提交已知文件的提取任务，按入口和依赖队列顺序有界展开，探索结束后一次构图。随后 `Result` 提供图、声明、解析范围及缺口，
