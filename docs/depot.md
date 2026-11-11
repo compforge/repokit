@@ -28,12 +28,54 @@ Go、Python、TypeScript 使用同一组 conformance 用例，inspect、diff、v
 common 支持 output/cache Bin，但 RepoKit 不凭 dist、vendor 等目录名推定可删除资源；当前只自动
 发现上述 dependency Bin。显式 worktree outputs 保留原有项目授权语义。
 
-## 准备与回收
+## 显式观察与准备
 
-现有 Python `inspect_dependencies` / `prepare_dependencies` 提供依赖运行态观察与显式锁定安装，
-详见 [validation](validation.md)。安装的回执属于 RepoKit，common 不保存命令、回执、占用或就绪状态。
+```sh
+repocli depot inspect --repo . --json
+repocli depot prepare --repo . --component apps/web --timeout 10m --json
+```
 
-现有 worktree retention 负责显式的环境回收，见 [worktrees](worktrees.md)。Depot 声明本身不授权删除：
+省略 `--component` 处理整个 checkout；重复指定可选择多个 Component。选择成员仍使用其 workspace
+安装根，多个 Component 共用的物理 Bin 聚合为一项任务，每轮最多执行一次安装。报告保留选中 Components，以及每个 Bin 的
+全部引用 Components、安装根、manager、command、inputs、fingerprint 和运行态结果。
+未声明 Depot 不证明没有依赖；当前不准备 output/cache，也不安装语言运行时或升级依赖。
+
+Go 公共入口为 `depot.Inspect` / `depot.Prepare`。Python 原生依赖 API 仍独立执行；
+各语言调用方也可直接消费上述版本化 CLI 结果，不作为原生 SDK 的隐式回退。
+
+| status | 含义及 prepare 行为 |
+|---|---|
+| ready | 回执匹配当前输入；`reused`，不安装。 |
+| present | 本地目录存在但没有回执；`preserved`，报告未验证告警。 |
+| missing | 目录不存在；有 recipe 时安装，否则 `unsupported`。 |
+| stale | 回执与输入不匹配或无效；有 recipe 时重新安装。 |
+| unsupported | 位置或准备方式不支持；报告原因，不安装。 |
+| unknown | 已开始安装后失败或中断，目录内容未确认；不能作为 ready 证据。 |
+
+支持 npm ci、pnpm/Bun frozen install、Yarn classic frozen / modern immutable 和 uv sync --locked。
+uv workspace 一次同步全部成员；不生成或更新锁文件。输入指纹绑定绝对安装根、lockfile、workspace 成员
+manifest 与本地安装配置。uv 清除继承的环境路径覆盖。symlink、嵌套 checkout 与含 tracked 文件的 Bin
+不会作为安装目标。已有无回执目录不会被接管，`present` 不表示经过验证，也可能是先前失败留下的目录。
+
+准备与 worktree cleanup、Python 准备共用 repository 级跨进程 lease；锁等待受调用方 context 约束，
+没有额外 30 秒安装预算。锁内重新观察，计划变动即停止。安装串行，每个进程最多 10 分钟且受整轮更短预算
+约束；stdout 上限 4 MiB、stderr 上限 64 KiB，取消或超限终止进程组。真正安装失败后剩余 Bin 标为 `not_run`。
+
+旧成功回执在执行前移除；安装成功、输出为本地目录且输入复核一致后，原子写入包含 manager、fingerprint
+和 generation 的回执。失败不回滚安装产生的副作用，也不发布 ready。若失败留下无回执目录，后续报告
+`present`，需使用者核对或移除该安装目录后重新准备，工具不自动把它认作成功。
+
+JSON 使用统一 envelope，`data.bins` 保留 action、executed、exitCode、stdout/stderr 和结构化 error。
+`data.complete` 表示是否处理完请求范围，不等于所有 Bin ready；失败/不支持通过非零退出与 error 表达。
+`data.phases` 和 `cost.phases` 提供 observe、lock_wait、install、verify、receipt 秒数，带 Bin 路径。
+外层 cost.wallSeconds 是整轮墙钟时间，不应再加到阶段耗时中；verify 包含其内部重新观察。
+
+## 回收
+
+回执和执行状态属于 RepoKit，common 不保存命令、回执、占用或就绪状态。state 只协调生命周期、lease
+与未完成删除，安装 recipe、指纹、执行过程及报告留在 depot。
+
+worktree retention 负责环境回收，见 [worktrees](worktrees.md)。Depot 声明本身不授权删除：
 仍需回执或项目 outputs 策略、Git ignore/tracked 检查、checkout 保护及删除恢复 journal。
 共享目录按物理位置处理；tracked 文件、符号链接、嵌套 checkout 不因为存在 Bin 声明而变得可删除。
 

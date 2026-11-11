@@ -5,6 +5,7 @@ import (
 
 	"github.com/compforge/repokit/apps/cli/internal/stats"
 	"github.com/compforge/repokit/toolkit/go"
+	"github.com/compforge/repokit/toolkit/go/depot"
 	"github.com/compforge/repokit/toolkit/go/forge"
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
 	"github.com/compforge/repokit/toolkit/go/forge/release"
@@ -17,6 +18,20 @@ import (
 func describeResult(r *commandResult, data any) {
 	r.Outcome = "succeeded"
 	switch v := data.(type) {
+	case depot.Report:
+		r.Summary = fmt.Sprintf("%d Component(s), %d Bin(s); complete=%t", len(v.Components), len(v.Bins), v.Complete)
+		for _, p := range v.Phases {
+			name := "depot." + p.Name
+			if p.Bin != "" {
+				name += "/" + p.Bin
+			}
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: name, DurationSeconds: p.DurationSeconds})
+		}
+		for i, b := range v.Bins {
+			if b.Status == "present" {
+				r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "depot.unverified_environment", Severity: "warning", Phase: "depot", Path: b.Path, Message: b.Reason, Evidence: fmt.Sprintf("/data/bins/%d", i)})
+			}
+		}
 	case release.QueryResult:
 		r.Summary = "No Release found"
 		if v.Release != nil {

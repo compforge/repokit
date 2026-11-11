@@ -74,6 +74,8 @@ validation 的执行、计划和历史查询均可导出；文件与 JSON stdout
 
 ## 耗时与 validation 成本
 
+Depot 的 `cost.phases` 提供 observe、lock_wait、install、verify、receipt，逐 Bin 结果与完整语义见 [Depot](depot.md)。
+
 所有 JSON 结果的 `cost.wallSeconds` 都以秒计量，从 CLI 执行入口开始，到准备序列化最终结果时结束；
 包含参数处理和命令执行，不包含最终结果编码、文件/终端写出及日志关闭。失败也保留已经测得的耗时。
 它不是 CPU 时间、费用或整台机器的资源消耗。
