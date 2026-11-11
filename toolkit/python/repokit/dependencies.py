@@ -282,12 +282,12 @@ def prepare_dependencies(
     environment: DependencyEnvironment, *, timeout: float = 600
 ) -> DependencyPreparation:
     """Prepare dependencies while excluding concurrent repository maintenance."""
-    from .worktrees import worktree_lease
+    from .state.worktrees import worktree_lease
 
     try:
         with operation(timeout=timeout):
             with worktree_lease(environment.checkout, timeout=timeout):
-                from .worktrees import _pending_releases
+                from .state.worktrees import _pending_releases
 
                 if environment.directory in _pending_releases(environment.checkout, recover=True):
                     return DependencyPreparation(

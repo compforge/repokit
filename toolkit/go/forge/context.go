@@ -6,7 +6,7 @@ import (
 	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
-	"github.com/compforge/repokit/toolkit/go/worktree"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"log/slog"
 	"slices"
 )
@@ -98,8 +98,8 @@ func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (in
 	return pr.Key.Number, nil
 }
 
-func (c *Context) Maintain(ctx context.Context) worktree.WorktreeCleanReport {
-	report, err := worktree.CleanWorktrees(ctx, c.Checkout, worktree.WorktreeCleanOptions{PullRequests: c, Home: c.Client.config.Home})
+func (c *Context) Maintain(ctx context.Context) state.WorktreeCleanReport {
+	report, err := state.CleanWorktrees(ctx, c.Checkout, state.WorktreeCleanOptions{PullRequests: c, Home: c.Client.config.Home})
 	if err != nil {
 		report.Errors = append(report.Errors, err.Error())
 	}
@@ -110,9 +110,9 @@ func (c *Context) Maintain(ctx context.Context) worktree.WorktreeCleanReport {
 }
 
 type OperationResult struct {
-	PullRequest PullRequest                  `json:"pull_request"`
-	Created     bool                         `json:"created"`
-	Maintenance worktree.WorktreeCleanReport `json:"maintenance"`
+	PullRequest PullRequest               `json:"pull_request"`
+	Created     bool                      `json:"created"`
+	Maintenance state.WorktreeCleanReport `json:"maintenance"`
 }
 
 func (c *Context) Ensure(ctx context.Context, r CreateRequest) (OperationResult, error) {

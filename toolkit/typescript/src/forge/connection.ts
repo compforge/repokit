@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { resolveHome } from "../home.js";
+import { resolveHome } from "../state/home.js";
 import type { RepositoryKey } from "@compforge/harness-common";
 import { createForgeReader } from "./create.js";
 import { ForgeAuthError, type ForgeReader, type ForgeReaderOptions } from "./model.js";

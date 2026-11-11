@@ -5,9 +5,9 @@ import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import test from "node:test";
 import { ForgeConnection } from "../dist/forge/connection.js";
-import { digest } from "../dist/storage.js";
+import { digest } from "../dist/state/store.js";
 import { RepositoryState } from "../dist/index.js";
-import { repositoryKey,namePart,pathDigest } from "../dist/state-paths.js";
+import { repositoryKey,namePart,pathDigest } from "../dist/state/identity.js";
 import { checkoutEnvironment } from "../dist/git/environment.js";
 
 const git=(root,...args)=>execFileSync("git",["-C",root,"-c","core.hooksPath=/dev/null","-c","commit.gpgsign=false",...args],{encoding:"utf8",stdio:"pipe"}).trim();

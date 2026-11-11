@@ -6,7 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/forge"
-	"github.com/compforge/repokit/toolkit/go/worktree"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 	"os"
 	"strconv"
@@ -146,11 +146,11 @@ func newPRCommand(opts *options) *cobra.Command {
 				result, err = prContext.Client.List(ctx, target, state, "", sourceBranch)
 			case "create":
 				if sourceBranch == "" {
-					info, e := worktree.Checkout(ctx, opts.repository)
+					info, e := repostate.Checkout(ctx, opts.repository)
 					if e != nil {
 						return executionError{e}
 					}
-					entries, e := worktree.ListCheckouts(ctx, opts.repository)
+					entries, e := repostate.ListCheckouts(ctx, opts.repository)
 					if e != nil {
 						return executionError{e}
 					}

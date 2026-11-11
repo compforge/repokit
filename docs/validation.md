@@ -67,6 +67,12 @@ test:
 `validate --check format,lint,test` 显式先运行 format，再重新分析和规划 lint/test。缺少可选 format 不阻止后续检查；
 format 失败或中断时不启动检查。独立 `format` 缺少目标时返回 unavailable。验证不隐式安装依赖。
 
+## 实现归属
+
+Go 根包 `validation.go` 提供公共类型与入口，`internal/validation` 拥有规划、格式化、执行、输入清单、
+执行历史和复用，直接消费 analysis / project / git，不反向依赖公共根包。CLI 负责参数与报告适配；
+项目 Makefile 定义检查语义，调用方决定准备时机与门禁。验证执行不反向扩展静态分析范围。
+
 ## 模型与流程
 
 `ValidationPlan` 按实际执行的 Component 分组，每组包含若干 `CheckSpec`。每项 `requestedComponents`

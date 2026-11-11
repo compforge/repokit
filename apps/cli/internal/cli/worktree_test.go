@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/compforge/repokit/toolkit/go/worktree"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -42,7 +42,7 @@ func TestWorktreeCleanRepositoryDefaultsAndPartialOverrides(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("%d %s", code, &stderr)
 		}
-		var report worktree.WorktreeCleanReport
+		var report state.WorktreeCleanReport
 		if err = json.Unmarshal(out.Bytes(), &report); err != nil {
 			t.Fatal(err)
 		}

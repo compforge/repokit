@@ -1,7 +1,8 @@
 # Execution logs
 
 Execution records help find the slowest cases and replay them to compare performance.
-The shared CLI boundary owns recording; see the [project kernel](kernel.md).
+The shared CLI boundary owns recording: commands inherit it without domain modules
+opening log files. Library calls do not create CLI execution logs or JSONL history.
 Successful help/version invocations skip file logging and retention cleanup.
 `stats` also skips logging and cleanup, including on failure, so observation does
 not change the command records being summarized. See [local statistics](stats.md).
@@ -56,7 +57,9 @@ it down before exit. Each comparison uses the command run ID, finishes after
 analysis, and exports `Read(ctx, id, false)` before writing stdout, including after
 cancellation. Its operation name identifies diff or impact. Parent IDs are supplied
 explicitly; top-level stages have no parent. The toolkit only records its stages
-under the caller-provided StageRef and never owns the operation or JSONL writer.
+under the caller-provided StageRef and ends only stages it creates; it never owns
+the operation or JSONL writer. Calls without a StageRef execute normally without
+creating a timeline.
 Collection flags describe cache submission and Store reads; they do not describe
 JSONL durability. Export failures warn without changing the analysis result.
 Snapshots can be decoded and queried using go-stdx without a RepoKit timing DTO.

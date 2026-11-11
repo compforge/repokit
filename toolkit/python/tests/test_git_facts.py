@@ -4,6 +4,7 @@ import pytest
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit.git.remote import parse_remote_url, remote
 from repokit.git.state import checkout_info, list_checkouts, list_worktrees, main_repo_root
 
@@ -61,25 +62,25 @@ def test_local_paths_have_no_remote_identity(url):
 
 def test_checkout_topology_preserves_worktree_names(repo):
     linked = repo.parent / (repo.name + " 中文\r\n ")
-    assert git.add_worktree(repo, linked, "HEAD", branch="linked").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="linked").ok
     info = checkout_info(linked)
     assert info.linked and info.root == str(linked.resolve())
     assert info.main_root == str(repo.resolve())
     assert list_worktrees(repo)[1][0] == str(linked.resolve())
-    assert git.remove_worktree(repo, linked).ok
+    assert checkout_state.remove_worktree(repo, linked).ok
 
 
 def test_separate_git_directory_is_not_a_checkout(repo):
     metadata = repo.parent / (repo.name + "-metadata")
     run(repo, "init", "--separate-git-dir", str(metadata))
     linked = repo.parent / (repo.name + "-linked")
-    assert git.add_worktree(repo, linked, "HEAD", branch="linked").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="linked").ok
     for path in (repo, linked):
         info = checkout_info(path)
         assert info.common_dir == str(metadata.resolve())
         assert info.main_root is None
         assert main_repo_root(str(path)) is None
-    assert git.remove_worktree(repo, linked).ok
+    assert checkout_state.remove_worktree(repo, linked).ok
 
 
 def test_query_failure_is_not_an_empty_inventory(tmp_path):
@@ -92,22 +93,22 @@ def test_query_failure_is_not_an_empty_inventory(tmp_path):
 def test_checkout_inventory_distinguishes_metadata_from_primary(repo):
     primary_branch = run(repo, "branch", "--show-current")
     linked = repo.parent / (repo.name + "-inventory-linked")
-    assert git.add_worktree(repo, linked, "HEAD", branch="inventory-linked").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="inventory-linked").ok
     entries = list_checkouts(linked)
     assert [(e.path, e.branch, e.primary) for e in entries] == [
         (str(repo.resolve()), primary_branch, True),
         (str(linked.resolve()), "inventory-linked", False),
     ]
-    assert git.remove_worktree(repo, linked).ok
+    assert checkout_state.remove_worktree(repo, linked).ok
     metadata = repo.parent / (repo.name + "-inventory-metadata")
     run(repo, "init", "--separate-git-dir", str(metadata))
-    assert git.add_worktree(repo, linked, "HEAD", branch="inventory-other").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="inventory-other").ok
     with pytest.raises(OSError):
         list_checkouts(metadata)
     assert list_checkouts(repo)[0].path == str(repo.resolve())
     assert list_checkouts(linked)[0].path is None
     assert list_checkouts(linked)[0].branch == primary_branch
-    assert git.remove_worktree(repo, linked).ok
+    assert checkout_state.remove_worktree(repo, linked).ok
 
 
 def test_failed_inventory_queries_are_not_empty_collections(tmp_path):

@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/worktree"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"os"
 	"path/filepath"
 
@@ -99,7 +99,7 @@ func newValidationCommand(opts *options, name string) *cobra.Command {
 				return executionError{err}
 			}
 			if home, stateErr := repositoryHome(opts.home); stateErr == nil {
-				if _, stateErr = worktree.Observe(ctx, opts.repository, home, false); stateErr != nil {
+				if _, stateErr = state.Observe(ctx, opts.repository, home, false); stateErr != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
 				}
 			}

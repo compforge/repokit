@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/compforge/quality-harness/sdks/go/common"
-	"github.com/compforge/repokit/toolkit/go/internal/repostate"
+	repostate "github.com/compforge/repokit/toolkit/go/state"
 )
 
 type observedPR struct {

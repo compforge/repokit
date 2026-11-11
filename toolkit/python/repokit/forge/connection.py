@@ -11,7 +11,7 @@ from typing import Literal
 from harness_common import Forge as ForgeIdentity
 from harness_common import Repository
 
-from ..home import resolve_home
+from ..state.home import resolve_home
 from .github import GitHubForge
 from .gitlab import GitLabForge
 from .model import Forge, ForgeAuthError

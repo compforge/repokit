@@ -4,6 +4,7 @@ import pytest
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit.git.state import get_head_sha, git_path, is_ancestor, rebase_in_progress
 
 
@@ -29,7 +30,7 @@ def test_rebase_lifecycle(repo, mode, backend, action, monkeypatch):
     if mode.endswith("linked"):
         run(repo, "checkout", "--detach", base)
         view = repo / "linked"
-        assert git.add_worktree(repo, view, "feature").ok
+        assert checkout_state.add_worktree(repo, view, "feature").ok
     assert not rebase_in_progress(view)
     assert not git.rebase(view, "target").ok
     assert rebase_in_progress(view)

@@ -1,9 +1,9 @@
-package worktree
+package state
 
 import (
 	"context"
 	"encoding/json"
-	"github.com/compforge/repokit/toolkit/go/internal/repostate"
+
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,7 +33,7 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	key := repostate.Digest(path)
+	key := Digest(path)
 	recordPath := filepath.Join(directory, "checkouts", key, "observation.json")
 	if err := os.Remove(recordPath); err != nil {
 		t.Fatal(err)
@@ -129,11 +129,11 @@ func TestBranchReadRepairsPartialPublicationWithoutOtherBranches(t *testing.T) {
 		t.Fatal(records)
 	}
 	var row checkoutObservation
-	if _, err := repostate.Read(records[0], &row); err != nil {
+	if _, err := Read(records[0], &row); err != nil {
 		t.Fatal(err)
 	}
 	row.ObservedAt++
-	if err := repostate.Write(records[0], row, func() error { return nil }); err != nil {
+	if err := Write(records[0], row, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	unrelated := filepath.Join(directory, "branches", "other", "observation.json")
@@ -148,5 +148,30 @@ func TestBranchReadRepairsPartialPublicationWithoutOtherBranches(t *testing.T) {
 	}
 	if data, _ := os.ReadFile(unrelated); string(data) != "{" {
 		t.Fatal("unrelated state changed")
+	}
+}
+
+// +case=`Successful checkout mutations remain successful when state publication fails.`
+func TestCheckoutMutationSurvivesStatePublicationFailure(t *testing.T) {
+	repo, _ := worktreeFixture(t)
+	home := filepath.Join(t.TempDir(), "unavailable-state")
+	if err := os.WriteFile(home, []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	linked := filepath.Join(t.TempDir(), "publication-failure")
+	ctx := context.Background()
+	created := AddWorktree(ctx, repo, linked, "HEAD", AddWorktreeOptions{Branch: "publication-failure", Home: home})
+	if created.Err != nil || created.Uncertain || !strings.Contains(created.Stderr, "metadata unavailable") {
+		t.Fatalf("creation result: %+v", created)
+	}
+	if _, err := os.Stat(linked); err != nil {
+		t.Fatal(err)
+	}
+	removed := RemoveWorktree(ctx, repo, linked, RemoveWorktreeOptions{Home: home})
+	if removed.Err != nil || removed.Uncertain || !strings.Contains(removed.Stderr, "metadata unavailable") {
+		t.Fatalf("removal result: %+v", removed)
+	}
+	if _, err := os.Stat(linked); !os.IsNotExist(err) {
+		t.Fatalf("checkout still exists: %v", err)
 	}
 }

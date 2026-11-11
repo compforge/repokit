@@ -1,9 +1,8 @@
 import json
 from pathlib import Path
 
-from repokit import resolve_home
 from repokit.forge import ForgeConnection
-from repokit.state import RepositoryState
+from repokit.state import RepositoryState, resolve_home
 
 
 def test_shared_home_precedence(tmp_path, monkeypatch):

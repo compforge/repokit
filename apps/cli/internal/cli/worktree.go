@@ -5,8 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go"
-	"github.com/compforge/repokit/toolkit/go/worktree"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -21,7 +20,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
 		defer cancel()
-		policy, err := worktree.LoadWorktreePolicy(ctx, opts.repository)
+		policy, err := state.LoadWorktreePolicy(ctx, opts.repository)
 		if err != nil {
 			return executionError{err}
 		}
@@ -38,12 +37,12 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		if err != nil {
 			return executionError{err}
 		}
-		request := worktree.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
+		request := state.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
 		prContext, connectionErr := connection.context(ctx, opts.repository, opts.home)
 		if connectionErr == nil {
 			request.PullRequests = prContext
 		}
-		report, err := worktree.CleanWorktrees(ctx, opts.repository, request)
+		report, err := state.CleanWorktrees(ctx, opts.repository, request)
 		if err != nil {
 			return executionError{err}
 		}
@@ -83,7 +82,7 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		if err != nil {
 			return executionError{err}
 		}
-		directory, err := worktree.Observe(ctx, opts.repository, home, reconcile)
+		directory, err := state.Observe(ctx, opts.repository, home, reconcile)
 		if err != nil {
 			return executionError{err}
 		}
@@ -99,4 +98,4 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 	return root
 }
 
-func repositoryHome(explicit string) (string, error) { return repokit.ResolveHome(explicit) }
+func repositoryHome(explicit string) (string, error) { return state.ResolveHome(explicit) }

@@ -14,13 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from .budget import current_budget
-from .dependencies import inspect_dependencies
-from .git import operations, state
+from ..budget import current_budget
+from ..dependencies import inspect_dependencies
+from ..git import operations, state
 
 if TYPE_CHECKING:
-    from .forge.observation.context import PullRequestContext
-    from .forge.observation.model import BranchPullRequests
+    from ..forge.observation.context import PullRequestContext
+    from ..forge.observation.model import BranchPullRequests
 
 logger = logging.getLogger(__name__)
 CREATED = "repokit-created.json"
@@ -143,7 +143,7 @@ def _git(repo: str | Path, *args: str) -> str:
 def _environments(
     path: str, policy: WorktreePolicy, *, recover: bool = False
 ) -> tuple[tuple[Path, ...], bool]:
-    from . import inspect
+    from .. import inspect
 
     root = Path(path)
     report = inspect(root)
@@ -309,7 +309,7 @@ def clean_worktrees(
         rows = inventory if inventory is not None else context.local_branches() if context else ()
         result = _clean(control, info.root, context, rows, policy, dry_run)
         if not dry_run:
-            from .state import RepositoryState
+            from .repository import RepositoryState
 
             try:
                 RepositoryState(home).observe(control, reconcile=True)
@@ -390,7 +390,7 @@ def _clean(
                 action(entry, "remove_worktree", "skipped", protection, number)
                 return False
             if not dry_run:
-                result = operations.remove_worktree(repo, entry.path)
+                result = operations.git(repo, "worktree", "remove", "--", entry.path, timeout=30)
                 if not result.ok:
                     raise OSError(result.err or "worktree removal failed")
             removed.add(entry.path)

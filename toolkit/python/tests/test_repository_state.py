@@ -7,16 +7,17 @@ import pytest
 from test_operations import run
 
 from repokit import git
+from repokit import state as checkout_state
 from repokit._git_environment import checkout_environment
-from repokit._state_paths import digest_path, name_part, repository_key
 from repokit.state import RepositoryState
+from repokit.state.identity import digest_path, name_part, repository_key
 
 
 def test_shared_identity_and_environment():
     base = Path(__file__).parents[3] / "conformance"
     cases = json.loads((base / "repository-state.json").read_text())
-    from repokit._storage import digest
     from repokit.forge.connection import ForgeConnection
+    from repokit.state.store import digest
 
     for row in cases["connections"]:
         connection = ForgeConnection(
@@ -40,7 +41,9 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     run(repo, "remote", "add", "origin", "https://github.com/owner/project.git")
     state = RepositoryState(tmp_path / "state")
     linked = tmp_path / "linked"
-    assert git.add_worktree(repo, linked, "HEAD", branch="feature/a", home=state.store.root).ok
+    assert checkout_state.add_worktree(
+        repo, linked, "HEAD", branch="feature/a", home=state.store.root
+    ).ok
     directory = state.store.root / "repositories/github--owner--project"
     key = digest_path(str(linked.resolve()))
     assert (directory / "branches/feature%2Fa/worktrees" / key / "path").resolve() == linked
@@ -52,7 +55,7 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     history = directory / "history/keep"
     history.parent.mkdir()
     history.write_text("keep")
-    assert git.remove_worktree(repo, linked, home=state.store.root).ok
+    assert checkout_state.remove_worktree(repo, linked, home=state.store.root).ok
     assert not (directory / "checkouts" / key).exists()
     assert state.branch(repo, "feature/a").checkouts == ()
     assert history.read_text() == "keep"
@@ -92,7 +95,7 @@ def test_clone_heads_are_independent(repo, tmp_path, monkeypatch):
 def test_detached_and_unregistered_checkout_are_preserved(repo, tmp_path):
     state = RepositoryState(tmp_path / "state")
     linked = tmp_path / "detached"
-    assert git.add_worktree(repo, linked, "HEAD", detach=True).ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", detach=True).ok
     directory = state.observe(repo)
     key = digest_path(str(linked.resolve()))
     assert (directory / "checkouts" / key).exists()
@@ -145,7 +148,7 @@ def test_unknown_primary_location_is_incomplete_and_not_reclaimed(repo, tmp_path
     primary_branch = get_current_branch(repo)
     run(repo, "init", "--separate-git-dir", str(tmp_path / "metadata"))
     linked = tmp_path / "linked"
-    assert git.add_worktree(repo, linked, "HEAD", branch="topic").ok
+    assert checkout_state.add_worktree(repo, linked, "HEAD", branch="topic").ok
     state = RepositoryState(tmp_path / "state")
     directory = state.observe(repo)
     primary_key = digest_path(str(repo.resolve()))
@@ -198,12 +201,32 @@ def test_git_transport_configuration_survives_checkout_isolation(repo, monkeypat
 
 
 def test_worktree_creation_publishes_to_default_home(repo, tmp_path):
-    from repokit import resolve_home
+    from repokit.state import resolve_home
 
     linked = tmp_path / "default-linked"
-    result = git.add_worktree(repo, linked, "HEAD", branch="default-home")
+    result = checkout_state.add_worktree(repo, linked, "HEAD", branch="default-home")
     assert result.ok, result.err
     state = RepositoryState()
     assert state.store.root == resolve_home()
     observed = state.branch(repo, "default-home", max_age=3600)
     assert observed.source == "cache" and len(observed.checkouts) == 1
+
+
+def test_checkout_mutation_survives_state_publication_failure(repo, tmp_path):
+    """@case A successful Git mutation must not become retryable when state storage fails."""
+    unavailable = tmp_path / "unavailable-state"
+    unavailable.write_text("not a directory")
+    linked = tmp_path / "publication-failure"
+
+    created = checkout_state.add_worktree(
+        repo, linked, "HEAD", branch="publication-failure", home=unavailable
+    )
+    assert created.ok and not created.uncertain
+    assert "metadata unavailable" in created.err
+    assert linked.is_dir()
+
+    removed = checkout_state.remove_worktree(repo, linked, home=unavailable)
+    assert removed.ok and not removed.uncertain
+    assert "metadata unavailable" in removed.err
+    assert not linked.exists()
+    assert git.git(repo, "rev-parse", "--verify", "refs/heads/publication-failure").ok

@@ -3,11 +3,11 @@ import { realpathSync } from "node:fs";
 import { lstat, mkdir, readdir, rename, rmdir, symlink, unlink } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { randomUUID } from "node:crypto";
-import { ObservationStore } from "./storage.js";
-import { localKey, namePart, pathDigest, repositoryKey } from "./state-paths.js";
-import { checkoutInfo, listCheckouts, localBranches, type CheckoutEntry } from "./git/state.js";
-import { runGit } from "./git/operations.js";
-import { parseRemoteUrl } from "./git/remote.js";
+import { ObservationStore } from "./store.js";
+import { localKey, namePart, pathDigest, repositoryKey } from "./identity.js";
+import { checkoutInfo, listCheckouts, localBranches, type CheckoutEntry } from "../git/state.js";
+import { runGit } from "../git/operations.js";
+import { parseRemoteUrl } from "../git/remote.js";
 
 interface CheckoutRecord { version: 1; clone: string; commonDir: string; path: string; head: string; branch?: string | null; primary: boolean; observedAt: number }
 interface CloneBranch { complete: boolean; head: string; commonDir: string; observedAt: number; checkouts: string[] }
