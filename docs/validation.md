@@ -10,7 +10,7 @@ Go 复用已有 gotreesitter 的 Make grammar 静态读取规则和变量引用�
 
 `inspect_dependencies(component_path)` 只读返回 `DependencyEnvironment`；`prepare_dependencies(environment)`
 显式执行依赖安装。创建 worktree、inspect、snapshot 均不隐式准备环境；调用时机和验证门禁属于消费方。
-依赖准备由 Python API 提供，供原生 Python workflow 使用。
+原生 Python workflow 可使用该 API；Go/CLI 的 Depot 入口与结果契约见 [Depot](depot.md)。
 
 观察区分 `ready`（准备回执与当前输入一致）、`present`（本地环境存在但未经回执验证）、
 `missing`、`stale` 和 `unsupported`。消费方可允许用户自管的 present 环境进入实际验证，但不能称其
@@ -27,7 +27,7 @@ Yarn PnP 暂不支持。Node package.json workspaces、pnpm-workspace.yaml 与 u
 回执绑定绝对安装路径、锁文件、workspace 成员 manifest 与安装配置；成员新增或修改会使回执失效。
 整个 node_modules/.venv 目录的外部链接不会被当成本地就绪环境，uv 不继承其它 checkout 的环境路径覆盖。
 多个线程按安装根串行、锁内复查；默认安装预算 600 秒，受调用方 operation scope 的更短预算与取消控制。
-输出有容量限制，中断会终止安装进程组，返回 uncertain，不宣称副作用已回滚。跨进程锁不在本 API 保证范围内。
+输出有容量限制，中断会终止安装进程组，返回 uncertain，不宣称副作用已回滚。准备与 cleanup 共用 repository 级跨进程 lease。
 安装非零退出、超时、未生成本地依赖或安装期间输入变化均不写 ready 回执，返回原因与可用的进程证据。
 
 ## Depot 与自动依赖证据

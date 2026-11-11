@@ -19,6 +19,7 @@ RepoKit 是 Repository 理解与操作工具包：结合仓库布局、代码、
 | Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见配置专题。 |
 | State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 state 专题。 |
 | PullRequest / Forge | PR 由目标 Repository 与仓内编号确定；源仓、分支、revision 和状态不参与身份。Forge 适配平台读写与查询，观察层维护显式启用的刷新和持久化；调用方拥有关注范围、时效要求、进程生命周期与业务动作。 |
+| Depot | common 声明 Component 的 Bin；`depot` 观察、准备依赖、管理回执及耗时，state 只提供 checkout 生命周期与 lease 协调。 |
 | Validation | 项目 Makefile 定义检查语义，工具包拥有规划、执行、输入证据、历史与复用；调用方决定依赖准备时机、检查要求和门禁，不维护第二套检查缓存。 |
 
 Forge、Repository、Component、Product 复用 quality-harness common 的中立身份；RepoKit 持有本次布局、
@@ -40,6 +41,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | view | 捕获内容和布局，构建共享代码图；图、结构上下文和源码作为一个版本展示与刷新，不经过 impact 的候选裁剪。 |
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
+| depot inspect / prepare | 按 Component 选择、按物理 Bin 聚合；只读观察或显式锁定安装，保留逐项结果和阶段耗时。validate 不触发安装。 |
 | clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |
 | stats / upgrade | stats 只读汇总保留历史、日志与容量并报告读取缺口；upgrade 由 CLI 显式查询和安装 Release，不访问目标仓库。 |
 
@@ -57,6 +59,7 @@ repokit/
 │   │   ├── repokit.go        # Tree / Inspect / Snapshot / Diff / AnalyzeImpact / Graph
 │   │   ├── units.go          # Fragment / Unit 公共 API
 │   │   ├── validation.go     # 验证公共入口；实现归 internal/validation
+│   │   ├── depot/            # Bin 运行态观察、依赖准备与回执
 │   │   ├── state/            # 仓库状态业务、checkout 生命周期与共享存储
 │   │   ├── config/           # 用户配置与 host 级 Forge 访问解析
 │   │   ├── git/              # 显式 Git 操作与不可变 tag 发布

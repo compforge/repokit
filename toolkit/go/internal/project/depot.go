@@ -2,6 +2,7 @@ package project
 
 import (
 	"encoding/json"
+	"fmt"
 	"path"
 	"slices"
 	"strings"
@@ -183,4 +184,44 @@ func workspaceMatch(pattern, name string) bool {
 		states = next
 	}
 	return states[len(parts)]
+}
+
+// DependencyManifests uses the same workspace membership rules as Depot discovery.
+func DependencyManifests(files map[string][]byte, root string, python bool) ([]string, error) {
+	manifest := "package.json"
+	if python {
+		manifest = "pyproject.toml"
+	}
+	result := []string{path.Join(root, manifest)}
+	patterns, ok := workspacePatterns(files, root, python)
+	if !ok {
+		return nil, fmt.Errorf("unsupported workspace declaration at %s", root)
+	}
+	for name := range files {
+		if path.Base(name) != manifest || name == result[0] {
+			continue
+		}
+		rel := path.Dir(name)
+		if root != "." {
+			if !strings.HasPrefix(rel, root+"/") {
+				continue
+			}
+			rel = strings.TrimPrefix(rel, root+"/")
+		}
+		included, excluded := false, false
+		for _, pattern := range patterns {
+			if workspaceMatch(strings.TrimPrefix(pattern, "!"), rel) {
+				if strings.HasPrefix(pattern, "!") {
+					excluded = true
+				} else {
+					included = true
+				}
+			}
+		}
+		if included && !excluded {
+			result = append(result, name)
+		}
+	}
+	slices.Sort(result)
+	return result, nil
 }
