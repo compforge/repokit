@@ -18,13 +18,13 @@ internal/
 ├── validation/    # Makefile 规划、格式化、检查执行、输入身份与结果复用
 │   └── history/   # 执行记录、WAL、统计、清理与文件锁；不依赖 validation 父包
 ├── analysis/      # 输入选择、识别、捕获、构图与变更分析编排
+│   └── deadcode/  # deadcode 编排、候选规则、可达性、前后比较与筛选
 ├── gitworktree/   # Git checkout 查询与命令执行适配，不依赖 state
 ├── git/           # 只读 Git 材料与容量边界
 ├── project/       # common 身份、目录布局、语言、工具证据及归属
 ├── diff/          # patch、变更行与 postimage
 ├── units/         # 源码片段拆分、分类和 Unit 组装
 ├── impact/        # 影响策略、测试候选和缺口
-├── deadcode/      # 消费图事实，拥有候选规则、可达性、前后比较和筛选
 └── codegraph/     # 共享代码事实及仓库解析上下文
 ```
 

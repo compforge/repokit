@@ -1,14 +1,16 @@
-package analysis
+package deadcode
 
 import (
 	"context"
 	"fmt"
 	"slices"
+
+	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 )
 
 // +spec=`Diff entry nodes and both graphs use the exact retained comparison snapshots`
-func captureDeadcode(ctx context.Context, req DeadcodeRequest) (before, after *CapturedSnapshot, scope DeadcodeScope, renames map[string]string, err error) {
-	scope = DeadcodeScope{Kind: "repository", Files: slices.Clone(req.Files), ChangedFiles: []string{}, Complete: true, Diagnostics: []Diagnostic{}}
+func captureDeadcode(ctx context.Context, req Request) (before, after *analysis.CapturedSnapshot, scope Scope, renames map[string]string, err error) {
+	scope = Scope{Kind: "repository", Files: slices.Clone(req.Files), ChangedFiles: []string{}, Complete: true, Diagnostics: []analysis.Diagnostic{}}
 	if scope.Files == nil {
 		scope.Files = []string{}
 	}
@@ -16,21 +18,18 @@ func captureDeadcode(ctx context.Context, req DeadcodeRequest) (before, after *C
 		scope.Kind = "files"
 	}
 	if req.Base == "" {
-		after, err = Capture(ctx, req.InputRequest)
+		after, err = analysis.Capture(ctx, req.InputRequest)
 	} else {
-		var comparison DiffReport
-		comparison, err = CaptureDiff(ctx, Request{Repository: req.Repository, Base: req.Base, Head: req.Head, Staged: req.Staged})
+		var comparison analysis.DiffReport
+		comparison, before, after, err = analysis.CaptureDiffSnapshots(ctx, analysis.Request{Repository: req.Repository, Base: req.Base, Head: req.Head, Staged: req.Staged})
 		if err != nil {
 			return
 		}
 		scope.Kind = "diff"
 		scope.Complete = comparison.Complete
 		for _, d := range comparison.Diagnostics {
-			scope.Diagnostics = append(scope.Diagnostics, Diagnostic{Code: d.Code, Message: d.Message, Path: d.Path})
+			scope.Diagnostics = append(scope.Diagnostics, analysis.Diagnostic{Code: d.Code, Message: d.Message, Path: d.Path})
 		}
-		c := comparison.captured
-		before = capturedReport(c.before, c.repo.Root, "commit", c.base)
-		after = capturedReport(c.after, c.repo.Root, c.input, c.head)
 		renames = map[string]string{}
 		for _, change := range comparison.Changes {
 			if change.IsRenamed {

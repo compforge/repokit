@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	shared "github.com/compforge/codegraph"
+	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 )
 
 func TestDeadcodeDiffAmbiguousAndIncompleteIdentity(t *testing.T) {
@@ -14,11 +15,11 @@ func TestDeadcodeDiffAmbiguousAndIncompleteIdentity(t *testing.T) {
 	}
 	inspect := func(nodes []shared.Node, diagnostics []shared.Diagnostic) *graphIndex {
 		t.Helper()
-		g := &Graph{Nodes: nodes, Diagnostics: diagnostics, CaptureComplete: true}
+		g := &analysis.GraphSnapshot{Nodes: nodes, Diagnostics: diagnostics, Snapshot: analysis.SnapshotReport{Complete: true}}
 		for _, n := range nodes {
 			g.Relations = append(g.Relations, shared.Relation{Source: "doc", Target: n.ID, Kind: shared.Declares})
 		}
-		d, err := inspect(context.Background(), g, Options{Mode: "unreferenced"})
+		d, err := inspect(context.Background(), g, Request{Mode: "unreferenced"})
 		if err != nil {
 			t.Fatal(err)
 		}

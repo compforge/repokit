@@ -60,13 +60,13 @@ repokit/
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
+│   │       │   └── deadcode/ # deadcode 编排、候选规则与前后图比较
 │   │       ├── git/          # Git 材料与内容读取
 │   │       ├── gitworktree/  # checkout 查询与 Git 命令执行适配
 │   │       ├── project/      # 结构识别、组件归属与工具证据
 │   │       ├── diff/         # patch 与变更行
 │   │       ├── units/        # Fragment / Unit 形成与聚合
 │   │       ├── impact/       # 变更起点、测试候选与影响结果
-│   │       ├── deadcode/     # 无引用、可达性与前后图候选比较
 │   │       ├── codegraph/    # 共享 CodeGraph 适配、仓库解析与查询
 │   │       └── validation/   # Makefile 规划、执行、输入身份、历史与复用
 │   ├── typescript/           # 原生 Node 工具包；src/state、git、forge 各有职责

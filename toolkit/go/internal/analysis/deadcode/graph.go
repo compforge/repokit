@@ -7,12 +7,13 @@ import (
 	"slices"
 
 	shared "github.com/compforge/codegraph"
+	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 	"github.com/compforge/repokit/toolkit/go/internal/impact"
 )
 
 type graphIndex struct {
 	incoming   map[string][]int
-	graph      *Graph
+	graph      *analysis.GraphSnapshot
 	nodes      map[string]shared.Node
 	declared   map[string]bool
 	parent     map[string]string
@@ -22,7 +23,7 @@ type graphIndex struct {
 	roots      []Root
 }
 
-func inspect(ctx context.Context, graph *Graph, req Options) (*graphIndex, error) {
+func inspect(ctx context.Context, graph *analysis.GraphSnapshot, req Request) (*graphIndex, error) {
 	d := &graphIndex{incoming: map[string][]int{}, graph: graph, nodes: map[string]shared.Node{}, declared: map[string]bool{}, parent: map[string]string{}, owner: map[string]string{}, next: map[string][]string{}, candidates: []Candidate{}, roots: []Root{}}
 	for _, node := range graph.Nodes {
 		d.nodes[node.ID] = node
@@ -93,7 +94,7 @@ func inspect(ctx context.Context, graph *Graph, req Options) (*graphIndex, error
 			return nil, err
 		}
 		risks := []string{}
-		if !graph.CaptureComplete {
+		if !graph.Snapshot.Complete {
 			risks = append(risks, "incomplete_capture")
 		}
 		// A missing caller may be in another file: localizing all risk to the

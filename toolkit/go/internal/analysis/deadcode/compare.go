@@ -70,7 +70,7 @@ func compare(ctx context.Context, before, after *graphIndex, changed []string, r
 			candidate.Risks = append(candidate.Risks, "ambiguous_identity")
 		case len(prior) == 0:
 			candidate.Change = "introduced"
-			if len(before.graph.Diagnostics) > 0 || !before.graph.CaptureComplete {
+			if len(before.graph.Diagnostics) > 0 || !before.graph.Snapshot.Complete {
 				candidate.Change = "unmatched"
 				candidate.Risks = append(candidate.Risks, "baseline_gaps")
 			}
@@ -87,7 +87,7 @@ func compare(ctx context.Context, before, after *graphIndex, changed []string, r
 				candidate.Change = "became_test_only"
 			}
 			candidate.LostUses = lostUses(before, after, old.ID, candidate.ID, renames)
-			if len(before.graph.Diagnostics) > 0 || !before.graph.CaptureComplete {
+			if len(before.graph.Diagnostics) > 0 || !before.graph.Snapshot.Complete {
 				candidate.Risks = append(candidate.Risks, "baseline_gaps")
 			}
 		}

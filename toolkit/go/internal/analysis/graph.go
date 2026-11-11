@@ -33,15 +33,16 @@ func CaptureGraph(ctx context.Context, req InputRequest, maxDocuments int) (*Gra
 	}
 	// Full repository graphs include source-use nodes and relations; the
 	// general-purpose CodeGraph defaults can exhaust these before binding ends.
-	return buildGraphSnapshot(ctx, captured, maxDocuments, shared.Options{
+	return captured.Graph(ctx, maxDocuments, shared.Options{
 		MaxNodes: 250000, MaxRelations: 1000000, ResourceReferences: nodejs.ResourceReferences(),
 	})
 }
 
+// Graph builds from this retained capture without selecting or rereading repository contents.
 // +spec=Shared tooling tags exclude graph material before document budgets while the captured snapshot remains intact.
 // +spec=Only source material is parsed for symbols; other documents remain context and recognized manifests supply metadata.
 // +link=repo://docs/view.md
-func buildGraphSnapshot(ctx context.Context, captured *CapturedSnapshot, maxDocuments int, opts shared.Options) (*GraphSnapshot, error) {
+func (captured *CapturedSnapshot) Graph(ctx context.Context, maxDocuments int, opts shared.Options) (*GraphSnapshot, error) {
 	report, contents := captured.Report, captured.Contents
 	repo := &git.Repository{Root: report.Checkout}
 	origin, err := repo.Origin(ctx)

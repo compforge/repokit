@@ -24,7 +24,7 @@ func TestGraphUsesSharedTagRules(t *testing.T) {
 			".idea/notes.txt":               []byte("ordinary material under replacement rules"),
 		}},
 	}
-	g, err := buildGraphSnapshot(context.Background(), captured, 3, shared.Options{
+	g, err := captured.Graph(context.Background(), 3, shared.Options{
 		TagRules: []shared.TagRule{{Name: shared.ToolingTag, Pattern: `^custom_tools$`}},
 	})
 	if err != nil {

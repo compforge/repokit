@@ -157,11 +157,14 @@ command success.
 
 ## Implementation boundary
 
-`toolkit/go/internal/deadcode` owns candidate rules, root reachability, before/after
-comparison and report filtering. It consumes supplied CodeGraph nodes, relations
-and diagnostics without reading repositories or building graphs. Its unit tests
-exercise these policies directly.
+`toolkit/go/internal/analysis/deadcode` owns the complete deadcode flow: request
+validation, capture and graph-build orchestration, candidate rules, reachability,
+before/after comparison and report assembly. Graph policy consumes CodeGraph facts;
+it does not parse language syntax or execute target code.
 
-`internal/analysis` captures consistent snapshots, builds complete graphs and
-assembles the public report with capture/comparison metadata. The public Go API
-remains in `toolkit/go/deadcode.go`; CLI flags and presentation remain in `apps/cli`.
+The parent `internal/analysis` package supplies shared capture and graph primitives.
+`CaptureDiffSnapshots` retains the comparison's exact source versions, and
+`CapturedSnapshot.Graph` builds from retained contents. The dependency points from
+`analysis/deadcode` to `analysis`; the parent does not import feature packages.
+The public Go API remains in `toolkit/go/deadcode.go`, with CLI presentation in
+`apps/cli`.

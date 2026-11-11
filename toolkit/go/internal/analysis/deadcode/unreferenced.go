@@ -2,13 +2,15 @@ package deadcode
 
 import (
 	"context"
-	shared "github.com/compforge/codegraph"
 	"slices"
+
+	shared "github.com/compforge/codegraph"
+	"github.com/compforge/repokit/toolkit/go/internal/analysis"
 )
 
 // +spec=`Deadcode candidates have no incoming non-structural relation, regardless of confidence`
 // This is an observation about the captured graph, not proof of safe deletion.
-func unreferencedDeclarations(ctx context.Context, graph *Graph) ([]shared.Node, error) {
+func unreferencedDeclarations(ctx context.Context, graph *analysis.GraphSnapshot) ([]shared.Node, error) {
 	declared, used := map[string]bool{}, map[string]bool{}
 	for _, edge := range graph.Relations {
 		if err := ctx.Err(); err != nil {

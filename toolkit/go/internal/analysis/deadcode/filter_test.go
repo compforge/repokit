@@ -13,7 +13,7 @@ func TestDeadcodeConsumesEntrypointFacts(t *testing.T) {
 		{Node: shared.Node{ID: "ordinary-main", Language: "go", Name: "main", Kind: shared.Function}},
 		{Node: shared.Node{ID: "ordinary-init", Language: "go", Name: "init", Kind: shared.Function}},
 	}
-	got := filterCandidates(nodes, Options{ExcludeEntrypoints: true})
+	got := filterCandidates(nodes, Request{ExcludeEntrypoints: true})
 	if len(got) != 2 || got[0].ID != "ordinary-main" || got[1].ID != "ordinary-init" {
 		t.Fatalf("report policy did not follow native facts: %+v", got)
 	}

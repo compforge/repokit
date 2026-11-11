@@ -171,3 +171,17 @@ func CaptureDiff(ctx context.Context, req Request) (report DiffReport, err error
 	report.Complete = len(report.Diagnostics) == 0
 	return report, nil
 }
+
+// CaptureDiffSnapshots retains both source views for analyses composed with a diff.
+// Consumers treat the reports and contents as read-only; no second capture occurs.
+// +spec=`Composed analyses use the exact snapshots retained by their comparison`
+func CaptureDiffSnapshots(ctx context.Context, req Request) (report DiffReport, before, after *CapturedSnapshot, err error) {
+	report, err = CaptureDiff(ctx, req)
+	if err != nil {
+		return
+	}
+	c := report.captured
+	before = capturedReport(c.before, c.repo.Root, "commit", c.base)
+	after = capturedReport(c.after, c.repo.Root, c.input, c.head)
+	return
+}
