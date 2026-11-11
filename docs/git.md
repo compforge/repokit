@@ -200,3 +200,9 @@ push 为最终核验预留剩余预算的 20%（最多 30 秒），取消后不�
 `phases` 记录 prepare、remote_preflight、push、remote_verify 的实际耗时；CLI 同时映射到
 `cost.phases`，未执行的阶段不补造。错误保留 code/op/subject 和 cause，不将可能含凭据的远端 URL
 或原始 transport stderr 写入公共输出。
+
+## Recoverable rebase
+
+Go `git/rebase` 与 `repocli git rebase start/status/continue/abort/finish` 拥有显式 rebase
+的完整恢复能力。Python 原生 `git.rebase` 等仍是单次 Git 操作；调用方需要 CLI 生命周期时直接调用
+repocli，不再维护第二套恢复记录。事务与精确 lease 的契约见 [Recoverable rebase](git-rebase.md)。

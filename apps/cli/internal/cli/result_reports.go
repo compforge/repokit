@@ -10,6 +10,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go/forge/discussion"
 	"github.com/compforge/repokit/toolkit/go/forge/release"
 	repogit "github.com/compforge/repokit/toolkit/go/git"
+	"github.com/compforge/repokit/toolkit/go/git/rebase"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -44,6 +45,14 @@ func describeResult(r *commandResult, data any) {
 		r.Summary = fmt.Sprintf("Release %s; confirmed=%t; writeAttempted=%t", v.Tag, v.Confirmed, v.WriteAttempted)
 		for _, p := range v.Phases {
 			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "release." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
+	case rebase.Report:
+		r.Summary = fmt.Sprintf("Rebase %s: %s; confirmed=%t", v.Action, v.Phase, v.Confirmed)
+		for _, p := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "git.rebase." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
+		for i, d := range v.Diagnostics {
+			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "rebase", Path: v.Checkout, Message: d.Message, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
 		}
 	case repogit.TagPublishReport:
 		r.Summary = fmt.Sprintf("%d tags on %s; confirmed=%t", len(v.Tags), v.Remote, v.Confirmed)
