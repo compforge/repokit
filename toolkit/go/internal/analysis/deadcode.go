@@ -3,12 +3,11 @@ package analysis
 import (
 	"context"
 	"fmt"
-	"slices"
 
 	"github.com/compforge/repokit/toolkit/go/internal/diff"
 
 	shared "github.com/compforge/codegraph"
-	"github.com/compforge/repokit/toolkit/go/internal/impact"
+	"github.com/compforge/repokit/toolkit/go/internal/deadcode"
 )
 
 // DeadcodeRequest selects repository contents and finite graph build budgets.
@@ -57,31 +56,9 @@ func (req DeadcodeRequest) Validate() error {
 	return nil
 }
 
-// DeadcodeCandidate records an observation, never a safe-deletion verdict.
-type DeadcodeCandidate struct {
-	shared.Node
-	Reason string   `json:"reason"`
-	Risks  []string `json:"risks"`
-	// Change distinguishes introduced, became_dead, became_test_only, pre_existing,
-	// and unmatched candidates in diff reports.
-	Change   string       `json:"change,omitempty"`
-	Previous *shared.Node `json:"previous,omitempty"`
-	// LostUses are direct incoming dependencies present only in the before graph.
-	// Transitive loss of reachability need not remove a direct incoming edge.
-	LostUses []DeadcodeUse `json:"lostUses"`
-}
-
-type DeadcodeUse struct {
-	Source     shared.Node         `json:"source"`
-	Kind       shared.RelationKind `json:"kind"`
-	Location   *shared.Location    `json:"location,omitempty"`
-	Confidence shared.Confidence   `json:"confidence"`
-}
-
-type DeadcodeRoot struct {
-	shared.Node
-	Reason string `json:"reason"`
-}
+type DeadcodeCandidate = deadcode.Candidate
+type DeadcodeUse = deadcode.Use
+type DeadcodeRoot = deadcode.Root
 
 // DeadcodeScope describes candidate selection independently of captured material.
 type DeadcodeScope struct {
@@ -131,88 +108,30 @@ func AnalyzeDeadcode(ctx context.Context, req DeadcodeRequest) (DeadcodeReport, 
 	if err != nil {
 		return DeadcodeReport{}, err
 	}
-	current, err := inspectDeadcode(ctx, graph, req)
-	if err != nil {
-		return DeadcodeReport{}, err
-	}
 	report := DeadcodeReport{SchemaVersion: 2, Mode: req.Mode, Scope: scope, Snapshot: graph.Snapshot,
-		Documents: graph.Documents, Nodes: current.candidates, Roots: current.roots, Diagnostics: graph.Diagnostics}
+		Documents: graph.Documents, Diagnostics: graph.Diagnostics}
+	var comparison *deadcode.Comparison
 	if before != nil {
 		previousGraph, err := build(before)
 		if err != nil {
 			return DeadcodeReport{}, fmt.Errorf("before graph: %w", err)
 		}
-		previous, err := inspectDeadcode(ctx, previousGraph, req)
-		if err != nil {
-			return DeadcodeReport{}, fmt.Errorf("before analysis: %w", err)
-		}
-		report.Baseline = &DeadcodeBaseline{Snapshot: previousGraph.Snapshot, Documents: previousGraph.Documents, Diagnostics: previousGraph.Diagnostics, Roots: previous.roots}
-		report.Nodes, err = changedDeadcode(ctx, previous, current, scope.ChangedFiles, renames)
-		if err != nil {
-			return DeadcodeReport{}, err
-		}
+		comparison = &deadcode.Comparison{Before: deadcodeFacts(previousGraph), ChangedFiles: scope.ChangedFiles, Renames: renames, Complete: scope.Complete}
+		report.Baseline = &DeadcodeBaseline{Snapshot: previousGraph.Snapshot, Documents: previousGraph.Documents, Diagnostics: previousGraph.Diagnostics}
 	}
-	report.Nodes = filterDeadcodeCandidates(report.Nodes, req)
-	report.Nodes = slices.DeleteFunc(report.Nodes, func(candidate DeadcodeCandidate) bool {
-		node := candidate.Node
-		if req.Files != nil && (node.Location == nil || !slices.Contains(req.Files, node.Location.Path)) {
-			return true
-		}
-		return false
+	result, err := deadcode.Analyze(ctx, deadcodeFacts(graph), comparison, deadcode.Options{
+		Mode: req.Mode, Roots: req.Roots, Files: req.Files, ExcludeTests: req.ExcludeTests, ExcludeEntrypoints: req.ExcludeEntrypoints,
 	})
-	for i := range report.Nodes {
-		if !scope.Complete {
-			report.Nodes[i].Risks = append(report.Nodes[i].Risks, "incomplete_comparison")
-		}
+	if err != nil {
+		return DeadcodeReport{}, err
+	}
+	report.Nodes, report.Roots = result.Candidates, result.Roots
+	if report.Baseline != nil {
+		report.Baseline.Roots = result.BeforeRoots
 	}
 	return report, nil
 }
 
-// +spec=`Deadcode candidates have no incoming non-structural relation, regardless of confidence`
-// This is an observation about the captured graph, not proof of safe deletion.
-func unreferencedDeclarations(ctx context.Context, graph *GraphSnapshot) ([]shared.Node, error) {
-	declared, used := map[string]bool{}, map[string]bool{}
-	for _, edge := range graph.Relations {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		switch edge.Kind {
-		case shared.Declares:
-			declared[edge.Target] = true
-		case shared.Contains, shared.Encloses, shared.InNamespace, shared.InDirectory, shared.OccursIn:
-			// Ownership and source-location edges are not uses.
-		default:
-			used[edge.Target] = true
-		}
-	}
-	nodes := []shared.Node{}
-	for _, node := range graph.Nodes {
-		if err := ctx.Err(); err != nil {
-			return nil, err
-		}
-		if !declared[node.ID] || used[node.ID] {
-			continue
-		}
-		switch node.Kind {
-		case shared.DocumentNodeKind, shared.DirectoryNodeKind, shared.Module, shared.Package, shared.Namespace:
-			continue
-		}
-		nodes = append(nodes, node)
-	}
-	slices.SortFunc(nodes, compareDeadcodeNodes)
-	return nodes, nil
-}
-
-// +spec=Candidate filters preserve callers from tests and runtime entrypoints in the full graph.
-func filterDeadcodeCandidates(nodes []DeadcodeCandidate, req DeadcodeRequest) []DeadcodeCandidate {
-	if !req.ExcludeTests && !req.ExcludeEntrypoints {
-		return nodes
-	}
-	return slices.DeleteFunc(nodes, func(node DeadcodeCandidate) bool {
-		if req.ExcludeTests && node.Location != nil && impact.IsTest(node.Location.Path) {
-			return true
-		}
-		// CodeGraph owns language rules; report policy only consumes its facts.
-		return req.ExcludeEntrypoints && node.Entrypoint
-	})
+func deadcodeFacts(graph *GraphSnapshot) deadcode.Graph {
+	return deadcode.Graph{Nodes: graph.Nodes, Relations: graph.Relations, Diagnostics: graph.Diagnostics, CaptureComplete: graph.Snapshot.Complete}
 }

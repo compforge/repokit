@@ -24,6 +24,7 @@ internal/
 ├── diff/          # patch、变更行与 postimage
 ├── units/         # 源码片段拆分、分类和 Unit 组装
 ├── impact/        # 影响策略、测试候选和缺口
+├── deadcode/      # 消费图事实，拥有候选规则、可达性、前后比较和筛选
 └── codegraph/     # 共享代码事实及仓库解析上下文
 ```
 

@@ -1,4 +1,4 @@
-package analysis
+package deadcode
 
 import (
 	"cmp"
@@ -10,20 +10,20 @@ import (
 	"github.com/compforge/repokit/toolkit/go/internal/impact"
 )
 
-type deadcodeGraph struct {
+type graphIndex struct {
 	incoming   map[string][]int
-	graph      *GraphSnapshot
+	graph      *Graph
 	nodes      map[string]shared.Node
 	declared   map[string]bool
 	parent     map[string]string
 	owner      map[string]string
 	next       map[string][]string
-	candidates []DeadcodeCandidate
-	roots      []DeadcodeRoot
+	candidates []Candidate
+	roots      []Root
 }
 
-func inspectDeadcode(ctx context.Context, graph *GraphSnapshot, req DeadcodeRequest) (*deadcodeGraph, error) {
-	d := &deadcodeGraph{incoming: map[string][]int{}, graph: graph, nodes: map[string]shared.Node{}, declared: map[string]bool{}, parent: map[string]string{}, owner: map[string]string{}, next: map[string][]string{}, candidates: []DeadcodeCandidate{}, roots: []DeadcodeRoot{}}
+func inspect(ctx context.Context, graph *Graph, req Options) (*graphIndex, error) {
+	d := &graphIndex{incoming: map[string][]int{}, graph: graph, nodes: map[string]shared.Node{}, declared: map[string]bool{}, parent: map[string]string{}, owner: map[string]string{}, next: map[string][]string{}, candidates: []Candidate{}, roots: []Root{}}
 	for _, node := range graph.Nodes {
 		d.nodes[node.ID] = node
 	}
@@ -60,16 +60,16 @@ func inspectDeadcode(ctx context.Context, graph *GraphSnapshot, req DeadcodeRequ
 		if err != nil {
 			return nil, err
 		}
-		live, err := walkDeadcode(ctx, d.next, production)
+		live, err := walk(ctx, d.next, production)
 		if err != nil {
 			return nil, err
 		}
-		testLive, err := walkDeadcode(ctx, d.next, tests)
+		testLive, err := walk(ctx, d.next, tests)
 		if err != nil {
 			return nil, err
 		}
 		for _, node := range graph.Nodes {
-			if !d.declared[node.ID] || !deadcodeDeclaration(node) || live[node.ID] {
+			if !d.declared[node.ID] || !declaration(node) || live[node.ID] {
 				continue
 			}
 			reasons[node.ID] = "unreachable"
@@ -93,7 +93,7 @@ func inspectDeadcode(ctx context.Context, graph *GraphSnapshot, req DeadcodeRequ
 			return nil, err
 		}
 		risks := []string{}
-		if !graph.Snapshot.Complete {
+		if !graph.CaptureComplete {
 			risks = append(risks, "incomplete_capture")
 		}
 		// A missing caller may be in another file: localizing all risk to the
@@ -115,14 +115,14 @@ func inspectDeadcode(ctx context.Context, graph *GraphSnapshot, req DeadcodeRequ
 		if parent, ok := d.nodes[d.parent[node.ID]]; ok && parent.Kind == shared.DocumentNodeKind && !node.Entrypoint {
 			risks = append(risks, "external_callers")
 		}
-		d.candidates = append(d.candidates, DeadcodeCandidate{Node: node, Reason: reasons[node.ID], Risks: risks, LostUses: []DeadcodeUse{}})
+		d.candidates = append(d.candidates, Candidate{Node: node, Reason: reasons[node.ID], Risks: risks, LostUses: []Use{}})
 	}
-	slices.SortFunc(d.candidates, func(a, b DeadcodeCandidate) int { return compareDeadcodeNodes(a.Node, b.Node) })
-	slices.SortFunc(d.roots, func(a, b DeadcodeRoot) int { return compareDeadcodeNodes(a.Node, b.Node) })
+	slices.SortFunc(d.candidates, func(a, b Candidate) int { return compareNodes(a.Node, b.Node) })
+	slices.SortFunc(d.roots, func(a, b Root) int { return compareNodes(a.Node, b.Node) })
 	return d, nil
 }
 
-func deadcodeDeclaration(node shared.Node) bool {
+func declaration(node shared.Node) bool {
 	switch node.Kind {
 	case shared.DocumentNodeKind, shared.DirectoryNodeKind, shared.Module, shared.Package, shared.Namespace:
 		return false
@@ -130,7 +130,7 @@ func deadcodeDeclaration(node shared.Node) bool {
 	return true
 }
 
-func compareDeadcodeNodes(a, b shared.Node) int {
+func compareNodes(a, b shared.Node) int {
 	var left, right shared.Location
 	if a.Location != nil {
 		left = *a.Location
@@ -148,7 +148,7 @@ func compareDeadcodeNodes(a, b shared.Node) int {
 }
 
 // +spec=`Reachability is conditional on declared roots; no inferred application boundary means an error`
-func (d *deadcodeGraph) reachabilityRoots(requested []string) (production, tests []string, err error) {
+func (d *graphIndex) reachabilityRoots(requested []string) (production, tests []string, err error) {
 	roots := map[string]string{}
 	boundaries := 0
 	for _, node := range d.graph.Nodes {
@@ -158,7 +158,7 @@ func (d *deadcodeGraph) reachabilityRoots(requested []string) (production, tests
 				reason = "export"
 			}
 			roots[node.ID] = reason
-			if !deadcodeTestNode(node) {
+			if !testNode(node) {
 				boundaries++
 			}
 		}
@@ -190,7 +190,7 @@ func (d *deadcodeGraph) reachabilityRoots(requested []string) (production, tests
 		if node.Kind == shared.Variable && d.nodes[d.parent[node.ID]].Kind == shared.DocumentNodeKind {
 			roots[node.ID] = "global_initialization"
 		}
-		if deadcodeTestNode(node) && d.declared[node.ID] && roots[node.ID] == "" {
+		if testNode(node) && d.declared[node.ID] && roots[node.ID] == "" {
 			roots[node.ID] = "test"
 		}
 	}
@@ -199,8 +199,8 @@ func (d *deadcodeGraph) reachabilityRoots(requested []string) (production, tests
 		if !ok {
 			continue
 		}
-		d.roots = append(d.roots, DeadcodeRoot{Node: node, Reason: reason})
-		if deadcodeTestNode(node) && reason != "explicit" {
+		d.roots = append(d.roots, Root{Node: node, Reason: reason})
+		if testNode(node) && reason != "explicit" {
 			tests = append(tests, node.ID)
 		} else {
 			production = append(production, node.ID)
@@ -209,7 +209,7 @@ func (d *deadcodeGraph) reachabilityRoots(requested []string) (production, tests
 	return
 }
 
-func deadcodeTestNode(node shared.Node) bool {
+func testNode(node shared.Node) bool {
 	path := node.Path
 	if node.Location != nil {
 		path = node.Location.Path
@@ -217,7 +217,7 @@ func deadcodeTestNode(node shared.Node) bool {
 	return impact.IsTest(path)
 }
 
-func walkDeadcode(ctx context.Context, next map[string][]string, seeds []string) (map[string]bool, error) {
+func walk(ctx context.Context, next map[string][]string, seeds []string) (map[string]bool, error) {
 	seen := make(map[string]bool, len(seeds))
 	queue := make([]string, 0, len(seeds))
 	for _, id := range seeds {

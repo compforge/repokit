@@ -66,6 +66,7 @@ repokit/
 │   │       ├── diff/         # patch 与变更行
 │   │       ├── units/        # Fragment / Unit 形成与聚合
 │   │       ├── impact/       # 变更起点、测试候选与影响结果
+│   │       ├── deadcode/     # 无引用、可达性与前后图候选比较
 │   │       ├── codegraph/    # 共享 CodeGraph 适配、仓库解析与查询
 │   │       └── validation/   # Makefile 规划、执行、输入身份、历史与复用
 │   ├── typescript/           # 原生 Node 工具包；src/state、git、forge 各有职责

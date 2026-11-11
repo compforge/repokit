@@ -1,4 +1,4 @@
-package analysis
+package deadcode
 
 import (
 	"testing"
@@ -8,12 +8,12 @@ import (
 
 // +spec=Entrypoint report policy consumes CodeGraph facts independently of language and naming conventions.
 func TestDeadcodeConsumesEntrypointFacts(t *testing.T) {
-	nodes := []DeadcodeCandidate{
+	nodes := []Candidate{
 		{Node: shared.Node{ID: "native", Language: "future-language", Name: "start", Kind: shared.Function, Entrypoint: true}},
 		{Node: shared.Node{ID: "ordinary-main", Language: "go", Name: "main", Kind: shared.Function}},
 		{Node: shared.Node{ID: "ordinary-init", Language: "go", Name: "init", Kind: shared.Function}},
 	}
-	got := filterDeadcodeCandidates(nodes, DeadcodeRequest{ExcludeEntrypoints: true})
+	got := filterCandidates(nodes, Options{ExcludeEntrypoints: true})
 	if len(got) != 2 || got[0].ID != "ordinary-main" || got[1].ID != "ordinary-init" {
 		t.Fatalf("report policy did not follow native facts: %+v", got)
 	}

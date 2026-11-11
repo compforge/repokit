@@ -1,4 +1,4 @@
-package analysis
+package deadcode
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestDeadcodeIncomingUsageRule(t *testing.T) {
-	graph := &GraphSnapshot{}
+	graph := &Graph{}
 	for _, id := range []string{"unused", "called", "referenced", "weak", "self", "exported", "base", "decorated", "package"} {
 		kind := cg.Function
 		if id == "package" {

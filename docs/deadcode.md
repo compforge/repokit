@@ -154,3 +154,14 @@ The command is read-only and does not execute target code or tests. Candidates d
 not cause a nonzero exit status: a returned report exits 0, execution failures exit
 1, and invalid arguments exit 2. Inspect coverage and diagnostics independently of
 command success.
+
+## Implementation boundary
+
+`toolkit/go/internal/deadcode` owns candidate rules, root reachability, before/after
+comparison and report filtering. It consumes supplied CodeGraph nodes, relations
+and diagnostics without reading repositories or building graphs. Its unit tests
+exercise these policies directly.
+
+`internal/analysis` captures consistent snapshots, builds complete graphs and
+assembles the public report with capture/comparison metadata. The public Go API
+remains in `toolkit/go/deadcode.go`; CLI flags and presentation remain in `apps/cli`.

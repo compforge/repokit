@@ -1,4 +1,4 @@
-package analysis
+package deadcode
 
 import (
 	"context"
@@ -8,13 +8,13 @@ import (
 )
 
 // +spec=`Diff nodes seed dependency analysis in both versions; candidate files never bound incoming-use evidence`
-func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed []string, renames map[string]string) ([]DeadcodeCandidate, error) {
+func compare(ctx context.Context, before, after *graphIndex, changed []string, renames map[string]string) ([]Candidate, error) {
 	paths := map[string]bool{}
 	for _, path := range changed {
 		paths[path] = true
 	}
 	affected := map[string]bool{}
-	for i, graph := range []*deadcodeGraph{before, after} {
+	for i, graph := range []*graphIndex{before, after} {
 		seeds := []string{}
 		for _, node := range graph.graph.Nodes {
 			path := node.Path
@@ -25,7 +25,7 @@ func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed 
 				seeds = append(seeds, node.ID)
 			}
 		}
-		reached, err := walkDeadcode(ctx, graph.next, seeds)
+		reached, err := walk(ctx, graph.next, seeds)
 		if err != nil {
 			return nil, err
 		}
@@ -34,32 +34,32 @@ func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed 
 			if i == 0 {
 				mapping = renames
 			}
-			affected[deadcodeIdentity(graph.nodes[id], mapping)] = true
+			affected[identity(graph.nodes[id], mapping)] = true
 		}
 	}
 	previous := map[string][]shared.Node{}
 	current := map[string]int{}
-	previousCandidates := map[string]DeadcodeCandidate{}
+	previousCandidates := map[string]Candidate{}
 	for _, node := range before.graph.Nodes {
 		if before.declared[node.ID] {
-			key := deadcodeIdentity(node, renames)
+			key := identity(node, renames)
 			previous[key] = append(previous[key], node)
 		}
 	}
 	for _, node := range after.graph.Nodes {
 		if after.declared[node.ID] {
-			current[deadcodeIdentity(node, nil)]++
+			current[identity(node, nil)]++
 		}
 	}
 	for _, candidate := range before.candidates {
 		previousCandidates[candidate.ID] = candidate
 	}
-	out := []DeadcodeCandidate{}
+	out := []Candidate{}
 	for _, candidate := range after.candidates {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		key := deadcodeIdentity(candidate.Node, nil)
+		key := identity(candidate.Node, nil)
 		if !affected[key] {
 			continue
 		}
@@ -70,7 +70,7 @@ func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed 
 			candidate.Risks = append(candidate.Risks, "ambiguous_identity")
 		case len(prior) == 0:
 			candidate.Change = "introduced"
-			if len(before.graph.Diagnostics) > 0 || !before.graph.Snapshot.Complete {
+			if len(before.graph.Diagnostics) > 0 || !before.graph.CaptureComplete {
 				candidate.Change = "unmatched"
 				candidate.Risks = append(candidate.Risks, "baseline_gaps")
 			}
@@ -86,8 +86,8 @@ func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed 
 			} else if candidate.Reason == "test_only" {
 				candidate.Change = "became_test_only"
 			}
-			candidate.LostUses = lostDeadcodeUses(before, after, old.ID, candidate.ID, renames)
-			if len(before.graph.Diagnostics) > 0 || !before.graph.Snapshot.Complete {
+			candidate.LostUses = lostUses(before, after, old.ID, candidate.ID, renames)
+			if len(before.graph.Diagnostics) > 0 || !before.graph.CaptureComplete {
 				candidate.Risks = append(candidate.Risks, "baseline_gaps")
 			}
 		}
@@ -98,7 +98,7 @@ func changedDeadcode(ctx context.Context, before, after *deadcodeGraph, changed 
 
 // Location offsets are not identities: inserting a line must not turn every
 // existing declaration into an introduced candidate. Ambiguous keys stay unknown.
-func deadcodeIdentity(node shared.Node, renames map[string]string) string {
+func identity(node shared.Node, renames map[string]string) string {
 	path := node.Path
 	if node.Location != nil {
 		path = node.Location.Path
@@ -116,15 +116,15 @@ func deadcodeIdentity(node shared.Node, renames map[string]string) string {
 	return strings.Join([]string{path, node.Language, string(node.Kind), name}, "\x00")
 }
 
-func lostDeadcodeUses(before, after *deadcodeGraph, oldID, newID string, renames map[string]string) []DeadcodeUse {
+func lostUses(before, after *graphIndex, oldID, newID string, renames map[string]string) []Use {
 	current := map[string]bool{}
 	for _, use := range after.incomingUses(newID) {
-		current[deadcodeIdentity(use.Source, nil)+"\x00"+string(use.Kind)] = true
+		current[identity(use.Source, nil)+"\x00"+string(use.Kind)] = true
 	}
-	lost := []DeadcodeUse{}
+	lost := []Use{}
 	seen := map[string]bool{}
 	for _, use := range before.incomingUses(oldID) {
-		key := deadcodeIdentity(use.Source, renames) + "\x00" + string(use.Kind)
+		key := identity(use.Source, renames) + "\x00" + string(use.Kind)
 		if !current[key] && !seen[key] {
 			lost = append(lost, use)
 			seen[key] = true
@@ -133,8 +133,8 @@ func lostDeadcodeUses(before, after *deadcodeGraph, oldID, newID string, renames
 	return lost
 }
 
-func (d *deadcodeGraph) incomingUses(target string) []DeadcodeUse {
-	uses := []DeadcodeUse{}
+func (d *graphIndex) incomingUses(target string) []Use {
+	uses := []Use{}
 	for _, index := range d.incoming[target] {
 		edge := d.graph.Relations[index]
 		switch edge.Kind {
@@ -149,7 +149,7 @@ func (d *deadcodeGraph) incomingUses(target string) []DeadcodeUse {
 		if owner, ok := d.nodes[d.owner[source.ID]]; ok {
 			source = owner
 		}
-		uses = append(uses, DeadcodeUse{Source: source, Kind: edge.Kind, Location: location, Confidence: edge.Confidence})
+		uses = append(uses, Use{Source: source, Kind: edge.Kind, Location: location, Confidence: edge.Confidence})
 	}
 	return uses
 }
