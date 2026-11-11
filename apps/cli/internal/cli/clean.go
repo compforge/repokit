@@ -6,23 +6,25 @@ import (
 	"fmt"
 	"os"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
 	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
-func newCleanCommand(opts *options) *cobra.Command {
+func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 	var days int
 	var dry bool
-	var connection forgeOptions
+	var connection forgeaccess.Options
 	command := &cobra.Command{Use: "clean", Short: "Apply worktree retention and reclaim inactive repository state",
 		Long: "Apply worktree retention and reclaim inactive repository state. Without --repo, scan all recorded repositories in the selected home. Worktrees use the repository retention policy. Missing repository access times count as oldest; source and Git protections still apply.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			if days < 1 || days > 36500 {
 				return errors.New("--inactive-days must be between 1 and 36500")
 			}
-			if err := connection.validate(opts); err != nil {
+			if err := connection.Validate(opts); err != nil {
 				return err
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
 			cwd, err := os.Getwd()
 			if err != nil {
@@ -30,15 +32,15 @@ func newCleanCommand(opts *options) *cobra.Command {
 			}
 			selected := ""
 			if cmd.Flags().Changed("repo") {
-				selected = opts.repository
+				selected = opts.Repository
 			}
-			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
-				return connection.worktreePullRequests(ctx, repo, opts.home)
+			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
+				return connection.WorktreePullRequests(ctx, repo, opts.Home)
 			}})
-			if opts.json {
-				_ = writeJSON(cmd.OutOrStdout(), report)
+			if opts.JSON {
+				_ = cmdutil.JSON(cmd.OutOrStdout(), report)
 			} else {
-				recordResult(cmd.OutOrStdout(), report)
+				cmdutil.Record(cmd.OutOrStdout(), report)
 				fmt.Fprintf(cmd.OutOrStdout(), "Cleanup: %d actions; %d errors; estimated reclaimable bytes: %d (dry-run=%t)\n", len(report.Actions), len(report.Errors), report.EstimatedBytes, dry)
 				for _, a := range report.Actions {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s (%s; %d estimated bytes)\n", a.Status, a.Action, a.Path, a.Reason, a.EstimatedBytes)
@@ -58,6 +60,6 @@ func newCleanCommand(opts *options) *cobra.Command {
 		}}
 	command.Flags().BoolVar(&dry, "dry-run", false, "preview decisions without deleting resources")
 	command.Flags().IntVar(&days, "inactive-days", state.DefaultInactiveDays, "minimum days since repository state was accessed")
-	connection.flags(command)
+	connection.Flags(command)
 	return command
 }

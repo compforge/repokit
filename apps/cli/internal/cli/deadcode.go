@@ -6,11 +6,12 @@ import (
 	"io"
 	"strings"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newDeadcodeCommand(opts *options) *cobra.Command {
+func newDeadcodeCommand(opts *cmdutil.Options) *cobra.Command {
 	var head, base, mode string
 	var files, roots []string
 	var excludeTests, excludeEntrypoints bool
@@ -27,19 +28,19 @@ Results carry reasons and risks; they are not safe-deletion verdicts.`,
 		Example: "  repocli deadcode --json\n  repocli deadcode --base HEAD --json\n  repocli deadcode --base main --head HEAD --mode unreachable --json\n  repocli deadcode --file internal/service.go --json",
 		Args:    cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("--timeout must be positive")
 			}
 			return (repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots}).Validate()
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(command.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(command.Context(), opts.Timeout)
 			defer cancel()
-			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
+			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.Repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
 			if err != nil {
 				return executionFailure(err)
 			}
-			if err := writeDeadcode(command.OutOrStdout(), report, opts.json); err != nil {
+			if err := writeDeadcode(command.OutOrStdout(), report, opts.JSON); err != nil {
 				return executionFailure(err)
 			}
 			return nil
@@ -62,10 +63,10 @@ Results carry reasons and risks; they are not safe-deletion verdicts.`,
 
 func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool) error {
 	if !asJSON {
-		recordResult(output, report)
+		cmdutil.Record(output, report)
 	}
 	if asJSON {
-		return writeJSON(output, report)
+		return cmdutil.JSON(output, report)
 	}
 	if _, err := fmt.Fprintf(output, "Deadcode candidates: %d mode=%s scope=%s\n%s input=%s capture_complete=%t documents=%d graph_diagnostics=%d\n", len(report.Nodes), report.Mode, report.Scope.Kind, report.Snapshot.Snapshot, report.Snapshot.Input, report.Snapshot.Complete, report.Documents, len(report.Diagnostics)); err != nil {
 		return err

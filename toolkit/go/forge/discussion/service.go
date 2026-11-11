@@ -1,4 +1,4 @@
-package forge
+package discussion
 
 import (
 	"context"
@@ -11,65 +11,53 @@ import (
 	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/internal/transport"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
-// Comment is a published message. IDs are opaque and scoped to its PR and thread.
-type Comment struct {
-	ID        string `json:"id"`
-	Body      string `json:"body"`
-	Author    string `json:"author"`
-	CreatedAt string `json:"createdAt"`
-	URL       string `json:"url,omitempty"`
-	Path      string `json:"path,omitempty"`
-	Line      *int   `json:"line,omitempty"`
+// Service owns discussion queries and operations independently of PR lifecycle maintenance.
+// Construct through forge.Client.Discussions to reuse its configured connection.
+type Service struct {
+	connection *transport.Client
+	verifyPR   func(context.Context, model.Key) error
 }
 
-// Discussion keeps platform capabilities separate from application review verdicts.
-// +spec=Full bodies and replies are retained; conversation comments do not acquire synthetic resolve/reply capabilities
-// +link=component://docs/pr.md
-type Discussion struct {
-	PullRequest Key       `json:"pullRequest"`
-	ID          string    `json:"id"`
-	Comments    []Comment `json:"comments"`
-	Replyable   bool      `json:"replyable"`
-	Resolvable  bool      `json:"resolvable"`
-	Resolution  string    `json:"resolution"` // not_applicable, unresolved, resolved
+// New binds discussion operations to an already configured Forge transport.
+// verifyPR performs the PR lifecycle client's live read before a GitHub issue-comment write.
+// +rule=Discussion and PR lifecycle operations share one connection and cooldown without a package dependency cycle.
+// +link=component://docs/pr.md#pr-discussions
+func New(connection *transport.Client, verifyPR func(context.Context, model.Key) error) *Service {
+	return &Service{connection: connection, verifyPR: verifyPR}
 }
 
-type CommentResult struct {
-	PullRequest Key     `json:"pullRequest"`
-	ThreadID    string  `json:"threadId"`
-	Comment     Comment `json:"comment"`
-}
-
-func (c *Client) validateDiscussionKey(key Key) error {
-	if key.Number <= 0 || key.Repository.Path == "" || key.Repository != c.Repository(key.Repository.Path) {
+func (c *Service) validateDiscussionKey(key model.Key) error {
+	if key.Number <= 0 || key.Repository.Path == "" || key.Repository != c.connection.Repository(key.Repository.Path) {
 		return &errs.Error{Code: "forge.invalid_argument", Message: "discussion requires a PR identity on this Forge"}
 	}
 	return nil
 }
 
-// Discussions returns all published conversation comments and review threads, excluding system notes.
+// List returns all published conversation comments and review threads, excluding system notes.
 // Pagination is bounded; failed or truncated reads are errors, never empty success.
-func (c *Client) Discussions(ctx context.Context, key Key) (result []Discussion, err error) {
+func (c *Service) List(ctx context.Context, key model.Key) (result []Discussion, err error) {
 	defer func() {
 		err = errs.Wrap(err, "forge.discussions_failed", "forge.discussions", fmt.Sprintf("%s #%d", key.Repository.Path, key.Number))
 	}()
 	if err = c.validateDiscussionKey(key); err != nil {
 		return nil, err
 	}
-	if c.config.Provider == "github" {
-		return c.githubDiscussions(ctx, key)
+	if c.connection.Provider() == "github" {
+		return c.githubList(ctx, key)
 	}
-	return c.gitlabDiscussions(ctx, key)
+	return c.gitlabList(ctx, key)
 }
 
-// Discussion verifies membership in the specified PR, even for globally unique thread IDs.
-func (c *Client) Discussion(ctx context.Context, key Key, id string) (Discussion, error) {
+// Get verifies membership in the specified PR, even for globally unique thread IDs.
+func (c *Service) Get(ctx context.Context, key model.Key, id string) (Discussion, error) {
 	if strings.TrimSpace(id) == "" {
 		return Discussion{}, &errs.Error{Code: "forge.invalid_argument", Message: "thread ID is required"}
 	}
-	threads, err := c.Discussions(ctx, key)
+	threads, err := c.List(ctx, key)
 	if err != nil {
 		return Discussion{}, err
 	}
@@ -81,8 +69,8 @@ func (c *Client) Discussion(ctx context.Context, key Key, id string) (Discussion
 	return Discussion{}, &errs.Error{Code: "forge.not_found", Op: "forge.discussion", Subject: id, Message: "thread not found in the specified PR"}
 }
 
-// CreateComment publishes an unanchored conversation comment, without assigning a review verdict.
-func (c *Client) CreateComment(ctx context.Context, key Key, body string) (result Discussion, err error) {
+// Create publishes an unanchored conversation comment, without assigning a review verdict.
+func (c *Service) Create(ctx context.Context, key model.Key, body string) (result Discussion, err error) {
 	defer func() {
 		err = discussionWriteError(err, "forge.comment", key, "")
 		if err == nil {
@@ -95,23 +83,23 @@ func (c *Client) CreateComment(ctx context.Context, key Key, body string) (resul
 	if strings.TrimSpace(body) == "" {
 		return result, &errs.Error{Code: "forge.invalid_argument", Message: "comment body must not be empty"}
 	}
-	if c.config.Provider == "github" {
-		if _, err = c.Get(ctx, key.Repository.Path, key.Number); err != nil {
+	if c.connection.Provider() == "github" {
+		if err = c.verifyPR(ctx, key); err != nil {
 			return result, err
 		}
 		var wire githubComment
-		err = c.request(ctx, "POST", c.repositoryPath(key.Repository.Path)+"/issues/"+strconv.Itoa(key.Number)+"/comments", map[string]any{"body": body}, &wire)
+		err = c.connection.Request(ctx, "POST", c.connection.RepositoryPath(key.Repository.Path)+"/issues/"+strconv.Itoa(key.Number)+"/comments", map[string]any{"body": body}, &wire)
 		if err != nil {
 			return result, err
 		}
 		comment, e := wire.comment()
 		if e != nil {
-			return result, unknownFailure(e)
+			return result, transport.UnknownFailure(e)
 		}
 		return Discussion{PullRequest: key, ID: "issue:" + comment.ID, Comments: []Comment{comment}, Resolution: "not_applicable"}, nil
 	}
 	var wire gitlabDiscussion
-	err = c.request(ctx, "POST", c.prPath(key.Repository.Path, key.Number)+"/discussions", map[string]any{"body": body}, &wire)
+	err = c.connection.Request(ctx, "POST", c.connection.PRPath(key.Repository.Path, key.Number)+"/discussions", map[string]any{"body": body}, &wire)
 	if err != nil {
 		return result, err
 	}
@@ -120,13 +108,13 @@ func (c *Client) CreateComment(ctx context.Context, key Key, body string) (resul
 		err = errors.New("discussion response contains no published comment")
 	}
 	if err != nil {
-		return result, unknownFailure(err)
+		return result, transport.UnknownFailure(err)
 	}
 	return result, nil
 }
 
 // Reply verifies membership and platform capability immediately before sending one reply.
-func (c *Client) Reply(ctx context.Context, key Key, id, body string) (result CommentResult, err error) {
+func (c *Service) Reply(ctx context.Context, key model.Key, id, body string) (result CommentResult, err error) {
 	defer func() {
 		err = discussionWriteError(err, "forge.reply", key, id)
 		if err == nil {
@@ -136,7 +124,7 @@ func (c *Client) Reply(ctx context.Context, key Key, id, body string) (result Co
 	if strings.TrimSpace(body) == "" {
 		return result, &errs.Error{Code: "forge.invalid_argument", Message: "reply body must not be empty"}
 	}
-	thread, err := c.Discussion(ctx, key, id)
+	thread, err := c.Get(ctx, key, id)
 	if err != nil {
 		return result, err
 	}
@@ -144,36 +132,36 @@ func (c *Client) Reply(ctx context.Context, key Key, id, body string) (result Co
 		return result, &errs.Error{Code: "forge.unsupported_operation", Message: "this thread does not support replies"}
 	}
 	result.PullRequest, result.ThreadID = key, id
-	if c.config.Provider == "github" {
+	if c.connection.Provider() == "github" {
 		var wire githubComment
-		err = c.request(ctx, "POST", c.prPath(key.Repository.Path, key.Number)+"/comments/"+url.PathEscape(thread.Comments[0].ID)+"/replies", map[string]any{"body": body}, &wire)
+		err = c.connection.Request(ctx, "POST", c.connection.PRPath(key.Repository.Path, key.Number)+"/comments/"+url.PathEscape(thread.Comments[0].ID)+"/replies", map[string]any{"body": body}, &wire)
 		if err != nil {
 			return result, err
 		}
 		result.Comment, err = wire.comment()
 	} else {
 		var wire gitlabNote
-		err = c.request(ctx, "POST", c.prPath(key.Repository.Path, key.Number)+"/discussions/"+url.PathEscape(id)+"/notes", map[string]any{"body": body}, &wire)
+		err = c.connection.Request(ctx, "POST", c.connection.PRPath(key.Repository.Path, key.Number)+"/discussions/"+url.PathEscape(id)+"/notes", map[string]any{"body": body}, &wire)
 		if err != nil {
 			return result, err
 		}
 		result.Comment, err = wire.comment()
 	}
 	if err != nil {
-		return result, unknownFailure(err)
+		return result, transport.UnknownFailure(err)
 	}
 	return result, nil
 }
 
-// ResolveDiscussion changes platform resolution only. A resolved thread is an observed no-op.
-func (c *Client) ResolveDiscussion(ctx context.Context, key Key, id string) (result Discussion, err error) {
+// Resolve changes platform resolution only. A resolved thread is an observed no-op.
+func (c *Service) Resolve(ctx context.Context, key model.Key, id string) (result Discussion, err error) {
 	defer func() {
 		err = discussionWriteError(err, "forge.resolve_discussion", key, id)
 		if err == nil {
 			slog.InfoContext(ctx, "PR thread resolution confirmed", "repository", key.Repository.Path, "number", key.Number, "thread", id)
 		}
 	}()
-	thread, err := c.Discussion(ctx, key, id)
+	thread, err := c.Get(ctx, key, id)
 	if err != nil {
 		return result, err
 	}
@@ -183,7 +171,7 @@ func (c *Client) ResolveDiscussion(ctx context.Context, key Key, id string) (res
 	if thread.Resolution == "resolved" {
 		return thread, nil
 	}
-	if c.config.Provider == "github" {
+	if c.connection.Provider() == "github" {
 		var data struct {
 			Resolve *struct {
 				Thread *struct {
@@ -197,13 +185,13 @@ func (c *Client) ResolveDiscussion(ctx context.Context, key Key, id string) (res
 			return result, err
 		}
 		if data.Resolve == nil || data.Resolve.Thread == nil || data.Resolve.Thread.ID != id || !data.Resolve.Thread.Resolved {
-			return result, unknownFailure(errors.New("Forge did not confirm thread resolution"))
+			return result, transport.UnknownFailure(errors.New("Forge did not confirm thread resolution"))
 		}
 		thread.Resolution = "resolved"
 		return thread, nil
 	}
 	var wire gitlabDiscussion
-	err = c.request(ctx, http.MethodPut, c.prPath(key.Repository.Path, key.Number)+"/discussions/"+url.PathEscape(id), map[string]any{"resolved": true}, &wire)
+	err = c.connection.Request(ctx, http.MethodPut, c.connection.PRPath(key.Repository.Path, key.Number)+"/discussions/"+url.PathEscape(id), map[string]any{"resolved": true}, &wire)
 	if err != nil {
 		return result, err
 	}
@@ -212,15 +200,15 @@ func (c *Client) ResolveDiscussion(ctx context.Context, key Key, id string) (res
 		err = errors.New("discussion response contains no published comment")
 	}
 	if err != nil {
-		return result, unknownFailure(err)
+		return result, transport.UnknownFailure(err)
 	}
 	if result.ID != id || result.Resolution != "resolved" {
-		return result, unknownFailure(errors.New("Forge did not confirm thread resolution"))
+		return result, transport.UnknownFailure(errors.New("Forge did not confirm thread resolution"))
 	}
 	return result, nil
 }
 
-func discussionWriteError(err error, op string, key Key, id string) error {
+func discussionWriteError(err error, op string, key model.Key, id string) error {
 	if err == nil {
 		return nil
 	}

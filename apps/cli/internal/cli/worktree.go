@@ -4,22 +4,25 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
 	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
-func newWorktreeCommand(opts *options) *cobra.Command {
+func newWorktreeCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{Use: "worktree", Short: "Maintain linked worktrees"}
 	var dryRun bool
 	var count, prepared int
-	var connection forgeOptions
+	var connection forgeaccess.Options
 	clean := &cobra.Command{Use: "clean", Short: "Remove old worktrees and release old dependency environments", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if err := connection.validate(opts); err != nil {
+		if err := connection.Validate(opts); err != nil {
 			return err
 		}
-		ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 		defer cancel()
-		policy, err := state.LoadWorktreePolicy(ctx, opts.repository)
+		policy, err := state.LoadWorktreePolicy(ctx, opts.Repository)
 		if err != nil {
 			return executionFailure(err)
 		}
@@ -32,27 +35,27 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 		if err = policy.Validate(); err != nil {
 			return err
 		}
-		home, err := repositoryHome(opts.home)
+		home, err := repositoryHome(opts.Home)
 		if err != nil {
 			return executionFailure(err)
 		}
 		request := state.WorktreeCleanOptions{Policy: &policy, DryRun: dryRun, Home: home}
-		prContext, connectionErr := connection.worktreePullRequests(ctx, opts.repository, opts.home)
+		prContext, connectionErr := connection.WorktreePullRequests(ctx, opts.Repository, opts.Home)
 		if connectionErr == nil {
 			request.PullRequests = prContext
 		}
-		report, err := state.CleanWorktrees(ctx, opts.repository, request)
+		report, err := state.CleanWorktrees(ctx, opts.Repository, request)
 		if err != nil {
 			return executionFailure(err)
 		}
-		if connectionErr != nil && !errors.Is(connectionErr, errNoForgeOrigin) {
+		if connectionErr != nil && !errors.Is(connectionErr, forgeaccess.ErrNoOrigin) {
 			report.Errors = append(report.Errors, "PR status unavailable: "+connectionErr.Error())
 		}
-		if !opts.json {
-			recordResult(cmd.OutOrStdout(), report)
+		if !opts.JSON {
+			cmdutil.Record(cmd.OutOrStdout(), report)
 		}
-		if opts.json {
-			if err = writeJSON(cmd.OutOrStdout(), report); err != nil {
+		if opts.JSON {
+			if err = cmdutil.JSON(cmd.OutOrStdout(), report); err != nil {
 				return executionFailure(err)
 			}
 		} else {
@@ -72,27 +75,27 @@ func newWorktreeCommand(opts *options) *cobra.Command {
 	clean.Flags().BoolVar(&dryRun, "dry-run", false, "show decisions without deleting resources")
 	clean.Flags().IntVar(&count, "max-count", 10, "maximum linked worktrees (repository config by default)")
 	clean.Flags().IntVar(&prepared, "max-prepared", 3, "maximum prepared worktrees (repository config by default)")
-	connection.flags(clean)
+	connection.Flags(clean)
 	var reconcile bool
 	observe := &cobra.Command{Use: "observe", Short: "Record local branches and checkout locations", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if opts.timeout <= 0 {
+		if opts.Timeout <= 0 {
 			return errors.New("--timeout must be positive")
 		}
-		ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 		defer cancel()
-		home, err := repositoryHome(opts.home)
+		home, err := repositoryHome(opts.Home)
 		if err != nil {
 			return executionFailure(err)
 		}
-		directory, err := state.Observe(ctx, opts.repository, home, reconcile)
+		directory, err := state.Observe(ctx, opts.Repository, home, reconcile)
 		if err != nil {
 			return executionFailure(err)
 		}
-		if !opts.json {
-			recordResult(cmd.OutOrStdout(), map[string]string{"directory": directory})
+		if !opts.JSON {
+			cmdutil.Record(cmd.OutOrStdout(), map[string]string{"directory": directory})
 		}
-		if opts.json {
-			return writeJSON(cmd.OutOrStdout(), map[string]string{"directory": directory})
+		if opts.JSON {
+			return cmdutil.JSON(cmd.OutOrStdout(), map[string]string{"directory": directory})
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), directory)
 		return nil

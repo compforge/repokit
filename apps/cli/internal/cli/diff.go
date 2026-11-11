@@ -5,14 +5,15 @@ import (
 	"fmt"
 
 	"github.com/compforge/go-stdx/timeline"
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newDiffCommand(opts *options) *cobra.Command   { return newComparisonCommand(opts, false) }
-func newImpactCommand(opts *options) *cobra.Command { return newComparisonCommand(opts, true) }
+func newDiffCommand(opts *cmdutil.Options) *cobra.Command   { return newComparisonCommand(opts, false) }
+func newImpactCommand(opts *cmdutil.Options) *cobra.Command { return newComparisonCommand(opts, true) }
 
-func newComparisonCommand(opts *options, impact bool) *cobra.Command {
+func newComparisonCommand(opts *cmdutil.Options, impact bool) *cobra.Command {
 	var base, head, patchFile string
 	var staged, showUnits bool
 	var maxFiles, maxNodes, maxRelations int
@@ -34,7 +35,7 @@ in-memory patch postimage. Add --units to form Units from the captured diff.`,
 					return fmt.Errorf("--%s requires --units", flag)
 				}
 			}
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("--timeout must be positive")
 			}
 			if showUnits && len(testDirs) > 0 {
@@ -46,12 +47,12 @@ in-memory patch postimage. Add --units to form Units from the captured diff.`,
 			return (repokit.DiffRequest{TestDirs: testDirs, MaxFiles: maxFiles, MaxNodes: maxNodes, MaxRelations: maxRelations, MaxSnapshotBytes: maxSnapshotBytes}).Validate()
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
-			ctx, cancel := context.WithTimeout(command.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(command.Context(), opts.Timeout)
 			defer cancel()
 			id := startDiffTimeline(ctx, command.Name())
 			ctx = timeline.NewStageContext(ctx, timeline.StageRef{TimelineID: id})
 			request := repokit.DiffRequest{
-				Repository: opts.repository, Base: base, PatchFile: patchFile,
+				Repository: opts.Repository, Base: base, PatchFile: patchFile,
 				TestDirs: testDirs, Stdin: command.InOrStdin(),
 				Head: head, Staged: staged, ChangedFiles: changedFiles,
 				MaxFiles: maxFiles, MaxNodes: maxNodes, MaxRelations: maxRelations, MaxSnapshotBytes: maxSnapshotBytes,
@@ -63,7 +64,7 @@ in-memory patch postimage. Add --units to form Units from the captured diff.`,
 				result, err := repokit.AnalyzeImpact(ctx, request)
 				analysisErr = err
 				record = diffRecord{Checkout: result.Checkout, From: result.Base, To: result.Head, Input: result.Input, Snapshot: result.Snapshot}
-				output = func() error { return writeReport(command.OutOrStdout(), result, opts.json) }
+				output = func() error { return writeReport(command.OutOrStdout(), result, opts.JSON) }
 			} else {
 				captured, err := repokit.Diff(ctx, request)
 				analysisErr = err
@@ -71,15 +72,15 @@ in-memory patch postimage. Add --units to form Units from the captured diff.`,
 				if err == nil && showUnits {
 					units, err := repokit.FormUnits(ctx, captured, unitOptions)
 					analysisErr = err
-					output = func() error { return writeUnits(command.OutOrStdout(), units, opts.json) }
+					output = func() error { return writeUnits(command.OutOrStdout(), units, opts.JSON) }
 				} else {
-					output = func() error { return writeRawDiff(command.OutOrStdout(), captured, opts.json) }
+					output = func() error { return writeRawDiff(command.OutOrStdout(), captured, opts.JSON) }
 				}
 			}
 			// Every analysis path closes its operation before output. A stdout
 			// failure cannot rewrite the already completed analysis outcome.
 			snapshot := finishDiffTimeline(ctx, id, analysisErr)
-			recordDiff(ctx, request, record, opts.timeout, snapshot, analysisErr)
+			recordDiff(ctx, request, record, opts.Timeout, snapshot, analysisErr)
 			if analysisErr != nil {
 				return executionFailure(analysisErr)
 			}

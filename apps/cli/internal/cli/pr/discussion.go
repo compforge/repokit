@@ -1,4 +1,4 @@
-package cli
+package pr
 
 import (
 	"context"
@@ -9,11 +9,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/compforge/repokit/toolkit/go/forge"
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
+	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 	"github.com/spf13/cobra"
 )
 
-func newDiscussionCommand(opts *options, connection *forgeOptions) *cobra.Command {
+func newDiscussionCommand(opts *cmdutil.Options, connection *forgeaccess.Options) *cobra.Command {
 	root := &cobra.Command{Use: "discussion", Short: "Read PR conversations and operate on discussion threads"}
 	descriptions := map[string]string{"list": "List complete PR discussions", "show": "Read a full thread and its replies", "create": "Publish an unanchored conversation comment", "reply": "Reply to a platform-supported thread", "resolve": "Resolve a platform-supported thread"}
 	for _, operation := range []string{"list", "show", "create", "reply", "resolve"} {
@@ -27,14 +31,14 @@ func newDiscussionCommand(opts *options, connection *forgeOptions) *cobra.Comman
 			command.Flags().StringVar(&bodyFile, "body-file", "", "Markdown file, or - for stdin")
 		}
 		command.RunE = func(cmd *cobra.Command, args []string) error {
-			if err := connection.validate(opts); err != nil {
+			if err := connection.Validate(opts); err != nil {
 				return err
 			}
 			number, err := strconv.Atoi(args[0])
 			if err != nil || number <= 0 {
 				return errors.New("PR number must be positive")
 			}
-			if len(connection.targets) > 1 {
+			if len(connection.Targets) > 1 {
 				return errors.New("discussion operations require one --target-repository")
 			}
 			if len(args) > 1 && strings.TrimSpace(args[1]) == "" {
@@ -52,49 +56,49 @@ func newDiscussionCommand(opts *options, connection *forgeOptions) *cobra.Comman
 					data, err = os.ReadFile(bodyFile)
 				}
 				if err != nil {
-					return executionFailure(err)
+					return errs.Wrap(err, "execution.failed", "execution", "")
 				}
 				body = string(data)
 				if strings.TrimSpace(body) == "" {
 					return errors.New("comment body must not be empty")
 				}
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
-			pr, err := connection.context(ctx, opts.repository, opts.home)
+			pr, err := connection.Context(ctx, opts.Repository, opts.Home)
 			if err != nil {
-				return executionFailure(err)
+				return errs.Wrap(err, "execution.failed", "execution", "")
 			}
-			key := forge.Key{Repository: pr.Client.Repository(pr.Targets[0]), Number: number}
+			key := model.Key{Repository: pr.Client.Repository(pr.Targets[0]), Number: number}
 			var result any
 			switch operation {
 			case "list":
-				result, err = pr.Client.Discussions(ctx, key)
+				result, err = pr.Client.Discussions().List(ctx, key)
 			case "show":
-				result, err = pr.Client.Discussion(ctx, key, args[1])
+				result, err = pr.Client.Discussions().Get(ctx, key, args[1])
 			case "create":
-				result, err = pr.Client.CreateComment(ctx, key, body)
+				result, err = pr.Client.Discussions().Create(ctx, key, body)
 			case "reply":
-				result, err = pr.Client.Reply(ctx, key, args[1], body)
+				result, err = pr.Client.Discussions().Reply(ctx, key, args[1], body)
 			case "resolve":
-				result, err = pr.Client.ResolveDiscussion(ctx, key, args[1])
+				result, err = pr.Client.Discussions().Resolve(ctx, key, args[1])
 			}
 			if err != nil {
-				return operationFailure("forge.discussion_failed", operation, fmt.Sprintf("%s #%d", key.Repository.Path, number), err)
+				return errs.Wrap(err, "forge.discussion_failed", operation, fmt.Sprintf("%s #%d", key.Repository.Path, number))
 			}
-			if opts.json {
-				return writeJSON(cmd.OutOrStdout(), result)
+			if opts.JSON {
+				return cmdutil.JSON(cmd.OutOrStdout(), result)
 			}
-			recordResult(cmd.OutOrStdout(), result)
+			cmdutil.Record(cmd.OutOrStdout(), result)
 			switch value := result.(type) {
-			case []forge.Discussion:
+			case []discussion.Discussion:
 				fmt.Fprintf(cmd.OutOrStdout(), "%d discussion(s)\n", len(value))
 				for _, thread := range value {
 					displayDiscussion(cmd.OutOrStdout(), thread, false)
 				}
-			case forge.Discussion:
+			case discussion.Discussion:
 				displayDiscussion(cmd.OutOrStdout(), value, true)
-			case forge.CommentResult:
+			case discussion.CommentResult:
 				fmt.Fprintf(cmd.OutOrStdout(), "Replied to thread %s\n", value.ThreadID)
 				displayComment(cmd.OutOrStdout(), value.Comment)
 			}
@@ -103,33 +107,4 @@ func newDiscussionCommand(opts *options, connection *forgeOptions) *cobra.Comman
 		root.AddCommand(command)
 	}
 	return root
-}
-
-func displayDiscussion(w io.Writer, thread forge.Discussion, full bool) {
-	fmt.Fprintf(w, "Thread %s: %s; %d comment(s); replyable=%t resolvable=%t\n", thread.ID, thread.Resolution, len(thread.Comments), thread.Replyable, thread.Resolvable)
-	for _, comment := range thread.Comments {
-		if full {
-			displayComment(w, comment)
-		} else {
-			fmt.Fprintf(w, "  comment %s by %s", comment.ID, comment.Author)
-			if comment.Path != "" {
-				fmt.Fprintf(w, " at %s", comment.Path)
-				if comment.Line != nil {
-					fmt.Fprintf(w, ":%d", *comment.Line)
-				}
-			}
-			fmt.Fprintln(w)
-		}
-	}
-}
-func displayComment(w io.Writer, comment forge.Comment) {
-	fmt.Fprintf(w, "\nComment %s by %s (%s)\n", comment.ID, comment.Author, comment.CreatedAt)
-	if comment.Path != "" {
-		fmt.Fprint(w, comment.Path)
-		if comment.Line != nil {
-			fmt.Fprintf(w, ":%d", *comment.Line)
-		}
-		fmt.Fprintln(w)
-	}
-	fmt.Fprintln(w, comment.Body)
 }

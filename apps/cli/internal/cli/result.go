@@ -71,21 +71,15 @@ func (o *resultOutput) Write(p []byte) (int, error) {
 	return n, err
 }
 
-func recordResult(w io.Writer, data any) {
-	if o, ok := w.(*resultOutput); ok {
-		o.recorded = true
-		o.result.Data = data
-		describeResult(&o.result, data)
-	}
+func (o *resultOutput) RecordResult(data any) {
+	o.recorded = true
+	o.result.Data = data
+	describeResult(&o.result, data)
 }
 
-// JSON reports are recorded at the command boundary and serialized only once the outcome is known.
-func writeJSON(w io.Writer, data any) error {
-	o, ok := w.(*resultOutput)
-	if !ok {
-		return errors.New("JSON output requires the command result boundary")
-	}
-	recordResult(o, data)
+// WriteJSON records data for serialization once the command outcome is known.
+func (o *resultOutput) WriteJSON(data any) error {
+	o.RecordResult(data)
 	o.structured = true
 	return nil
 }

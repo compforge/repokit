@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/spf13/cobra"
 )
 
@@ -177,7 +178,7 @@ func TestNewCommandInheritsLogging(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	var stdout, stderr bytes.Buffer
-	root := newRootCommand(&options{})
+	root := newRootCommand(&cmdutil.Options{})
 	root.AddCommand(&cobra.Command{Use: "future", RunE: func(command *cobra.Command, _ []string) error {
 		fmt.Fprintln(command.OutOrStdout(), "future output")
 		fmt.Fprintln(command.ErrOrStderr(), "future warning")
@@ -328,7 +329,7 @@ func TestLogArgumentsCanBeReplayed(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	args := []string{"future", "a b", "[c d]", `quote"and\slash`, "line\nbreak", ""}
-	root := newRootCommand(&options{})
+	root := newRootCommand(&cmdutil.Options{})
 	root.AddCommand(&cobra.Command{Use: "future", Run: func(*cobra.Command, []string) {}})
 	var stdout, stderr bytes.Buffer
 	if code := execute(context.Background(), root, args, nil, &stdout, &stderr); code != 0 {
@@ -366,7 +367,7 @@ func TestLogSizeIsIndependentOfOutput(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	payload := strings.Repeat("private report payload\n", 50000)
-	root := newRootCommand(&options{})
+	root := newRootCommand(&cmdutil.Options{})
 	root.AddCommand(&cobra.Command{Use: "future", RunE: func(command *cobra.Command, _ []string) error {
 		fmt.Fprint(command.OutOrStdout(), payload)
 		fmt.Fprint(command.ErrOrStderr(), payload)

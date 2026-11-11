@@ -1,10 +1,12 @@
-package forge
+package discussion
 
 import (
 	"context"
 	"encoding/json"
 	"errors"
 	"strconv"
+
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
 type gitlabNote struct {
@@ -49,7 +51,7 @@ type gitlabDiscussion struct {
 	Notes      []gitlabNote `json:"notes"`
 }
 
-func (w gitlabDiscussion) discussion(key Key) (Discussion, error) {
+func (w gitlabDiscussion) discussion(key model.Key) (Discussion, error) {
 	if w.ID == "" || w.Individual == nil || len(w.Notes) == 0 {
 		return Discussion{}, errors.New("invalid GitLab discussion response")
 	}
@@ -80,11 +82,11 @@ func (w gitlabDiscussion) discussion(key Key) (Discussion, error) {
 	}
 	return result, nil
 }
-func (c *Client) gitlabDiscussions(ctx context.Context, key Key) ([]Discussion, error) {
+func (c *Service) gitlabList(ctx context.Context, key model.Key) ([]Discussion, error) {
 	result := []Discussion{}
 	for page := 1; page <= 100; page++ {
 		var rows []gitlabDiscussion
-		err := c.request(ctx, "GET", c.prPath(key.Repository.Path, key.Number)+"/discussions?per_page=100&page="+strconv.Itoa(page), nil, &rows)
+		err := c.connection.Request(ctx, "GET", c.connection.PRPath(key.Repository.Path, key.Number)+"/discussions?per_page=100&page="+strconv.Itoa(page), nil, &rows)
 		if err != nil {
 			return nil, err
 		}

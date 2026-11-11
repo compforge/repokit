@@ -1,4 +1,4 @@
-package forge
+package discussion_test
 
 import (
 	"context"
@@ -11,6 +11,9 @@ import (
 	"testing"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge"
+	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
 func testGitHubComment(id, parent int, body string) map[string]any {
@@ -63,12 +66,12 @@ func TestDiscussionsGitHubPaginationAndFullEvidence(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, _ := NewClient(Config{Host: "github.com", APIHost: server.URL, Token: "fixture"})
-	threads, err := client.Discussions(context.Background(), Key{client.Repository("acme/repo"), 7})
+	client, _ := forge.NewClient(forge.Config{Host: "github.com", APIHost: server.URL, Token: "fixture"})
+	threads, err := client.Discussions().List(context.Background(), model.Key{Repository: client.Repository("acme/repo"), Number: 7})
 	if err != nil {
 		t.Fatal(err)
 	}
-	byID := map[string]Discussion{}
+	byID := map[string]discussion.Discussion{}
 	for _, thread := range threads {
 		byID[thread.ID] = thread
 	}
@@ -120,25 +123,25 @@ func TestDiscussionsGitHubWriteMembershipAndResolution(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	c, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
-	key := Key{c.Repository("acme/repo"), 7}
+	c, _ := forge.NewClient(forge.Config{Host: "github.com", APIHost: server.URL})
+	key := model.Key{Repository: c.Repository("acme/repo"), Number: 7}
 	for _, id := range []string{"foreign-thread", "issue:9"} {
-		if _, err := c.Reply(context.Background(), key, id, "reply"); err == nil {
+		if _, err := c.Discussions().Reply(context.Background(), key, id, "reply"); err == nil {
 			t.Fatal("reply accepted", id)
 		}
-		if _, err := c.ResolveDiscussion(context.Background(), key, id); err == nil {
+		if _, err := c.Discussions().Resolve(context.Background(), key, id); err == nil {
 			t.Fatal("resolve accepted", id)
 		}
 	}
 	if replies != 0 || mutations != 0 {
 		t.Fatal(replies, mutations)
 	}
-	reply, err := c.Reply(context.Background(), key, "thread1", "evidence\n  exact")
+	reply, err := c.Discussions().Reply(context.Background(), key, "thread1", "evidence\n  exact")
 	if err != nil || reply.Comment.ID != "10" || reply.Comment.Body != "evidence\n  exact" {
 		t.Fatal(reply, err)
 	}
 	for range 2 {
-		thread, err := c.ResolveDiscussion(context.Background(), key, "thread1")
+		thread, err := c.Discussions().Resolve(context.Background(), key, "thread1")
 		if err != nil || thread.Resolution != "resolved" {
 			t.Fatal(thread, err)
 		}
@@ -185,22 +188,22 @@ func TestDiscussionsGitLabLifecycleAndSystemNotes(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(testGitLabDiscussion("created", false))
 	}))
 	defer server.Close()
-	c, _ := NewClient(Config{Host: "gitlab.com", APIHost: server.URL, Token: "fixture"})
-	key := Key{c.Repository("group/repo"), 7}
-	threads, err := c.Discussions(context.Background(), key)
+	c, _ := forge.NewClient(forge.Config{Host: "gitlab.com", APIHost: server.URL, Token: "fixture"})
+	key := model.Key{Repository: c.Repository("group/repo"), Number: 7}
+	threads, err := c.Discussions().List(context.Background(), key)
 	if err != nil || len(threads) != 1 || len(threads[0].Comments) != 2 || threads[0].Comments[0].Path != "old.go" {
 		t.Fatal(threads, err)
 	}
-	created, err := c.CreateComment(context.Background(), key, "message")
+	created, err := c.Discussions().Create(context.Background(), key, "message")
 	if err != nil || created.ID != "created" {
 		t.Fatal(created, err)
 	}
-	reply, err := c.Reply(context.Background(), key, "thread1", "reply")
+	reply, err := c.Discussions().Reply(context.Background(), key, "thread1", "reply")
 	if err != nil || reply.ThreadID != "thread1" || reply.Comment.ID != "10" {
 		t.Fatal(reply, err)
 	}
 	for range 2 {
-		thread, err := c.ResolveDiscussion(context.Background(), key, "thread1")
+		thread, err := c.Discussions().Resolve(context.Background(), key, "thread1")
 		if err != nil || thread.Resolution != "resolved" {
 			t.Fatal(thread, err)
 		}
@@ -215,8 +218,8 @@ func TestDiscussionFailureNeverBecomesEmptySuccessOrRetries(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { fmt.Fprint(w, body) }))
 			defer server.Close()
-			c, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
-			rows, err := c.Discussions(context.Background(), Key{c.Repository("acme/repo"), 7})
+			c, _ := forge.NewClient(forge.Config{Host: "github.com", APIHost: server.URL})
+			rows, err := c.Discussions().List(context.Background(), model.Key{Repository: c.Repository("acme/repo"), Number: 7})
 			if err == nil || rows != nil {
 				t.Fatal(rows, err)
 			}
@@ -229,8 +232,8 @@ func TestDiscussionFailureNeverBecomesEmptySuccessOrRetries(t *testing.T) {
 	for _, response := range []string{`{}`, `{"id":"created","individual_note":false,"notes":[]}`} {
 		calls := 0
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; fmt.Fprint(w, response) }))
-		c, _ := NewClient(Config{Host: "gitlab.com", APIHost: server.URL})
-		_, err := c.CreateComment(context.Background(), Key{c.Repository("group/repo"), 7}, "message")
+		c, _ := forge.NewClient(forge.Config{Host: "gitlab.com", APIHost: server.URL})
+		_, err := c.Discussions().Create(context.Background(), model.Key{Repository: c.Repository("group/repo"), Number: 7}, "message")
 		server.Close()
 		var problem *errs.Error
 		if !errors.As(err, &problem) || !problem.Uncertain || calls != 1 {
@@ -249,8 +252,8 @@ func TestDiscussionGraphQLReadFailureAndEnterpriseEndpoint(t *testing.T) {
 		w.WriteHeader(503)
 	}))
 	defer server.Close()
-	c, _ := NewClient(Config{Host: "github.example.org", Provider: "github", APIHost: server.URL + "/api/v3"})
-	_, err := c.Discussions(context.Background(), Key{c.Repository("acme/repo"), 7})
+	c, _ := forge.NewClient(forge.Config{Host: "github.example.org", Provider: "github", APIHost: server.URL + "/api/v3"})
+	_, err := c.Discussions().List(context.Background(), model.Key{Repository: c.Repository("acme/repo"), Number: 7})
 	var problem *errs.Error
 	if !errors.As(err, &problem) || problem.Uncertain || calls != 1 {
 		t.Fatal(err, calls)
@@ -272,8 +275,8 @@ func TestDiscussionLaterPageFailureReturnsNoPartialList(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(rows)
 	}))
 	defer server.Close()
-	c, _ := NewClient(Config{Host: "gitlab.com", APIHost: server.URL})
-	rows, err := c.Discussions(context.Background(), Key{c.Repository("group/repo"), 7})
+	c, _ := forge.NewClient(forge.Config{Host: "gitlab.com", APIHost: server.URL})
+	rows, err := c.Discussions().List(context.Background(), model.Key{Repository: c.Repository("group/repo"), Number: 7})
 	if err == nil || rows != nil || calls != 2 {
 		t.Fatal(rows, err, calls)
 	}
@@ -289,7 +292,7 @@ func TestDiscussionGitHubCreateRequiresPRAndAcknowledgement(t *testing.T) {
 				w.WriteHeader(404)
 				return
 			}
-			fmt.Fprint(w, githubFixture(7, "open"))
+			fmt.Fprint(w, `{"number":7,"title":"fixture","state":"open","html_url":"https://github.com/acme/repo/pull/7","head":{"sha":"abc","ref":"topic","repo":{"full_name":"acme/repo"}},"base":{"ref":"main","repo":{"full_name":"acme/repo"}}}`)
 			return
 		}
 		writes++
@@ -300,20 +303,55 @@ func TestDiscussionGitHubCreateRequiresPRAndAcknowledgement(t *testing.T) {
 		_ = json.NewEncoder(w).Encode(testGitHubComment(10, 0, "message"))
 	}))
 	defer server.Close()
-	c, _ := NewClient(Config{Host: "github.com", APIHost: server.URL})
-	key := Key{c.Repository("acme/repo"), 7}
-	if _, err := c.CreateComment(context.Background(), key, "message"); err == nil || writes != 0 {
+	c, _ := forge.NewClient(forge.Config{Host: "github.com", APIHost: server.URL})
+	key := model.Key{Repository: c.Repository("acme/repo"), Number: 7}
+	if _, err := c.Discussions().Create(context.Background(), key, "message"); err == nil || writes != 0 {
 		t.Fatal(err, writes)
 	}
 	exists = true
-	thread, err := c.CreateComment(context.Background(), key, "message")
+	thread, err := c.Discussions().Create(context.Background(), key, "message")
 	if err != nil || thread.ID != "issue:10" || thread.Replyable || thread.Resolvable {
 		t.Fatal(thread, err)
 	}
 	malformed = true
-	_, err = c.CreateComment(context.Background(), key, "message")
+	_, err = c.Discussions().Create(context.Background(), key, "message")
 	var problem *errs.Error
 	if !errors.As(err, &problem) || !problem.Uncertain || writes != 2 {
 		t.Fatal(err, writes)
+	}
+}
+
+// +case=PR lifecycle and discussion requests share the same rate-limit cooldown in both directions
+func TestDiscussionSharesConnectionCooldown(t *testing.T) {
+	for _, discussionFirst := range []bool{false, true} {
+		t.Run(fmt.Sprint(discussionFirst), func(t *testing.T) {
+			calls := 0
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				w.Header().Set("Retry-After", "60")
+				w.WriteHeader(http.StatusTooManyRequests)
+			}))
+			defer server.Close()
+			client, err := forge.NewClient(forge.Config{Host: "github.com", APIHost: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			key := model.Key{Repository: client.Repository("acme/repo"), Number: 7}
+			readPR := func() error { _, err := client.Get(context.Background(), key.Repository.Path, key.Number); return err }
+			readDiscussion := func() error { _, err := client.Discussions().List(context.Background(), key); return err }
+			operations := []func() error{readPR, readDiscussion}
+			if discussionFirst {
+				operations[0], operations[1] = operations[1], operations[0]
+			}
+			for _, operation := range operations {
+				var problem *errs.Error
+				if err := operation(); !errors.As(err, &problem) || problem.Code != "forge.rate_limited" || problem.RetryAt == nil {
+					t.Fatalf("expected shared cooldown: %v", err)
+				}
+			}
+			if calls != 1 {
+				t.Fatalf("cooldown allowed %d HTTP requests", calls)
+			}
+		})
 	}
 }

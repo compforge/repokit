@@ -419,8 +419,15 @@ Python remains an independently usable toolkit; its former console entry point i
 
 ## PR discussions
 
-Go `forge.Client` 提供 `Discussions`、`Discussion`、`CreateComment`、`Reply` 和
-`ResolveDiscussion`。讨论属于明确的 PR `Key`；thread ID 与 comment ID 是不同的 opaque
+CLI 的 PR 生命周期与讨论命令归 `apps/cli/internal/cli/pr`，根命令负责注册和统一结果封装；
+`cli/command` 提供共享选项与结果记录契约，`cli/forgeaccess` 装配 PR 和清理共用的 Forge 访问。
+工具包的讨论模型、查询与写入归 `forge/discussion`，PR 生命周期仍归 `forge`。
+两者通过 `forge/model` 共享 PR 身份，通过 `forge/internal/transport` 共享凭据、HTTP 客户端、
+响应限制和限流冷却；讨论服务由 `forge.Client` 装配，不反向依赖父包。GitHub 评论创建前复用
+PR 实时读取核验，讨论操作不触发 worktree maintenance。
+
+Go `forge.Client.Discussions()` 返回 `forge/discussion.Service`，提供 `List`、`Get`、
+`Create`、`Reply` 和 `Resolve`。讨论属于明确的 PR `forge/model.Key`；thread ID 与 comment ID 是不同的 opaque
 标识。GitHub review thread 使用平台 node ID，普通 conversation comment 的 thread ID 为
 `issue:<comment-id>`；GitLab 使用 discussion ID。调用方使用返回的 ID，不自行转换。
 

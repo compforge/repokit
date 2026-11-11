@@ -1,4 +1,4 @@
-package forge
+package discussion
 
 import (
 	"context"
@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/internal/transport"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
 type githubComment struct {
@@ -38,13 +40,13 @@ func (w githubComment) comment() (Comment, error) {
 	return Comment{ID: string(w.ID), Body: *w.Body, Author: w.User.Login, CreatedAt: w.CreatedAt, URL: w.URL, Path: w.Path, Line: line}, nil
 }
 
-func (c *Client) graphql(ctx context.Context, query string, variables map[string]any, dest any, write bool) error {
+func (c *Service) graphql(ctx context.Context, query string, variables map[string]any, dest any, write bool) error {
 	var response struct {
 		Data   json.RawMessage   `json:"data"`
 		Errors []json.RawMessage `json:"errors"`
 	}
-	endpoint := strings.TrimSuffix(c.base, "/v3") + "/graphql"
-	if err := c.requestURL(ctx, http.MethodPost, endpoint, map[string]any{"query": query, "variables": variables}, &response, write); err != nil {
+	endpoint := strings.TrimSuffix(c.connection.Base(), "/v3") + "/graphql"
+	if err := c.connection.RequestURL(ctx, http.MethodPost, endpoint, map[string]any{"query": query, "variables": variables}, &response, write); err != nil {
 		return err
 	}
 	var err error
@@ -56,7 +58,7 @@ func (c *Client) graphql(ctx context.Context, query string, variables map[string
 		err = json.Unmarshal(response.Data, dest)
 	}
 	if err != nil && write {
-		return unknownFailure(err)
+		return transport.UnknownFailure(err)
 	}
 	return err
 }
@@ -71,7 +73,7 @@ type githubThread struct {
 	} `json:"comments"`
 }
 
-func (c *Client) githubThreads(ctx context.Context, key Key) ([]githubThread, error) {
+func (c *Service) githubThreads(ctx context.Context, key model.Key) ([]githubThread, error) {
 	owner, name, ok := strings.Cut(key.Repository.Path, "/")
 	if !ok || owner == "" || name == "" || strings.Contains(name, "/") {
 		return nil, errors.New("invalid GitHub repository path")
@@ -125,11 +127,11 @@ func (c *Client) githubThreads(ctx context.Context, key Key) ([]githubThread, er
 	return nil, errors.New("GitHub thread list exceeds 100 pages")
 }
 
-func (c *Client) githubCommentPages(ctx context.Context, path string) ([]githubComment, error) {
+func (c *Service) githubCommentPages(ctx context.Context, path string) ([]githubComment, error) {
 	result := []githubComment{}
 	for page := 1; page <= 100; page++ {
 		var rows []githubComment
-		if err := c.request(ctx, "GET", path+"?per_page=100&page="+strconv.Itoa(page), nil, &rows); err != nil {
+		if err := c.connection.Request(ctx, "GET", path+"?per_page=100&page="+strconv.Itoa(page), nil, &rows); err != nil {
 			return nil, err
 		}
 		if rows == nil {
@@ -143,16 +145,16 @@ func (c *Client) githubCommentPages(ctx context.Context, path string) ([]githubC
 	return nil, errors.New("GitHub comment list exceeds 10000 items")
 }
 
-func (c *Client) githubDiscussions(ctx context.Context, key Key) ([]Discussion, error) {
+func (c *Service) githubList(ctx context.Context, key model.Key) ([]Discussion, error) {
 	threads, err := c.githubThreads(ctx, key)
 	if err != nil {
 		return nil, err
 	}
-	issue, err := c.githubCommentPages(ctx, c.repositoryPath(key.Repository.Path)+"/issues/"+strconv.Itoa(key.Number)+"/comments")
+	issue, err := c.githubCommentPages(ctx, c.connection.RepositoryPath(key.Repository.Path)+"/issues/"+strconv.Itoa(key.Number)+"/comments")
 	if err != nil {
 		return nil, err
 	}
-	review, err := c.githubCommentPages(ctx, c.prPath(key.Repository.Path, key.Number)+"/comments")
+	review, err := c.githubCommentPages(ctx, c.connection.PRPath(key.Repository.Path, key.Number)+"/comments")
 	if err != nil {
 		return nil, err
 	}

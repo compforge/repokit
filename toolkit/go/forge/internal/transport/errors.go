@@ -1,4 +1,4 @@
-package forge
+package transport
 
 import (
 	"errors"
@@ -8,7 +8,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go/errs"
 )
 
-func httpFailure(status int, retryAt *time.Time) *errs.Error {
+func HTTPFailure(status int, retryAt *time.Time) *errs.Error {
 	code := "forge.http_error"
 	switch status {
 	case 401:
@@ -29,7 +29,7 @@ func httpFailure(status int, retryAt *time.Time) *errs.Error {
 }
 
 // +spec=Uncertain writes retain their transport evidence and require reconciliation before another write
-func unknownFailure(err error) *errs.Error {
+func UnknownFailure(err error) *errs.Error {
 	result := &errs.Error{}
 	var upstream *errs.Error
 	if errors.As(err, &upstream) {

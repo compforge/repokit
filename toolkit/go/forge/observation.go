@@ -16,6 +16,7 @@ import (
 
 	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/repokit/toolkit/go/errs"
+	"github.com/compforge/repokit/toolkit/go/forge/model"
 	repostate "github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -26,7 +27,7 @@ type observedPR struct {
 	DetailsComplete bool              `json:"detailsComplete,omitempty"`
 }
 type prObservation struct {
-	Key           Key             `json:"key"`
+	Key           model.Key       `json:"key"`
 	Snapshot      *observedPR     `json:"snapshot,omitempty"`
 	ObservedAt    time.Time       `json:"observedAt"`
 	AttemptedAt   time.Time       `json:"attemptedAt"`
@@ -50,7 +51,7 @@ func (c *Client) Load(ctx context.Context, repository string, number int, maxAge
 	if maxAge < 0 || number < 1 || repository == "" {
 		return PullRequest{}, errors.New("invalid PR observation request")
 	}
-	key := Key{c.Repository(repository), number}
+	key := model.Key{Repository: c.Repository(repository), Number: number}
 	directory, path, connection := c.observationLocation(key)
 	if err := repostate.RecordRepositoryAccess(ctx, c.config.Home, filepath.Base(directory)); err != nil {
 		return PullRequest{}, err
@@ -81,10 +82,10 @@ func (c *Client) Load(ctx context.Context, repository string, number int, maxAge
 
 // observationLocation uses the Python/TS connection identity for equivalent provider endpoints.
 // +spec=`Each connection owns its refresh and discovery record; other connections are never overwritten.`
-func (c *Client) observationLocation(key Key) (directory, path, connection string) {
+func (c *Client) observationLocation(key model.Key) (directory, path, connection string) {
 	endpoint := c.config.Host
 	if c.config.APIHost != "" {
-		endpoint = c.base
+		endpoint = c.transport.Base()
 		suffix := "/api/v4"
 		if c.config.Provider == "github" {
 			suffix = "/api/v3"
@@ -107,7 +108,7 @@ func observationDigest(value any) string {
 	_ = encoder.Encode(value)
 	return fmt.Sprintf("%x", sha256.Sum256(bytes.TrimSuffix(buffer.Bytes(), []byte("\n"))))
 }
-func (c *Client) readObservation(key Key, path, connection string) (prRecord, bool, error) {
+func (c *Client) readObservation(key model.Key, path, connection string) (prRecord, bool, error) {
 	var record prRecord
 	found, err := repostate.Read(path, &record)
 	if err != nil || !found {
@@ -119,7 +120,7 @@ func (c *Client) readObservation(key Key, path, connection string) (prRecord, bo
 	return record, true, nil
 }
 
-func (c *Client) writeObservation(key Key, pr PullRequest, previous prRecord, directory, path, connection string, owned func() error) error {
+func (c *Client) writeObservation(key model.Key, pr PullRequest, previous prRecord, directory, path, connection string, owned func() error) error {
 	now := time.Now().UTC()
 	observation := prObservation{Key: key, Snapshot: &observedPR{pr, key.Repository, key.Number, true}, ObservedAt: now, AttemptedAt: now}
 	if pr.State != "merged" {
@@ -140,7 +141,7 @@ func (c *Client) writeObservation(key Key, pr PullRequest, previous prRecord, di
 // mutate publishes confirmed writes under the same lease as reads. Cache maintenance
 // failures must not turn a successful remote mutation into a retryable remote failure.
 // +spec=`Successful writes replace cached metadata and preserve discovery membership. Storage diagnostics never authorize repeating a remote write.`
-func (c *Client) mutate(ctx context.Context, key Key, operation func() (PullRequest, error)) (PullRequest, error) {
+func (c *Client) mutate(ctx context.Context, key model.Key, operation func() (PullRequest, error)) (PullRequest, error) {
 	directory, path, connection := c.observationLocation(key)
 	if err := repostate.RecordRepositoryAccess(ctx, c.config.Home, filepath.Base(directory)); err != nil {
 		return PullRequest{}, err

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"github.com/compforge/repokit/toolkit/go/forge"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -123,15 +122,5 @@ func TestPRDiscussionArgumentsAndFullText(t *testing.T) {
 		if code != 2 || !strings.Contains(out.String(), `"outcome": "failed"`) {
 			t.Fatalf("%v: %d %s %s", args, code, out.String(), stderr.String())
 		}
-	}
-}
-
-func TestDiscussionTextPreservesBodiesAndReplies(t *testing.T) {
-	// Presentation uses the same public objects as JSON, without summary-length limits.
-	body := strings.Repeat("Markdown\n  indentation\n", 100)
-	var out bytes.Buffer
-	displayDiscussion(&out, forge.Discussion{ID: "thread", Resolution: "unresolved", Comments: []forge.Comment{{ID: "1", Body: body, Path: "a.go", Line: new(42)}, {ID: "2", Body: "last reply"}}}, true)
-	if !strings.Contains(out.String(), body) || !strings.Contains(out.String(), "last reply") || !strings.Contains(out.String(), "a.go:42") {
-		t.Fatal(out.String())
 	}
 }

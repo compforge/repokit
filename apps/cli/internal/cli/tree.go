@@ -4,29 +4,30 @@ import (
 	"context"
 	"fmt"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newTreeCommand(opts *options) *cobra.Command {
+func newTreeCommand(opts *cmdutil.Options) *cobra.Command {
 	var head string
 	var staged bool
 	cmd := &cobra.Command{Use: "tree", Short: "List repository directories, files and known file roles", Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("timeout must be positive")
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 			defer cancel()
-			report, err := repokit.Tree(ctx, repokit.InputRequest{Repository: opts.repository, Head: head, Staged: staged})
+			report, err := repokit.Tree(ctx, repokit.InputRequest{Repository: opts.Repository, Head: head, Staged: staged})
 			if err != nil {
 				return executionFailure(err)
 			}
-			if !opts.json {
-				recordResult(cmd.OutOrStdout(), report)
+			if !opts.JSON {
+				cmdutil.Record(cmd.OutOrStdout(), report)
 			}
-			if opts.json {
-				return writeJSON(cmd.OutOrStdout(), report)
+			if opts.JSON {
+				return cmdutil.JSON(cmd.OutOrStdout(), report)
 			}
 			for _, dir := range report.Directories {
 				if _, err = fmt.Fprintf(cmd.OutOrStdout(), "directory %s\n", dir.Path); err != nil {

@@ -10,7 +10,10 @@ CLI 是 Go 工具包的消费方，负责命令行交互和本地 viewer；通�
 ```text
 cmd/repocli/       # 启动、信号、版本与退出
 internal/
-├── cli/           # Cobra 命令、结果展示、执行日志与 JSONL 历史
+├── cli/           # 根命令、结果封装、执行日志与 JSONL 历史
+│   ├── pr/        # PR 生命周期和 discussion 命令及展示
+│   ├── command/   # 共享选项与结果记录契约
+│   └── forgeaccess/ # PR / cleanup 共用的 Forge 访问装配
 ├── stats/         # CLI 日志与存储统计；验证历史通过工具包公共 API 读取
 ├── upgrade/       # 显式 Release 查询、checksum 验证与原子安装
 └── viewer/        # HTTP 服务、静态页面及 GraphSnapshot 展示

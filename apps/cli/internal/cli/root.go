@@ -8,6 +8,8 @@ import (
 	"io"
 	"time"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/apps/cli/internal/cli/pr"
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -17,16 +19,9 @@ import (
 // Version is supplied by the executable through build flags or module build information.
 var Version = "dev"
 
-type options struct {
-	home       string
-	repository string
-	json       bool
-	timeout    time.Duration
-}
-
 // Execute runs a fresh command tree so flags and streams never leak between calls.
 func Execute(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return execute(ctx, newRootCommand(&options{}), args, stdin, stdout, stderr)
+	return execute(ctx, newRootCommand(&cmdutil.Options{}), args, stdin, stdout, stderr)
 }
 
 // Keep the execution boundary independent of subcommand handlers: new commands,
@@ -95,7 +90,7 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	return code
 }
 
-func newRootCommand(opts *options) *cobra.Command {
+func newRootCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "repocli",
 		Version:       Version,
@@ -104,13 +99,13 @@ func newRootCommand(opts *options) *cobra.Command {
 		SilenceUsage:  true,
 	}
 	flags := root.PersistentFlags()
-	flags.StringVar(&opts.home, "home", "", "RepoKit user home (REPOKIT_HOME or ~/.repokit)")
-	flags.StringVar(&opts.repository, "repo", ".", "repository directory")
-	flags.BoolVar(&opts.json, "json", false, "write structured JSON to stdout")
-	flags.DurationVar(&opts.timeout, "timeout", 2*time.Minute, "command deadline")
+	flags.StringVar(&opts.Home, "home", "", "RepoKit user home (REPOKIT_HOME or ~/.repokit)")
+	flags.StringVar(&opts.Repository, "repo", ".", "repository directory")
+	flags.BoolVar(&opts.JSON, "json", false, "write structured JSON to stdout")
+	flags.DurationVar(&opts.Timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
 	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
-	root.AddCommand(newWorktreeCommand(opts), newPRCommand(opts))
+	root.AddCommand(newWorktreeCommand(opts), pr.NewCommand(opts))
 	root.AddCommand(newValidationCommand(opts, "format"), newValidationCommand(opts, "validate"), newValidationCommand(opts, "lint"), newValidationCommand(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
 	trackRepositoryCommands(root, opts)
 	return root
@@ -139,7 +134,7 @@ func logCommandHandlers(command *cobra.Command, start func()) {
 }
 
 // Repository commands renew only their selected checkout. Maintenance and statistics never do.
-func trackRepositoryCommands(root *cobra.Command, opts *options) {
+func trackRepositoryCommands(root *cobra.Command, opts *cmdutil.Options) {
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
 		if cmd.Name() == "clean" {
@@ -147,19 +142,19 @@ func trackRepositoryCommands(root *cobra.Command, opts *options) {
 		}
 		if run := cmd.RunE; run != nil {
 			cmd.RunE = func(cmd *cobra.Command, args []string) error {
-				ctx, cancel := context.WithTimeout(cmd.Context(), opts.timeout)
+				ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 				var accessErr error
 				history, _ := cmd.Flags().GetBool("history")
 				if !history {
-					accessErr = state.RecordAccess(ctx, opts.repository, opts.home)
+					accessErr = state.RecordAccess(ctx, opts.Repository, opts.Home)
 				}
 				cancel()
 				err := run(cmd, args)
 				if accessErr != nil && err == nil {
 					if output, ok := cmd.OutOrStdout().(*resultOutput); ok {
-						output.result.Diagnostics = append(output.result.Diagnostics, diagnostic{Code: "state.access_unavailable", Severity: "warning", Phase: "observation", Subject: opts.repository, Message: accessErr.Error()})
+						output.result.Diagnostics = append(output.result.Diagnostics, diagnostic{Code: "state.access_unavailable", Severity: "warning", Phase: "observation", Subject: opts.Repository, Message: accessErr.Error()})
 					}
-					if !opts.json {
+					if !opts.JSON {
 						fmt.Fprintln(cmd.ErrOrStderr(), "warning: access record unavailable:", accessErr)
 					}
 				}

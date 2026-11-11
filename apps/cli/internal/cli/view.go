@@ -4,12 +4,13 @@ import (
 	"context"
 	"fmt"
 
+	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/apps/cli/internal/viewer"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/spf13/cobra"
 )
 
-func newViewCommand(opts *options) *cobra.Command {
+func newViewCommand(opts *cmdutil.Options) *cobra.Command {
 	var addr string
 	var maxDocuments int
 	command := &cobra.Command{
@@ -17,10 +18,10 @@ func newViewCommand(opts *options) *cobra.Command {
 		Long: "Capture tracked and non-ignored working-tree files and browse their code graph.\nThe page and graph renderer are embedded; no Node.js or external service is required.\nUse Refresh in the page to capture edits. --timeout bounds each build, not server lifetime.",
 		Args: cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
-			if opts.json {
+			if opts.JSON {
 				return fmt.Errorf("view serves a web UI; --json is not supported")
 			}
-			if opts.timeout <= 0 {
+			if opts.Timeout <= 0 {
 				return fmt.Errorf("--timeout must be positive")
 			}
 			if maxDocuments <= 0 {
@@ -30,9 +31,9 @@ func newViewCommand(opts *options) *cobra.Command {
 		},
 		RunE: func(command *cobra.Command, _ []string) error {
 			load := func(ctx context.Context) (*repokit.GraphSnapshot, error) {
-				buildCtx, cancel := context.WithTimeout(ctx, opts.timeout)
+				buildCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 				defer cancel()
-				return repokit.Graph(buildCtx, repokit.InputRequest{Repository: opts.repository}, maxDocuments)
+				return repokit.Graph(buildCtx, repokit.InputRequest{Repository: opts.Repository}, maxDocuments)
 			}
 			if err := viewer.Run(command.Context(), addr, load, command.OutOrStdout()); err != nil {
 				return executionFailure(err)
