@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/state"
 )
 
 func TestCleanEnvelopeDryRunAndPartialFailure(t *testing.T) {
@@ -92,4 +94,69 @@ func TestRepositoryCommandRecordsSelectedCheckoutAccess(t *testing.T) {
 		t.Fatal("history query renewed access")
 	}
 
+}
+
+// +case=A PR connection error appears on stderr, rather than only the final generic cleanup failure.
+func TestCleanTextReportsPRConnectionError(t *testing.T) {
+	repo := fixture(t)
+	home := t.TempDir()
+	t.Setenv("GH_TOKEN", "")
+	t.Setenv("GITHUB_TOKEN", "")
+	gitCommand(t, repo, "remote", "add", "origin", "https://github.com/example/cleanup-fixture.git")
+	if _, err := state.Observe(context.Background(), repo, home, false); err != nil {
+		t.Fatal(err)
+	}
+	for _, structured := range []bool{false, true} {
+		args := []string{"clean", "--repo", repo, "--home", home, "--dry-run"}
+		if structured {
+			args = append(args, "--json")
+		}
+		var out, stderr bytes.Buffer
+		code := Execute(context.Background(), args, nil, &out, &stderr)
+		if code != 1 {
+			t.Fatal(code, out.String(), stderr.String())
+		}
+		if structured {
+			var result commandResult
+			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Outcome != "partial" || len(result.Diagnostics) != 1 || !strings.Contains(result.Diagnostics[0].Message, "no github credential") {
+				t.Fatal(result)
+			}
+			if strings.Contains(stderr.String(), "error:") {
+				t.Fatal("text errors leaked into JSON mode", stderr.String())
+			}
+		} else if !strings.Contains(stderr.String(), "PR status unavailable") || !strings.Contains(stderr.String(), "no github credential") || !strings.Contains(stderr.String(), repo) || !strings.Contains(stderr.String(), "cleanup incomplete") {
+			t.Fatal("missing cleanup cause", stderr.String())
+		}
+	}
+}
+
+// +case=Retaining recently written or locked state is a successful skip, not incomplete cleanup.
+func TestCleanTextStateProtectionIsNotFailure(t *testing.T) {
+	for _, reason := range []string{"recent_state_write", "state_locked"} {
+		t.Run(reason, func(t *testing.T) {
+			home := t.TempDir()
+			directory := filepath.Join(home, "repositories", "idle")
+			if err := os.MkdirAll(directory, 0700); err != nil {
+				t.Fatal(err)
+			}
+			if reason == "state_locked" {
+				if err := os.Mkdir(filepath.Join(directory, "topology.lock"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			} else if err := os.WriteFile(filepath.Join(directory, "observation.json"), []byte("{}"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			var out, stderr bytes.Buffer
+			code := Execute(context.Background(), []string{"clean", "--home", home, "--dry-run"}, nil, &out, &stderr)
+			if code != 0 || !strings.Contains(out.String(), reason) || strings.Contains(stderr.String(), "cleanup incomplete") {
+				t.Fatal(code, out.String(), stderr.String())
+			}
+			if _, err := os.Stat(directory); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

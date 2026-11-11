@@ -43,6 +43,10 @@ func newCleanCommand(opts *options) *cobra.Command {
 				for _, a := range report.Actions {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s (%s; %d estimated bytes)\n", a.Status, a.Action, a.Path, a.Reason, a.EstimatedBytes)
 				}
+				// +spec=Partial cleanup failures must expose their causes in text as well as JSON.
+				for _, issue := range report.Errors {
+					fmt.Fprintln(cmd.ErrOrStderr(), "error:", issue)
+				}
 			}
 			if err != nil {
 				return executionFailure(err)
