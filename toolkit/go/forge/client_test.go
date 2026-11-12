@@ -7,12 +7,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/forge/model"
+	"github.com/compforge/repokit/toolkit/go/state"
 )
 
 func githubFixture(number int, state string) string {
@@ -137,7 +140,8 @@ func TestRateLimitCooldown(t *testing.T) {
 	}
 }
 
-func TestContextCreateReusesOpenPRWithoutMaintenance(t *testing.T) {
+// +case=PR create, reuse and update preserve an eligible worktree and perform no maintenance queries.
+func TestContextPRWritesDoNotMaintainWorktrees(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -150,14 +154,43 @@ func TestContextCreateReusesOpenPRWithoutMaintenance(t *testing.T) {
 	git("remote", "add", "origin", "https://github.com/acme/repo.git")
 	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "initial")
 
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	stale := filepath.Join(t.TempDir(), "stale")
+	git("worktree", "add", "-q", "-b", "stale", stale, "HEAD")
+	if err := state.SaveWorktreePolicy(context.Background(), root, home, state.WorktreePolicy{}); err != nil {
+		t.Fatal(err)
+	}
+	// Prove the fixture would be reclaimed if PR writes invoked maintenance.
+	plan, err := state.CleanWorktrees(context.Background(), root, state.WorktreeCleanOptions{Home: home, DryRun: true})
+	if err != nil || len(plan.Errors) != 0 || len(plan.Actions) != 1 || plan.Actions[0].Action != "remove_worktree" || plan.Actions[0].Status != "planned" || plan.Actions[0].Branch != "stale" {
+		t.Fatalf("fixture is not eligible for cleanup: %+v %v", plan, err)
+	}
+	assertRetained := func() {
+		t.Helper()
+		if _, err := os.Stat(filepath.Join(stale, ".git")); err != nil {
+			t.Fatalf("PR write reclaimed worktree: %v", err)
+		}
+	}
 	created := false
+	updates := 0
 	writes := 0
 	reads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" {
+		if r.Method == "PATCH" && r.URL.Path == "/repos/acme/repo/pulls/1" {
+			updates++
+			fmt.Fprint(w, githubFixture(1, "open"))
+			return
+		}
+		if r.Method == "POST" && r.URL.Path == "/repos/acme/repo/pulls" {
 			created = true
 			writes++
 			fmt.Fprint(w, githubFixture(1, "open"))
+			return
+		}
+		if r.Method != "GET" || r.URL.Path != "/repos/acme/repo/pulls" || r.URL.Query().Get("state") != "open" || r.URL.Query().Get("head") != "acme:topic" {
+			t.Errorf("unexpected maintenance request: %s %s", r.Method, r.URL)
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 		reads++
@@ -179,9 +212,15 @@ func TestContextCreateReusesOpenPRWithoutMaintenance(t *testing.T) {
 		if err != nil || result.Created != (i == 0) {
 			t.Fatal(result, err)
 		}
+		assertRetained()
 	}
-	if writes != 1 || reads != 2 {
-		t.Fatal("duplicate creation", writes)
+	title := "updated"
+	if _, err := ctx.Update(context.Background(), model.Key{Repository: client.Repository("acme/repo"), Number: 1}, UpdateRequest{Title: &title}); err != nil {
+		t.Fatal(err)
+	}
+	assertRetained()
+	if writes != 1 || reads != 2 || updates != 1 {
+		t.Fatal("unexpected PR requests", writes, reads, updates)
 	}
 }
 
