@@ -55,6 +55,11 @@ func TestGitCommitCLI(t *testing.T) {
 	if code == 0 || r["data"].(map[string]any)["attempted"] != false {
 		t.Fatal("stale replay", code, r)
 	}
+	for _, key := range []string{"branch", "head", "tree", "indexFingerprint"} {
+		if r["data"].(map[string]any)[key] != p[key] {
+			t.Fatalf("stale plan changed %s: %v", key, r)
+		}
+	}
 }
 
 // +case=Text plan exposes every required create argument; text recovery includes actual identity and empty/attempted state without requiring JSON.
@@ -92,6 +97,17 @@ func TestGitCommitTextWorkflow(t *testing.T) {
 	created := run(append([]string{"create", "--mode", "files", "--file", "selected", "--index-fingerprint", field(planned, "indexFingerprint"), "--message", "text workflow"}, identity...)...)
 	if !strings.Contains(created, "confirmed=true indexInstalled=true") || field(created, "actualTree") != field(planned, "tree") || !strings.Contains(created, "parents=["+field(planned, "head")+"]") {
 		t.Fatal(created)
+	}
+	var replay, replayErr bytes.Buffer
+	replayArgs := append([]string{"git", "commit", "create", "--mode", "files", "--file", "selected", "--index-fingerprint", field(planned, "indexFingerprint"), "--message", "stale"}, identity...)
+	code := Execute(context.Background(), append(replayArgs, "--repo", repo, "--home", home), nil, &replay, &replayErr)
+	if code == 0 || !strings.Contains(replay.String(), "attempted=false") {
+		t.Fatal(code, replay.String(), replayErr.String())
+	}
+	for _, key := range []string{"branch", "head", "tree", "indexFingerprint"} {
+		if field(replay.String(), key) != field(planned, key) {
+			t.Fatalf("stale plan changed %s: %s", key, replay.String())
+		}
 	}
 	checked := run(append([]string{"check"}, identity...)...)
 	if field(checked, "commit") != field(created, "commit") || !strings.Contains(checked, "attempted=false confirmed=true") {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -334,6 +335,35 @@ func TestCheckUnconfirmedIntent(t *testing.T) {
 				if kind == "different_parent" && r.ActualTree != p.Tree {
 					t.Fatal("fixture must isolate parent mismatch")
 				}
+			}
+		})
+	}
+}
+
+// +case=Stale branch, parent, index and selected content never replace the requested recovery intent or write the index.
+func TestCreateRetainsStaleIntent(t *testing.T) {
+	for _, kind := range []string{"branch", "head", "index", "tree"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := fixture(t)
+			put(t, repo, "a", "selected\n")
+			p := plan(t, repo, Selection{Mode: "files", Paths: []string{"a"}})
+			switch kind {
+			case "branch":
+				git(t, repo, "checkout", "-qb", "other")
+			case "head":
+				git(t, repo, "commit", "--allow-empty", "-qm", "advanced")
+			case "index":
+				git(t, repo, "add", "a")
+			case "tree":
+				put(t, repo, "a", "changed again\n")
+			}
+			before, head := bytes(t, repo), git(t, repo, "rev-parse", "HEAD")
+			r, err := Create(context.Background(), repo, Options{Intent: p.Intent, Message: "stale"})
+			if err == nil || r.Attempted || r.Confirmed || !reflect.DeepEqual(r.Intent, p.Intent) {
+				t.Fatal(r, err)
+			}
+			if bytes(t, repo) != before || git(t, repo, "rev-parse", "HEAD") != head {
+				t.Fatal("stale intent changed index or HEAD")
 			}
 		})
 	}
