@@ -94,8 +94,8 @@ func runResultCommand(t *testing.T, data any, err error, stdout io.Writer) (int,
 	return code, stderr.String()
 }
 
-// +case=Confirmed PR creation reports only PR effects and does not include resource maintenance
-func TestPRWriteResultHasNoMaintenance(t *testing.T) {
+// +case=PR creation evidence remains present in the successful CLI envelope
+func TestPRWriteResultPreservesCreation(t *testing.T) {
 	v := forge.OperationResult{Created: true}
 	var out bytes.Buffer
 	code, stderr := runResultCommand(t, v, nil, &out)
