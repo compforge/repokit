@@ -54,7 +54,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 				return executionFailure(err)
 			}
 			if len(report.Errors) > 0 {
-				return &resultFailure{"cleanup incomplete"}
+				return &resultFailure{Message: "cleanup incomplete"}
 			}
 			return nil
 		}}

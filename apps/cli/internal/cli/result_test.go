@@ -5,12 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"strings"
 	"testing"
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
+	validationcmd "github.com/compforge/repokit/apps/cli/internal/cli/validation"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/forge"
@@ -133,7 +133,7 @@ func TestUnknownWriteOutcome(t *testing.T) {
 func TestPartialWorktreeResultsRemainAvailable(t *testing.T) {
 	v := state.WorktreeCleanReport{Actions: []state.WorktreeAction{{Status: "completed", Path: "done"}, {Status: "failed", Path: "blocked", Reason: "denied"}}, Errors: []string{"denied"}}
 	var out bytes.Buffer
-	code, stderr := runResultCommand(t, v, &resultFailure{"maintenance incomplete"}, &out)
+	code, stderr := runResultCommand(t, v, &resultFailure{Message: "maintenance incomplete"}, &out)
 	if code != 1 || stderr != "" {
 		t.Fatal(code, stderr)
 	}
@@ -170,7 +170,7 @@ func TestValidationResultAndTextEvidence(t *testing.T) {
 		{Status: "failed", Diagnostic: "test failed", Stderr: strings.Repeat("noise\n", 50) + "assertion failed"},
 	}}}}
 	var out bytes.Buffer
-	code, stderr := runResultCommand(t, v, &resultFailure{"validation failed"}, &out)
+	code, stderr := runResultCommand(t, v, &resultFailure{Message: "validation failed"}, &out)
 	if code != 1 || stderr != "" {
 		t.Fatal(code, stderr)
 	}
@@ -180,7 +180,7 @@ func TestValidationResultAndTextEvidence(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	out.Reset()
-	if err := writeValidationText(&out, v); err != nil {
+	if err := validationcmd.WriteText(&out, v); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.HasPrefix(out.String(), "Validation passed=false") || strings.Contains(out.String(), "successful noise") || !strings.Contains(out.String(), "assertion failed") || !strings.Contains(out.String(), "display truncated") {
@@ -279,39 +279,5 @@ func TestCLIUsesToolkitErrorRepresentation(t *testing.T) {
 	result := &resultOutput{Writer: &out}
 	if code, _ := result.finish("fixture", original, 1, &text); code != 1 || text.String() != "repocli: "+original.Text()+"\n" {
 		t.Fatal(text.String())
-	}
-}
-
-// +case=Test details distinguish Go cache and whole-check reuse, bound text output, and never inflate current command cost.
-func TestValidationDetailedTimingPresentation(t *testing.T) {
-	check := repokit.CheckResult{Status: "passed", DurationSeconds: 2, TestTimings: []repokit.TestTiming{
-		{Package: "example/p", Status: "passed", DurationSeconds: 1.8},
-		{Package: "example/p", Test: "TestParent/child", Status: "passed", DurationSeconds: 0.125},
-		{Package: "example/cached", Test: "TestHistorical", Status: "passed", DurationSeconds: 99, Cached: true},
-	}}
-	var out bytes.Buffer
-	writeTestTimings(&out, check)
-	for _, want := range []string{"package 1.800s", "TestParent/child", "Go cache; historical result", "overlap"} {
-		if !strings.Contains(out.String(), want) {
-			t.Fatalf("missing %q: %s", want, &out)
-		}
-	}
-	if check.TestTimings[0].Test != "" {
-		t.Fatal("presentation reordered evidence")
-	}
-	check.Reused = true
-	out.Reset()
-	writeTestTimings(&out, check)
-	if !strings.Contains(out.String(), "historical runner elapsed") || currentCheckCost(".", check, "").ExecutionSeconds != 0 {
-		t.Fatal(out.String())
-	}
-	check.TestTimings = nil
-	for i := 0; i < 20; i++ {
-		check.TestTimings = append(check.TestTimings, repokit.TestTiming{Package: "example/p", Test: fmt.Sprintf("Test%d", i), DurationSeconds: float64(i)})
-	}
-	out.Reset()
-	writeTestTimings(&out, check)
-	if strings.Count(out.String(), "    test ") != 10 {
-		t.Fatal(out.String())
 	}
 }

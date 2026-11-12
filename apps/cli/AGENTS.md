@@ -13,6 +13,7 @@ internal/
 ├── cli/           # 根命令、结果封装、执行日志与 JSONL 历史
 │   ├── git/       # 显式 Git 操作与 tag 发布
 │   ├── release/   # Forge Release 查询与创建
+│   ├── validation/ # 验证执行、历史查询与 text 展示；根 cli 组装统一结果
 │   ├── pr/        # PR 生命周期和 discussion 命令及展示
 │   ├── command/   # 共享选项与结果记录契约
 │   └── forgeaccess/ # PR / Release / cleanup 共用的 Forge 访问装配

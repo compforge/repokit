@@ -1,4 +1,4 @@
-package cli
+package validation
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +29,7 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 		if directory != "" {
 			return directory, nil
 		}
-		home, err := repositoryHome(opts.Home)
+		home, err := state.ResolveHome(opts.Home)
 		if err != nil {
 			return "", err
 		}
@@ -42,14 +43,14 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 			var err error
 			q.HistoryDir, err = historyDir()
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
 			q.Repository = opts.Repository
-			finish := measurePhase(cmd.OutOrStdout(), "history.query")
+			finish := cmdutil.MeasurePhase(cmd.OutOrStdout(), "history.query")
 			result, err := repokit.ListValidationRuns(ctx, q)
 			finish()
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
 			if opts.JSON {
 				return cmdutil.JSON(cmd.OutOrStdout(), result)
@@ -89,13 +90,13 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 			defer cancel()
 			directory, err := historyDir()
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
-			finish := measurePhase(cmd.OutOrStdout(), "history.query")
+			finish := cmdutil.MeasurePhase(cmd.OutOrStdout(), "history.query")
 			result, err := repokit.ReadValidationRun(ctx, directory, opts.Repository, args[0])
 			finish()
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
 			if opts.JSON {
 				err = cmdutil.JSON(cmd.OutOrStdout(), result)
@@ -107,7 +108,7 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 				return err
 			}
 			if !result.Complete {
-				return executionFailure(&resultFailure{"historical run evidence is incomplete"})
+				return cmdutil.ExecutionFailure(&cmdutil.ResultFailure{Message: "historical run evidence is incomplete"})
 			}
 			return nil
 		}}
@@ -151,7 +152,7 @@ func writeRunDetailText(w io.Writer, detail repokit.ValidationRunDetail) {
 	fmt.Fprintln(w, "Historical evidence does not establish a pass for current contents. No checks executed.")
 }
 
-func validationHistoryQuery(cmd *cobra.Command) bool {
+func IsHistoryQuery(cmd *cobra.Command) bool {
 	for ; cmd != nil; cmd = cmd.Parent() {
 		if cmd.Annotations["history-query"] == "true" {
 			return true
