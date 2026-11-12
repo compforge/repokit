@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"io"
 	"slices"
 	"text/tabwriter"
@@ -31,7 +32,7 @@ func newStatsCommand(opts *cmdutil.Options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				return errors.New("stats is global; use validate --history --repo <path> for one repository")
 			}
-			path, err := repositoryHome(opts.Home)
+			path, err := state.ResolveHome(opts.Home)
 			if err != nil {
 				return executionFailure(err)
 			}

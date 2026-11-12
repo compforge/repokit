@@ -1,4 +1,4 @@
-package cli
+package worktree
 
 import (
 	"context"
@@ -11,16 +11,16 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newWorktreeEnsureCommand(opts *cmdutil.Options) *cobra.Command {
+func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 	var branch, base, remote string
 	var prepare bool
 	cmd := &cobra.Command{Use: "ensure <path>", Short: "Create or reuse an exact checkout and branch without resetting work", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if opts.Timeout <= 0 || branch == "" || base == "" {
 			return errors.New("--branch, --base and a positive --timeout are required")
 		}
-		home, err := repositoryHome(opts.Home)
+		home, err := state.ResolveHome(opts.Home)
 		if err != nil {
-			return executionFailure(err)
+			return cmdutil.ExecutionFailure(err)
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 		defer cancel()
@@ -46,9 +46,9 @@ func newWorktreeEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 		}
 		if report.Confirmed && report.Preparation != nil && !report.Ready {
-			return &resultFailure{Message: "checkout confirmed; dependency preparation incomplete"}
+			return &cmdutil.ResultFailure{Message: "checkout confirmed; dependency preparation incomplete"}
 		}
-		return executionFailure(err)
+		return cmdutil.ExecutionFailure(err)
 	}}
 	cmd.Flags().BoolVar(&prepare, "prepare", false, "Prepare declared dependency Bins after confirming the checkout")
 	cmd.Flags().StringVar(&branch, "branch", "", "Exact local branch to create or resume")

@@ -14,6 +14,7 @@ import (
 	"github.com/compforge/repokit/apps/cli/internal/cli/pr"
 	releasecmd "github.com/compforge/repokit/apps/cli/internal/cli/release"
 	validationcmd "github.com/compforge/repokit/apps/cli/internal/cli/validation"
+	worktreecmd "github.com/compforge/repokit/apps/cli/internal/cli/worktree"
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -109,7 +110,7 @@ func newRootCommand(opts *cmdutil.Options) *cobra.Command {
 	flags.DurationVar(&opts.Timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
 	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
-	root.AddCommand(newWorktreeCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
+	root.AddCommand(worktreecmd.NewCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
 	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
 	trackRepositoryCommands(root, opts)
 	return root
