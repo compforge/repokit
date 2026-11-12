@@ -201,3 +201,32 @@ def test_prepared_worktree_decoder_retains_partial_bins_and_rejects_contradictio
     envelope["outcome"] = "succeeded"
     with pytest.raises(ValueError):
         repocli.worktree_result(envelope, Path("/checkout"), "topic", prepared=True)
+
+
+def test_push_decoder_matches_source_and_destination_independently(tmp_path):
+    """+case=Push decoding accepts explicit destinations and rejects mismatched evidence."""
+    import pytest
+
+    repo = str(tmp_path)
+    commit = "a" * 40
+    data = {
+        "checkout": repo,
+        "branch": "topic",
+        "target": "topic",
+        "remote": "origin",
+        "targetCommit": commit,
+        "confirmed": True,
+        "diagnostics": [],
+    }
+    envelope = {"outcome": "succeeded", "data": data}
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin") is data
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin", target="topic") is data
+    data["target"] = "release"
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin", target="release") is data
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin")
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin", target="other")
+    data["branch"] = "other"
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin", target="release")

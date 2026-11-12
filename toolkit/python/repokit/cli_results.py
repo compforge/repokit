@@ -205,12 +205,15 @@ def commit_result(
     return data
 
 
-def push_result(result: Data, repo: str, branch: str, commit: str, remote: str) -> Data:
+def push_result(
+    result: Data, repo: str, branch: str, commit: str, remote: str, *, target: str = ""
+) -> Data:
+    """Match the requested destination; an empty target defaults to the source branch."""
     data = result.get("data")
     if (
         not isinstance(data, dict)
         or data.get("branch") != branch
-        or data.get("target") != branch
+        or data.get("target") != (target or branch)
         or data.get("remote") != remote
         or data.get("targetCommit") != commit
         or not isinstance(data.get("checkout"), str)
