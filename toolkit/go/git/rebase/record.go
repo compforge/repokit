@@ -3,6 +3,7 @@ package rebase
 import (
 	"encoding/json"
 	"errors"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"os"
 	"path/filepath"
 )
@@ -43,31 +44,9 @@ func readRecord(dir string) (*record, error) {
 	return &r, nil
 }
 func writeRecord(dir string, r *record) error {
-	b, e := json.Marshal(r)
-	if e != nil {
-		return e
-	}
-	f, e := os.CreateTemp(dir, ".repokit-rebase-*.tmp")
-	if e != nil {
-		return e
-	}
-	defer os.Remove(f.Name())
-	if _, e = f.Write(b); e == nil {
-		e = f.Sync()
-	}
-	e = errors.Join(e, f.Close())
-	if e != nil {
-		return e
-	}
-	if e = os.Rename(f.Name(), filepath.Join(dir, recordName)); e != nil {
-		return e
-	}
-	d, e := os.Open(dir)
-	if e != nil {
-		return e
-	}
-	return errors.Join(d.Sync(), d.Close())
+	return gitworktree.WriteRecord(filepath.Join(dir, recordName), r)
 }
+
 func terminal(phase string) bool {
 	return phase == "published" || phase == "aborted" || phase == "failed"
 }

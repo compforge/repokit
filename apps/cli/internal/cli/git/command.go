@@ -41,6 +41,6 @@ func NewCommand(opts *command.Options) *cobra.Command {
 	publish.Flags().StringVar(&target, "target", "", "explicit local commit or ref to resolve once")
 	publish.Flags().StringVar(&remote, "remote", "origin", "configured remote with one push destination")
 	tag.AddCommand(publish)
-	root.AddCommand(tag, newRebaseCommand(opts))
+	root.AddCommand(tag, newRebaseCommand(opts), newBranchCommand(opts))
 	return root
 }

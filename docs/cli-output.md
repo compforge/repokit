@@ -173,3 +173,7 @@ writeAttempted、pushAttempted、diagnostics 与 phases。`paused` 是已确认�
 `finish` 的成功条件是远端分支匹配固定提交。中断后未确认的写操作返回 unknown/uncertain，
 记录发布失败保留已确认 Git 结果并附 warning。阶段耗时映射到 `cost.phases` 的 `git.rebase.*`。
 详细恢复和 status 时效契约见 [rebase](git-rebase.md)。
+
+`git branch create/status` 分别暴露 `branchConfirmed`、`changesRestored`、`confirmed`、
+精确 `stashOid` 和 `recoveryPath`。创建分支成功但恢复失败时，不能只凭非零退出码推断没有写入；
+消费规则见 [Branch 创建](git-branch.md)。`cost.phases` 的阶段名以 `git.branch.` 开头。
