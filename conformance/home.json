@@ -28,5 +28,17 @@
     "explicit": null,
     "environment": "",
     "expected": "USER/.repokit"
+  },
+  {
+    "name": "empty-explicit-is-omitted",
+    "explicit": "",
+    "environment": "CWD/env-home",
+    "expected": "CWD/env-home"
+  },
+  {
+    "name": "lexical-normalization",
+    "explicit": "CWD/a/../home",
+    "environment": null,
+    "expected": "CWD/home"
   }
 ]

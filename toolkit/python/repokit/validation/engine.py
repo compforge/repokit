@@ -1,7 +1,7 @@
 """Plan and execute Component checks under an explicit Makefile contract.
 
-Preparation/formatting happens before planning. No workflow state is persisted;
-callers own reuse storage, branch references and commit/merge policy.
+Preparation/formatting happens before planning. Native Python execution does not
+yet expose persistent history or reuse. Workflow acceptance belongs to callers.
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from .._inspect import inspect
 from ..budget import current_budget
 from ..model import ComponentBinding, Layout, owner
 from ..snapshot import snapshot
+from .makefile import MakeContract, read_contract
 
 _LOG = logging.getLogger(__name__)
 _FILES = re.compile(r"[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*")
@@ -37,6 +38,7 @@ class CheckSpec:
     files: tuple[str, ...]
     reason: str
     environment: str
+    requested_components: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,11 +81,16 @@ class ValidationReport:
     complete: bool
     passed: bool
     diagnostics: tuple[str, ...] = ()
+    inputs_consistent: bool = False
 
 
 def _environment(values: Mapping[str, str] | None) -> tuple[tuple[str, str], ...]:
     source = checkout_environment() if values is None else values
     excluded = {
+        "_",
+        "SHLVL",
+        "PWD",
+        "OLDPWD",
         "MAKEFILES",
         "MAKEFLAGS",
         "MFLAGS",
@@ -93,6 +100,8 @@ def _environment(values: Mapping[str, str] | None) -> tuple[tuple[str, str], ...
         "LINT_FILES",
         "TEST_FILES",
     }
+    if values is None:
+        excluded.add("CODEX_TOOL_CALL_ID")
     pairs = []
     for key, value in source.items():
         if not key or "=" in key or "\0" in key or "\0" in value:
@@ -110,30 +119,8 @@ def _environment_digest(values: tuple[tuple[str, str], ...]) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def _target(text: str, check: str) -> str:
-    targets = set()
-    deferred = []
-    for line in text.replace("\\\n", " ").splitlines():
-        if line.startswith("\t"):
-            continue
-        declaration = line.split("#", 1)[0].strip()
-        word = declaration.split(maxsplit=1)[0] if declaration else ""
-        if word in {"ifeq", "ifneq", "ifdef", "ifndef", "define"}:
-            deferred.append("endef" if word == "define" else "endif")
-            continue
-        if deferred:
-            if word == deferred[-1]:
-                deferred.pop()
-            continue
-        head, separator, rest = declaration.partition(":")
-        if separator and "=" not in head and "$" not in head and not rest.startswith("="):
-            targets.update(head.split())
-    candidates = ("lint-ci", "lint") if check == "lint" else ("test", "test-ci", "test-local")
-    return next((name for name in candidates if name in targets), "")
-
-
 def _files(
-    root: Path, component: str, layout: Layout, candidates: Sequence[str]
+    root: Path, component: str, source: str, layout: Layout, candidates: Sequence[str]
 ) -> tuple[str, ...]:
     files = set()
     for path in candidates:
@@ -141,7 +128,7 @@ def _files(
         if relative.is_absolute() or relative.as_posix() != path or ".." in relative.parts:
             raise ValueError("selected path is not normalized and repository-relative")
         binding = owner(layout, path)
-        if binding is None or binding.root != component:
+        if binding is None or binding.root != source:
             raise ValueError("selected path no longer belongs to Component")
         absolute = root / path
         if not absolute.is_file() or absolute.is_symlink():
@@ -173,6 +160,41 @@ def _impact_component(impact: Mapping[str, object], root: str) -> Mapping[str, o
         ):
             return group
     raise ValueError(f"impact missing current Component {root!r}")
+
+
+def _append_check(
+    groups: dict[str, ComponentValidationPlan], executor: ComponentBinding, spec: CheckSpec
+) -> None:
+    """Merge requests for one execution Component/check; full dominates focused.
+
+    +spec=Root fallback runs once, unions focused paths and preserves requesting Components.
+    +link=component://docs/validation.md
+    """
+    group = groups.get(executor.root, ComponentValidationPlan(executor, ()))
+    checks = list(group.checks)
+    for index, previous in enumerate(checks):
+        if previous.check != spec.check:
+            continue
+        sources = tuple(sorted(set(previous.requested_components + spec.requested_components)))
+        merged = previous
+        if previous.scope == "skipped" or (spec.scope == "full" and previous.scope != "full"):
+            merged = spec
+        elif previous.scope == spec.scope == "focused":
+            files = tuple(sorted(set(previous.files + spec.files)))
+            command = list(previous.command)
+            variable = spec.check.upper() + "_FILES"
+            command[4 if spec.check == "lint" else 5] = variable + "=" + " ".join(files)
+            merged = replace(previous, files=files, command=tuple(command))
+        reason = merged.reason
+        if len(sources) > 1 and not reason.startswith("merged Component requests; "):
+            reason = "merged Component requests; " + reason
+        checks[index] = replace(merged, requested_components=sources, reason=reason)
+        break
+    else:
+        checks.append(spec)
+    groups[executor.root] = ComponentValidationPlan(
+        executor, tuple(sorted(checks, key=lambda s: s.check))
+    )
 
 
 def plan_validation(
@@ -217,23 +239,28 @@ def plan_validation(
     known = {component.root for component in layout.components}
     if selected is not None and selected - known:
         raise ValueError(f"unknown Components: {sorted(selected - known)}")
-    groups = []
+    groups: dict[str, ComponentValidationPlan] = {}
+    contracts: dict[str, MakeContract] = {}
+
+    def makefile(component: ComponentBinding) -> MakeContract:
+        if component.root not in contracts:
+            directory = root / component.root
+            if directory.resolve() != directory:
+                raise ValueError(f"Component {component.root!r} crosses a symlink")
+            path = directory / "Makefile"
+            if path.is_symlink() or (path.exists() and not path.is_file()):
+                raise ValueError("Component Makefile must be a regular file")
+            try:
+                contracts[component.root] = read_contract(path.read_bytes(), budget)
+            except FileNotFoundError:
+                contracts[component.root] = MakeContract()
+        return contracts[component.root]
+
+    root_component = next((c for c in layout.components if c.root == "."), None)
     for component in layout.components:
         if selected is not None and component.root not in selected:
             continue
-        directory = root / component.root
-        if directory.resolve() != directory:
-            raise ValueError(f"Component {component.root!r} crosses a symlink")
-        if (directory / "Makefile").is_symlink():
-            raise ValueError("Component Makefile must be a regular file")
-        try:
-            text = (directory / "Makefile").read_text()
-        except FileNotFoundError:
-            text = ""
-        contract_text = "\n".join(
-            line if line.startswith("\t") else line.split("#", 1)[0] for line in text.splitlines()
-        )
-        specs = []
+        contract = makefile(component)
         for check in names:
             candidates = tuple(files)
             scope, reason = "full", "full Component check"
@@ -246,7 +273,9 @@ def plan_validation(
                 ):
                     raise ValueError("invalid affectedFileCounts")
                 if not any(counts.get(tag, 0) > 0 for tag in tags):
-                    specs.append(
+                    _append_check(
+                        groups,
+                        component,
                         CheckSpec(
                             check,
                             "skipped",
@@ -254,35 +283,54 @@ def plan_validation(
                             (),
                             "no selected validation tags",
                             environment_digest,
-                        )
+                            (component.root,),
+                        ),
                     )
                     continue
                 candidates = _strings(
                     group.get("affectedFiles" if check == "lint" else "testFiles")
                 )
                 reason = "affected Component; canonical full check"
-            target = _target(text, check)
+            executor, execution_contract = component, contract
+            target = contract.target(check)
+            missing_reason = f"Makefile does not declare a supported {check} target"
+            if (
+                not target
+                and component.root != "."
+                and root_component is not None
+                and not contract.problem
+            ):
+                root_contract = makefile(root_component)
+                target = root_contract.target(check)
+                if target:
+                    executor, execution_contract = root_component, root_contract
+                else:
+                    missing_reason = (
+                        f"Component and root Makefiles do not declare a supported {check} target"
+                    )
+                    if root_contract.problem:
+                        missing_reason = "root " + root_contract.problem
             if not target:
-                specs.append(
+                _append_check(
+                    groups,
+                    component,
                     CheckSpec(
                         check,
                         "unavailable",
                         (),
                         (),
-                        f"Makefile does not declare a supported {check} target",
+                        contract.problem or missing_reason,
                         environment_digest,
-                    )
+                        (component.root,),
+                    ),
                 )
                 continue
             variable = check.upper() + "_FILES"
             chosen: tuple[str, ...] = ()
             if candidates:
                 try:
-                    chosen = _files(root, component.root, layout, candidates)
-                    if (
-                        f"$({variable})" not in contract_text
-                        and "${" + variable + "}" not in contract_text
-                    ):
+                    chosen = _files(root, executor.root, component.root, layout, candidates)
+                    if variable not in execution_contract.variables:
                         raise ValueError(f"{variable} contract missing")
                 except ValueError as error:
                     chosen = ()
@@ -292,9 +340,18 @@ def plan_validation(
             args = ["make", "-f", "Makefile", target, "LINT_FILES=", "TEST_FILES="]
             if scope == "focused":
                 args[4 if check == "lint" else 5] = variable + "=" + " ".join(chosen)
-            specs.append(CheckSpec(check, scope, tuple(args), chosen, reason, environment_digest))
-        groups.append(ComponentValidationPlan(component, tuple(specs)))
-    plan = ValidationPlan(str(root), observed.digest, tuple(groups), values)
+            if executor.root != component.root:
+                reason = "fallback to root; " + reason
+            _append_check(
+                groups,
+                executor,
+                CheckSpec(
+                    check, scope, tuple(args), chosen, reason, environment_digest, (component.root,)
+                ),
+            )
+    plan = ValidationPlan(
+        str(root), observed.digest, tuple(groups[key] for key in sorted(groups)), values
+    )
     return replace(plan, _seal=_plan_seal(plan))
 
 
@@ -368,6 +425,7 @@ def _plan_seal(plan: ValidationPlan) -> str:
                         spec.files,
                         spec.reason,
                         spec.environment,
+                        spec.requested_components,
                     )
                     for spec in group.checks
                 ),
@@ -381,8 +439,9 @@ def _plan_seal(plan: ValidationPlan) -> str:
 def execute_validation(plan: ValidationPlan, *, timeout: float = 600) -> ValidationReport:
     """Execute only the frozen plan; two round-level captures bind all check results.
 
-    A command can pass while the report is incomplete because source changed.
-    Only a complete report may be used as reusable validation evidence.
+    +spec=Complete describes known terminal outcomes, including unavailable checks.
+    Input consistency is independent; changed inputs never grant passing evidence.
+    +link=component://docs/validation.md
     """
     budget = current_budget(timeout)
     if not plan._seal or plan._seal != _plan_seal(plan):
@@ -414,7 +473,7 @@ def execute_validation(plan: ValidationPlan, *, timeout: float = 600) -> Validat
         for group in plan.components
     )
     complete = all(
-        result.status in {"passed", "failed", "skipped"}
+        result.status in {"passed", "failed", "skipped", "unavailable"}
         for group in groups
         for result in group.checks
     )
@@ -432,9 +491,10 @@ def execute_validation(plan: ValidationPlan, *, timeout: float = 600) -> Validat
         plan.checkout,
         plan.snapshot,
         groups,
-        complete and not diagnostics,
+        complete,
         passed and not diagnostics,
         diagnostics,
+        inputs_consistent=not diagnostics,
     )
 
 

@@ -6,7 +6,7 @@ import { join, resolve } from "node:path";
  * @see {@link component://docs/state.md}
  */
 export function resolveHome(home?: string): string {
-  const value=home ?? (process.env.REPOKIT_HOME || join(homedir(),".repokit"));
+  const value=home || process.env.REPOKIT_HOME || join(homedir(),".repokit");
   if(!value.trim())throw new Error("RepoKit home must be nonempty");
   return resolve(value);
 }

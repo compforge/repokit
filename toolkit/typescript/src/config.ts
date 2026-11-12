@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
 import { ForgeConnection } from "./forge/connection.js";
@@ -8,14 +9,25 @@ type Entry = { provider?: string; apiHost?: string; token?: string };
 
 export class ConfigError extends Error {}
 
+// Use the shared host grammar, independent of WHATWG URL normalization.
 function normalizeHost(value: string): string {
-  const host = ({ github: "github.com", gitlab: "gitlab.com" } as Record<string,string>)[value.toLowerCase()] ?? value.toLowerCase();
-  let valid = false;
-  try {
-    const url = new URL(`https://${host}`);
-    valid = !!host && !!url.hostname && (url.host === host || `${url.hostname}:443` === host);
-  } catch { /* Report only the field contract, never its value. */ }
-  if (!valid || host.trim() !== host || /[/@?#\\]/.test(host)) throw new ConfigError("Invalid Forge host");
+  const name = value.toLowerCase();
+  const host = name === "github" ? "github.com" : name === "gitlab" ? "gitlab.com" : name;
+  const invalid = () => new ConfigError("Invalid Forge host");
+  let port = "", hasPort = false;
+  if (host.startsWith("[")) {
+    const end = host.indexOf("]"), name = host.slice(1,end);
+    if (end < 0 || name.includes("%") || isIP(name) !== 6) throw invalid();
+    const suffix = host.slice(end+1);
+    if (suffix && !suffix.startsWith(":")) throw invalid();
+    port = suffix.slice(1); hasPort = !!suffix;
+  } else {
+    const colon = host.indexOf(":"), name = colon < 0 ? host : host.slice(0,colon);
+    hasPort = colon >= 0; port = hasPort ? host.slice(colon+1) : "";
+    if (name.length > 253 || name.split(".").some(label => !/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/.test(label))) throw invalid();
+    if (/^[0-9.]+$/.test(name) && isIP(name) !== 4) throw invalid();
+  }
+  if (hasPort && (!/^[0-9]{1,5}$/.test(port) || Number(port) < 1 || Number(port) > 65535)) throw invalid();
   return host;
 }
 

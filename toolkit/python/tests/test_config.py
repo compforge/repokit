@@ -20,6 +20,10 @@ def test_shared_forge_config_contract(case, tmp_path, monkeypatch):
         path = tmp_path / "config.json"
         path.write_text(json.dumps(case["config"]))
         path.chmod(0o600)
+    if case.get("loadError"):
+        with pytest.raises(ConfigError):
+            load_config(tmp_path)
+        return
     try:
         config = load_config(tmp_path)
         assert "secret-canary" not in repr(config)

@@ -10,7 +10,7 @@
 ```text
 repokit/
 ├── __init__.py / model.py  # 公共 API、common 派生类型和 owner 查询
-├── validation/            # engine：原生规划/执行；report：Go wire report 解码
+├── validation/            # engine：原生规划/执行；makefile：共享 grammar；report：Go wire report 解码
 ├── dependencies.py        # 只读依赖观察与显式锁定安装；workspace 安装根与回执
 ├── _inspect.py            # 输入版本、整次调用预算与一致性观察
 ├── access.py / cli.py     # checkout 访问组装 / 显式 CLI 协议客户端

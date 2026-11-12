@@ -188,5 +188,51 @@
     "check": "test",
     "scope": "unavailable",
     "command": []
+  },
+  {
+    "name": "recipe-is-not-rule",
+    "makefile": "other:\n\ttest:\n",
+    "files": [
+      "a.py"
+    ],
+    "selected": [
+      "a.py"
+    ],
+    "check": "test",
+    "scope": "unavailable",
+    "command": []
+  },
+  {
+    "name": "invalid-syntax",
+    "makefile": "test:\n broken syntax\n",
+    "files": [
+      "a.py"
+    ],
+    "selected": [
+      "a.py"
+    ],
+    "check": "test",
+    "scope": "unavailable",
+    "command": []
+  },
+  {
+    "name": "define-variable-is-not-contract",
+    "makefile": "define UNUSED\n$(TEST_FILES)\nendef\ntest:\n\t@true\n",
+    "files": [
+      "a.py"
+    ],
+    "selected": [
+      "a.py"
+    ],
+    "check": "test",
+    "scope": "full",
+    "command": [
+      "make",
+      "-f",
+      "Makefile",
+      "test",
+      "LINT_FILES=",
+      "TEST_FILES="
+    ]
   }
 ]

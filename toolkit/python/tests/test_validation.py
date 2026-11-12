@@ -64,7 +64,8 @@ def test_round_consistency(tmp_path: Path, phase: str) -> None:
     if phase == "before":
         (root / "source.py").write_text("# changed\n")
     report = execute_validation(plan)
-    assert not report.complete and not report.passed and report.diagnostics
+    assert report.complete == (phase == "during")
+    assert not report.inputs_consistent and not report.passed and report.diagnostics
     if phase == "before":
         assert not (root / "result.out").exists()
 
@@ -72,7 +73,7 @@ def test_round_consistency(tmp_path: Path, phase: str) -> None:
 def test_failure_and_missing_target(tmp_path: Path) -> None:
     root = fixture(tmp_path, "lint:\n\t@echo failure >&2\n\t@exit 7\n")
     report = validate(root)
-    assert not report.passed and not report.complete
+    assert not report.passed and report.complete and report.inputs_consistent
     lint, test = report.components[0].checks
     assert lint.status == "failed" and "failure" in lint.stderr
     assert test.status == "unavailable"
@@ -201,3 +202,60 @@ def test_inherited_git_context_does_not_redirect_make(tmp_path, monkeypatch):
     report = validate(root, checks=("test",))
     assert report.passed
     assert (root / "actual.out").read_text().strip() == str(root)
+
+
+EXECUTION_CASES = json.loads(
+    (Path(__file__).parents[3] / "conformance/validation/execution.json").read_text()
+)
+
+
+@pytest.mark.parametrize("case", EXECUTION_CASES, ids=lambda case: case["name"])
+def test_shared_execution_contract(tmp_path, case):
+    """+case=Native Go/Python execute the same selection with equivalent terminal evidence."""
+    root = fixture(tmp_path, case["makefile"])
+    for name, text in case["files"].items():
+        path = root / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text)
+    report = validate(
+        root,
+        components=case.get("components"),
+        checks=case["checks"],
+        files=case.get("selected", ()),
+    )
+    actual = {
+        "complete": report.complete,
+        "passed": report.passed,
+        "inputsConsistent": report.inputs_consistent,
+        "checks": [
+            {
+                "component": group.component.root,
+                "check": item.spec.check,
+                "scope": item.spec.scope,
+                "status": item.status,
+                "requestedComponents": list(item.spec.requested_components),
+                "files": list(item.spec.files),
+            }
+            for group in report.components
+            for item in group.checks
+        ],
+    }
+    assert actual == case["expected"]
+    if "reason" in case:
+        assert report.components[0].checks[0].spec.reason == case["reason"]
+    output = root / "runs.out"
+    if output.exists():
+        assert len(output.read_text().splitlines()) == 1
+
+
+@pytest.mark.parametrize("explicit", [False, True])
+def test_environment_identity_contract(tmp_path, monkeypatch, explicit):
+    """+case=Inherited tool-call identity is removed; explicit identity is retained."""
+    root = fixture(tmp_path, "test:\n\t@printf '%s' \"$${CODEX_TOOL_CALL_ID-unset}\"\n")
+    monkeypatch.setenv("CODEX_TOOL_CALL_ID", "per-invocation")
+    environment = dict(os.environ) if explicit else None
+    plan = plan_validation(root, checks=("test",), environment=environment)
+    assert not set(dict(plan._environment)) & {"_", "SHLVL", "PWD", "OLDPWD"}
+    report = execute_validation(plan)
+    assert report.passed and report.inputs_consistent
+    assert report.components[0].checks[0].stdout == ("per-invocation" if explicit else "unset")

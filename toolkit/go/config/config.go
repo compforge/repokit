@@ -3,15 +3,16 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"net/url"
+	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
@@ -65,18 +66,36 @@ func Load(home string) (*Config, error) {
 	if err != nil {
 		return nil, errs.Wrap(err, "config.read_failed", "config.load", path)
 	}
-	var document struct {
-		Forges map[string]entry `json:"forges"`
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&document); err != nil || !bytes.HasPrefix(bytes.TrimSpace(data), []byte("{")) {
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(data, &document); err != nil || document == nil {
 		return nil, invalid(path, "expected a JSON object with a forges map")
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, invalid(path, "expected one JSON object")
+	for key := range document {
+		if key != "forges" {
+			return nil, invalid(path, "unknown configuration field")
+		}
 	}
-	for host, e := range document.Forges {
+	var forges map[string]json.RawMessage
+	if raw, exists := document["forges"]; exists {
+		if err := json.Unmarshal(raw, &forges); err != nil {
+			return nil, invalid(path, "expected a forges map")
+		}
+	}
+	for host, raw := range forges {
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			return nil, invalid(path, "expected Forge configuration fields")
+		}
+		for key := range fields {
+			if key != "provider" && key != "apiHost" && key != "token" {
+				return nil, invalid(path, "unknown Forge configuration field")
+			}
+		}
+		var e entry
+		if err := json.Unmarshal(raw, &e); err != nil {
+			return nil, invalid(path, "Forge configuration fields must be strings")
+		}
+
 		normalized, err := normalizeHost(host)
 		if err != nil {
 			return nil, invalid(path, "invalid Forge host key")
@@ -101,6 +120,11 @@ func Load(home string) (*Config, error) {
 func invalid(path, reason string) error {
 	return &errs.Error{Code: "config.invalid", Op: "config.load", Subject: path, Message: "Invalid RepoKit config: " + reason}
 }
+
+var hostLabel = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$`)
+var decimalPort = regexp.MustCompile(`^[0-9]{1,5}$`)
+
+// Host syntax is shared across SDKs rather than inherited from differing URL parsers.
 func normalizeHost(host string) (string, error) {
 	host = strings.ToLower(host)
 	switch host {
@@ -109,9 +133,50 @@ func normalizeHost(host string) (string, error) {
 	case "gitlab":
 		host = "gitlab.com"
 	}
-	parsed, err := url.Parse("https://" + host)
-	if err != nil || host == "" || strings.TrimSpace(host) != host || parsed.Host != host || parsed.Hostname() == "" || parsed.User != nil || strings.ContainsAny(host, "/@?#\\") {
-		return "", errors.New("invalid Forge host")
+	invalidHost := errors.New("invalid Forge host")
+	name, port := host, ""
+	hasPort := false
+	if strings.HasPrefix(host, "[") {
+		end := strings.IndexByte(host, ']')
+		if end < 0 {
+			return "", invalidHost
+		}
+		name = host[1:end]
+		if !strings.Contains(name, ":") || net.ParseIP(name) == nil {
+			return "", invalidHost
+		}
+		suffix := host[end+1:]
+		if suffix != "" {
+			if !strings.HasPrefix(suffix, ":") {
+				return "", invalidHost
+			}
+			port, hasPort = suffix[1:], true
+		}
+	} else {
+		name, port, hasPort = strings.Cut(host, ":")
+		if len(name) > 253 {
+			return "", invalidHost
+		}
+		numeric := true
+		for _, ch := range name {
+			if (ch < '0' || ch > '9') && ch != '.' {
+				numeric = false
+			}
+		}
+		if numeric && net.ParseIP(name) == nil {
+			return "", invalidHost
+		}
+		for _, label := range strings.Split(name, ".") {
+			if !hostLabel.MatchString(label) {
+				return "", invalidHost
+			}
+		}
+	}
+	if hasPort {
+		n, err := strconv.Atoi(port)
+		if !decimalPort.MatchString(port) || err != nil || n < 1 || n > 65535 {
+			return "", invalidHost
+		}
 	}
 	return host, nil
 }

@@ -427,7 +427,7 @@ func planSeal(plan ValidationPlan) string {
 
 // ExecuteValidation consumes only the frozen plan. Two round-level captures,
 // independent of the number of Components/checks, guard all returned evidence.
-// +spec=Planning and final consistency failures never publish a complete validation report
+// +spec=Planning mismatch prevents execution; final input changes invalidate passing evidence without erasing terminal results
 // +spec=The executor never recalculates the scope of a frozen command
 // +link=component://docs/validation.md
 func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationReport, error) {
