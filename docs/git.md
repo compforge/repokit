@@ -206,3 +206,8 @@ push 为最终核验预留剩余预算的 20%（最多 30 秒），取消后不�
 Go `git/rebase` 与 `repocli git rebase start/status/continue/abort/finish` 拥有显式 rebase
 的完整恢复能力。Python 原生 `git.rebase` 等仍是单次 Git 操作；调用方需要 CLI 生命周期时直接调用
 repocli，不再维护第二套恢复记录。事务与精确 lease 的契约见 [Recoverable rebase](git-rebase.md)。
+
+## 创建分支并携带改动
+
+Go `git/branch` 与 `repocli git branch create/status` 提供显式分支创建、远端基线刷新和改动携带。
+完整数据保护、确认与恢复契约见 [Branch 创建](git-branch.md)。

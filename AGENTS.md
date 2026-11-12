@@ -63,7 +63,7 @@ repokit/
 │   │   ├── depot/            # Bin 运行态观察、依赖准备与回执
 │   │   ├── state/            # 仓库状态业务、checkout 生命周期与共享存储
 │   │   ├── config/           # 用户配置与 host 级 Forge 访问解析
-│   │   ├── git/              # 显式 Git 操作、tag 发布与 rebase 恢复
+│   │   ├── git/              # 显式 Git 操作、分支创建、tag 发布与 rebase 恢复
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
@@ -138,3 +138,5 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [发布](docs/release.md) / [CLI 更新](docs/upgrade.md)：模块与包版本、构建、发布和安装。
 
 - [Rebase](docs/git-rebase.md)：显式历史改写、冲突恢复、精确 lease 发布与未知结果核验。
+
+- [Branch 创建](docs/git-branch.md)：显式基线、改动携带、精确 stash 与恢复证据。
