@@ -382,18 +382,16 @@ TypeScript 使用 `connection.reader()` 与
 
 ## Repository lifecycle operations
 
-`PullRequestContext.refresh()` observes local associations and maintains local worktree resources.
-Its `ensure_pull_request`, `update`, `merge` and `close` operations perform maintenance after remote
-success; failures are reported separately in `last_lifecycle` and logs. Existing query methods and
-raw Forge clients do not clean files. See [retention policy and safety](worktrees.md).
-
+`PullRequestContext.refresh()` explicitly refreshes local PR associations and observer retention.
+Writes refresh only their affected PR or branch. They do not scan all worktrees or reclaim resources;
+resource cleanup is an explicit `clean` / `worktree clean` operation. Post-write observation failures
+are diagnostics and cannot undo a confirmed remote write. See [retention policy](worktrees.md).
 
 ## Go CLI and toolkit
 
 `toolkit/go/forge` provides native GitHub/GitLab `Client.Get/List/Create/Update/Close/Merge`.
 `Context` binds a checkout, source identity and explicit target repositories; `Ensure` reuses a
-unique open PR or creates it. Successful context writes invoke worktree maintenance directly;
-maintenance errors are returned separately and never turn a successful remote write into failure.
+unique open PR or creates it. Writes update their affected observations without worktree maintenance.
 Raw client queries/writes do not touch local worktrees. No callback registry or validation gate is
 part of the PR client. The CLI exposes these operations through `repocli pr`:
 

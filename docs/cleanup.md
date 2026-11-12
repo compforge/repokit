@@ -26,7 +26,7 @@ clone。home 沿用显式参数、`REPOKIT_HOME`、`~/.repokit` 的优先级。`
 | `clean` | 所选 home 已登记的仓库；可用 `--repo` 限定 | 各 clone 的既有 worktree 策略；repository 状态另按访问时间过期 |
 | `worktree clean` | 指定 clone | 同一 worktree 策略；支持本次运行的数量覆盖 |
 
-worktree 数量沿用 `<git-common-dir>/repokit.json` 的 `worktree.max_count` 和 `worktree.max_prepared`，
+worktree 数量沿用 `~/.repokit/repositories/<repo-key>/persistent/config.json` 的 `worktree.max_count` 和 `worktree.max_prepared`，
 默认 **10 个 linked checkout、3 个 prepared checkout**。先删除实时核验已 merged 的候选，再按创建时间
 回收超额 checkout 和依赖环境。未知创建时间排最老；30 天访问阈值不替代数量策略，也不导致限额内的
 普通 worktree 被全部删除。完整规则见 [worktree retention](worktrees.md)。

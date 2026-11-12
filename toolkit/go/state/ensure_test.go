@@ -27,7 +27,7 @@ func requireEnsure(t *testing.T, root, path string, options EnsureWorktreeOption
 	return r
 }
 
-// +case=Create and dirty-checkout reuse are idempotent and never reset, fetch, install or renew creation time.
+// +case=Create publishes provenance readable from both checkouts; dirty reuse never rewrites it, resets, fetches or installs.
 func TestEnsureCreateAndReuse(t *testing.T) {
 	root, git := ensureFixture(t)
 	target := filepath.Join(root, "nested", "topic 中文\n ")
@@ -39,6 +39,19 @@ func TestEnsureCreateAndReuse(t *testing.T) {
 	info, e := Checkout(context.Background(), target)
 	if e != nil {
 		t.Fatal(e)
+	}
+	want := BranchCreation{Branch: "topic", BaseRef: "HEAD", BaseCommit: r.BaseCommit, Remote: "", CommonDir: info.CommonDir}
+	for _, repo := range []string{root, target} {
+		creation, err := LoadBranchCreation(context.Background(), repo, "topic", opts.Home)
+		if err != nil || creation == nil {
+			t.Fatalf("load creation from %s: %+v %v", repo, creation, err)
+		}
+		if want.CreatedAt == 0 {
+			want.CreatedAt = creation.CreatedAt
+		}
+		if *creation != want || creation.CreatedAt <= 0 || len(r.Diagnostics) != 0 {
+			t.Fatalf("creation=%+v want=%+v diagnostics=%+v", creation, want, r.Diagnostics)
+		}
 	}
 	record := filepath.Join(info.GitDir, "repokit-created.json")
 	before, e := os.ReadFile(record)
@@ -53,6 +66,12 @@ func TestEnsureCreateAndReuse(t *testing.T) {
 	after, _ := os.ReadFile(record)
 	if r.Action != "reused" || r.WriteAttempted || string(before) != string(after) {
 		t.Fatal(r)
+	}
+	for _, repo := range []string{root, target} {
+		creation, err := LoadBranchCreation(context.Background(), repo, "topic", opts.Home)
+		if err != nil || creation == nil || *creation != want || len(r.Diagnostics) != 0 {
+			t.Fatalf("reuse changed provenance: creation=%+v want=%+v diagnostics=%+v err=%v", creation, want, r.Diagnostics, err)
+		}
 	}
 	content, _ := os.ReadFile(filepath.Join(target, "unsaved"))
 	if string(content) != "keep" {
@@ -92,6 +111,10 @@ func TestEnsureRefreshAndOfflineFailure(t *testing.T) {
 	r := requireEnsure(t, root, filepath.Join(root, "fresh"), EnsureWorktreeOptions{Branch: "fresh", Base: "main", Remote: "origin"})
 	if r.HeadSHA != latest || r.HeadSHA == stale || r.BaseCommit != latest {
 		t.Fatal(r)
+	}
+	creation, err := LoadBranchCreation(context.Background(), root, "fresh", "")
+	if err != nil || creation == nil || creation.BaseRef != "main" || creation.BaseCommit != latest || creation.Remote != "origin" || len(r.Diagnostics) != 0 {
+		t.Fatalf("remote creation=%+v diagnostics=%+v err=%v", creation, r.Diagnostics, err)
 	}
 	git("remote", "set-url", "origin", filepath.Join(root, "offline"))
 	target := filepath.Join(root, "offline-target")
@@ -212,7 +235,7 @@ func TestEnsureObservationWarning(t *testing.T) {
 		t.Fatal(e)
 	}
 	r := requireEnsure(t, root, filepath.Join(root, "target"), EnsureWorktreeOptions{Branch: "topic", Base: "HEAD", Home: home})
-	if len(r.Diagnostics) == 0 || r.Diagnostics[0].Code != "state.observation_unavailable" {
+	if len(r.Diagnostics) != 2 || r.Diagnostics[0].Code != "state.creation_unavailable" || r.Diagnostics[1].Code != "state.observation_unavailable" {
 		t.Fatal(r)
 	}
 }

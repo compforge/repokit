@@ -1,4 +1,4 @@
-"""Read-only CLI adapter for repository queries already exposed by repocli.
+"""Explicit CLI adapter for repository queries and operations exposed by repocli.
 
 Import explicitly to query an installed repocli. Native SDK APIs never invoke this
 module or fall back to it. No credentials, caches or retries belong here.
@@ -8,61 +8,75 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import subprocess
+from typing import Any
 
 from ._process import run_command
 from .budget import current_budget
+from .cli_results import branch_result as branch_result
+from .cli_results import commit_plan_result as commit_plan_result
+from .cli_results import commit_result as commit_result
+from .cli_results import push_result as push_result
+from .cli_results import rebase_result as rebase_result
+from .cli_results import worktree_result as worktree_result
 from .forge.model import ForgeError, PullRequest
 
 logger = logging.getLogger(__name__)
 
 
-def _query(repo: str, operation: str, arguments: list[str]) -> object:
-    """+spec=Unavailable or malformed CLI results never become verified absence of PRs.
+def run(
+    repo: str, operation: tuple[str, ...], arguments: list[str], *, timeout: float = 120
+) -> dict[str, Any]:
+    """Explicit bounded CLI invocation; failed and partial domain results remain available.
 
-    +link=component://docs/cli-output.md
+    Native SDK methods never fall back to this process adapter. No retry is performed.
     """
+    if not math.isfinite(timeout) or timeout <= 0 or not operation:
+        raise ValueError("operation and positive finite timeout are required")
+    command = [
+        "repocli",
+        *operation,
+        *arguments,
+        "--repo",
+        repo,
+        "--timeout",
+        f"{timeout}s",
+        "--json",
+    ]
     try:
-        command = [
-            "repocli",
-            "pr",
-            operation,
-            *arguments,
-            "--repo",
-            repo,
-            "--timeout",
-            "10s",
-            "--json",
-        ]
-        try:
-            result = run_command(command, current_budget(12), process_group=True)
-        except subprocess.CalledProcessError as error:
-            result = subprocess.CompletedProcess(
-                command, error.returncode, error.output, error.stderr
-            )
-        envelope = json.loads(result.stdout)
-    except (OSError, subprocess.SubprocessError, ValueError) as error:
-        raise ForgeError(f"repocli pr {operation} unavailable: {type(error).__name__}") from error
+        result = run_command(command, current_budget(timeout + 10), process_group=True)
+    except subprocess.CalledProcessError as error:
+        result = subprocess.CompletedProcess(command, error.returncode, error.output, error.stderr)
+    envelope = json.loads(result.stdout)
     if (
         not isinstance(envelope, dict)
         or envelope.get("schemaVersion") != "1.0"
-        or envelope.get("command") != f"repocli pr {operation}"
+        or envelope.get("command") != "repocli " + " ".join(operation)
+        or envelope.get("outcome") not in {"succeeded", "failed", "partial", "unknown"}
+        or (result.returncode == 0) != (envelope["outcome"] == "succeeded")
     ):
-        raise ForgeError("Unsupported repocli result contract")
-    cost = envelope.get("cost")
-    logger.debug(
-        "RepoCLI query repo=%s operation=%s outcome=%s wall_seconds=%s",
-        repo,
+        raise ValueError("unsupported or contradictory repocli result")
+    if envelope.get("error") is not None and not isinstance(envelope["error"], dict):
+        raise ValueError("invalid repocli error")
+    logger.info(
+        "RepoCLI operation=%s repo=%s outcome=%s cost=%s",
         operation,
-        envelope.get("outcome"),
-        cost.get("wallSeconds") if isinstance(cost, dict) else None,
+        repo,
+        envelope["outcome"],
+        envelope.get("cost"),
     )
-    if result.returncode != 0 or envelope.get("outcome") != "succeeded":
-        detail = envelope.get("error")
-        if not isinstance(detail, dict):
-            detail = {}
-        message = detail.get("message") or envelope.get("summary")
-        raise ForgeError(message if isinstance(message, str) else "repocli query failed")
+    return envelope
+
+
+def _query(repo: str, operation: str, arguments: list[str]) -> object:
+    try:
+        envelope = run(repo, ("pr", operation), arguments, timeout=10)
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        raise ForgeError(f"repocli pr {operation} unavailable: {type(error).__name__}") from error
+    if envelope["outcome"] != "succeeded":
+        detail = envelope.get("error") or {}
+        raise ForgeError(detail.get("message") or envelope.get("summary") or "repocli query failed")
     return envelope.get("data")
 
 

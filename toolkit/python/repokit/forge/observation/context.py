@@ -14,7 +14,6 @@ from ...git import state as git_state
 from ...git.remote import remote
 from ...state.identity import name_part, repository_key
 from ...state.store import JSON, digest
-from ...state.worktrees import WorktreeCleanReport, clean_worktrees
 from ..creation import PullRequestCreation, ensure_pull_request
 from ..model import Forge, ForgeError, PullRequest
 from .model import BranchPullRequests, PullRequestKey
@@ -26,7 +25,6 @@ logger = logging.getLogger(__name__)
 @dataclass(frozen=True)
 class PullRequestLifecycle:
     branches: tuple[BranchPullRequests, ...]
-    maintenance: WorktreeCleanReport
     errors: tuple[str, ...] = ()
 
 
@@ -55,28 +53,24 @@ class PullRequestContext:
         self.last_lifecycle: PullRequestLifecycle | None = None
 
     def refresh(self) -> PullRequestLifecycle:
-        """Observe this repository's lifecycle and maintain its local resources.
+        """Explicitly refresh repository PR associations and observer retention.
 
-        +spec=`Queries remain filesystem-read-only. Explicit lifecycle operations own
-        best-effort maintenance; maintenance failure cannot undo a successful PR write.`
-        +link=`component://docs/worktrees.md`
+        Resource reclamation is a separate clean_worktrees operation. Writes refresh
+        only their affected PR or branch and never invoke this full repository scan.
         """
         issues: list[str] = []
         rows: tuple[BranchPullRequests, ...] = ()
-        maintenance = WorktreeCleanReport()
         try:
             issues.extend(self.observer.maintain())
             rows = self.local_branches()
-            maintenance = clean_worktrees(
-                self.checkout, context=self, inventory=rows, home=self.observer.store.root
-            )
+
         except Exception as exc:
             logger.warning(
                 "PR lifecycle maintenance failed checkout=%s error=%s", self.checkout, exc
             )
             issues.append(str(exc))
-        self.last_lifecycle = PullRequestLifecycle(rows, maintenance, tuple(issues))
-        for issue in (*issues, *maintenance.errors):
+        self.last_lifecycle = PullRequestLifecycle(rows, tuple(issues))
+        for issue in issues:
             logger.warning("PR maintenance checkout=%s error=%s", self.checkout, issue)
         return self.last_lifecycle
 
@@ -88,7 +82,6 @@ class PullRequestContext:
                 self.observer._snapshot(key, verify=True)
         except Exception as exc:
             logger.warning("PR post-write refresh checkout=%s error=%s", self.checkout, exc)
-        self.refresh()
 
     def ensure_pull_request(
         self,

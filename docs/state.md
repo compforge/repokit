@@ -33,6 +33,10 @@ state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI �
   repositories/<repo-key>/
     repository.json                     # 身份；本地登记不随缓存过期
     activity.json                       # checkout 登记位置与访问事实；不因维护续期
+    persistent/
+      config.json                      # repository 级配置，不随缓存过期
+      clones/<clone-key>/branches/<branch-key>.json  # 已确认的分支创建来源
+    remotes/<scope-key>.json             # 请求范围与远端 URL 隔离的远端分支观测
     metadata.json                       # 已观察的 repository metadata（例如 default branch）
     branches/<branch-key>/
       observation.json                  # 按 clone 保留 head、observedAt、checkout keys
@@ -146,3 +150,21 @@ CLI 日志、PR、topology、统计与验证默认历史根都从同一 home 派
 `EnsureWorktree` 将已存在 checkout 的身份核验、已有分支恢复和新分支创建组织为同一生命周期入口。
 它复用 Git 适配和 creation record；命名、基线选择与依赖准备时机仍由调用方决定。
 三类结果、取消/失败和阶段成本见 [worktree 创建与复用](worktrees.md#创建与复用)。
+
+## 持久配置、来源记录与操作恢复
+
+`persistent/config.json` 保存 repository 级 worktree 策略，多个 clone 共用。Go
+`SaveWorktreePolicy` / `LoadWorktreePolicy` 和 Python `load_policy` 使用同一路径，缺失时使用默认策略。
+分支创建来源按 common Git directory 隔离，记录 branch、baseRef、baseCommit、remote 与 createdAt。
+`state.CreateBranch` 和 worktree ensure 在确认新分支后发布记录；记录失败保留已确认的 Git 效果并返回诊断。
+Go `LoadBranchCreation`、Python `branch_creation` 与 CLI `git branch show` 读取来源；未经 RepoKit
+记录的分支来源为未知，不从当前 ancestry 猜测。分支在外部删除重建后，旧记录仅是最后一次已确认创建的历史，
+不能证明当前分支仍源于该基线，也不能覆盖调用方的任务基线或 PR target。
+
+过期缓存清理保留 `persistent/`、仓库身份和 checkout 登记。Git branch/commit/rebase 的恢复记录继续
+由 Git 操作组件保存在 common Git directory；它们不随观测缓存清理。Validation 历史仍由 validation
+拥有格式与保留机制，不能因为物理上同处 RepoKit home 就纳入 state 的业务模型。
+
+Python `checkout_view` 组装当前 checkout、分支、默认分支、拓扑与创建来源；`remote_branches` 按
+请求的 refs、fetch URL 与时效复用远端结果。远端查询失败返回错误，不能当成空集合；这类读模型不构成
+跨系统一致快照，任何删除、发布或覆盖操作仍必须实时核验。

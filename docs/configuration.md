@@ -35,7 +35,7 @@ Repository 元信息已经包含 Forge 身份与仓库路径；配置以具体 F
 | 提交、PR 目标、review 与合并流程 | 调用方 |
 
 `config.json` 不属于 repository 缓存，`clean` 不删除或修改它。运行时访问记录、PR 观察和验证历史
-仍归 state。工具包不读取 `.devloop/config.json`、仓内应用配置或 `gh/glab` 登录文件，也不自动
+由各领域组件拥有，state 提供共享身份、访问与存储协调。工具包不读取 `.devloop/config.json`、仓内应用配置或 `gh/glab` 登录文件，也不自动
 搬迁凭据；使用方可一次性把自己的访问配置放到 RepoKit home。显式构造 Forge client/connection
 仍可直接传参，不隐式加载文件。
 
@@ -112,3 +112,10 @@ Python `forge_client(checkout, home=..., timeout=..., target_repository=...)` �
 `pull_request_description`。客户端校验 schema、command、outcome 与数据形状，保留错误，
 共享调用方 operation 预算并限制输出容量；不持有凭据、缓存、重试或工作流目标选择。
 原生 SDK 不调用这个入口；CLI 不可用也不会静默切换到原生 API。
+
+## Repository 配置
+
+`~/.repokit/repositories/<repo-key>/persistent/config.json` 保存所有 clone 共用的 repository 策略。
+例如 `{"worktree":{"max_count":10,"max_prepared":3,"outputs":["dist"]}}`。缺失时使用默认策略，
+无效配置返回错误；配置、创建来源和登记不随过期观测清理。Git branch/commit/rebase 恢复记录仍归
+Git 操作组件，存放在 common Git directory。完整布局见 [state](state.md)。

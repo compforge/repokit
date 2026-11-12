@@ -29,7 +29,7 @@ func TestWorktreeCleanRepositoryDefaultsAndPartialOverrides(t *testing.T) {
 	path := filepath.Join(filepath.Dir(root), filepath.Base(root)+"-linked")
 	t.Cleanup(func() { _ = os.RemoveAll(path) })
 	git("worktree", "add", "-b", "topic", path, "HEAD")
-	if err = os.WriteFile(filepath.Join(root, ".git", "repokit.json"), []byte(`{"worktree":{"max_count":0,"max_prepared":0}}`), 0600); err != nil {
+	if err = state.SaveWorktreePolicy(context.Background(), root, "", state.WorktreePolicy{MaxCount: 0, MaxPrepared: 0}); err != nil {
 		t.Fatal(err)
 	}
 	for _, test := range []struct {

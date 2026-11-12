@@ -7,9 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -139,7 +137,7 @@ func TestRateLimitCooldown(t *testing.T) {
 	}
 }
 
-func TestContextCreateReusesOpenPRAndDoesNotTurnMaintenanceFailureIntoWriteFailure(t *testing.T) {
+func TestContextCreateReusesOpenPRWithoutMaintenance(t *testing.T) {
 	root := t.TempDir()
 	git := func(args ...string) {
 		t.Helper()
@@ -151,12 +149,10 @@ func TestContextCreateReusesOpenPRAndDoesNotTurnMaintenanceFailureIntoWriteFailu
 	git("init", "-q")
 	git("remote", "add", "origin", "https://github.com/acme/repo.git")
 	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null", "commit", "--allow-empty", "-qm", "initial")
-	// A malformed maintenance policy must not change a successful remote result.
-	if err := os.WriteFile(filepath.Join(root, ".git", "repokit.json"), []byte(`{"worktree":{"max_count":-1}}`), 0600); err != nil {
-		t.Fatal(err)
-	}
+
 	created := false
 	writes := 0
+	reads := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			created = true
@@ -164,6 +160,7 @@ func TestContextCreateReusesOpenPRAndDoesNotTurnMaintenanceFailureIntoWriteFailu
 			fmt.Fprint(w, githubFixture(1, "open"))
 			return
 		}
+		reads++
 		if !created {
 			fmt.Fprint(w, "[]")
 		} else {
@@ -179,11 +176,11 @@ func TestContextCreateReusesOpenPRAndDoesNotTurnMaintenanceFailureIntoWriteFailu
 	request := CreateRequest{SourceBranch: "topic", TargetRepository: "acme/repo", TargetBranch: "main", Title: "fixture"}
 	for i := 0; i < 2; i++ {
 		result, err := ctx.Ensure(context.Background(), request)
-		if err != nil || result.Created != (i == 0) || len(result.Maintenance.Errors) == 0 {
+		if err != nil || result.Created != (i == 0) {
 			t.Fatal(result, err)
 		}
 	}
-	if writes != 1 {
+	if writes != 1 || reads != 2 {
 		t.Fatal("duplicate creation", writes)
 	}
 }

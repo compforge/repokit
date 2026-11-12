@@ -89,6 +89,11 @@ func EnsureWorktree(ctx context.Context, repo, path string, options EnsureWorktr
 	if err != nil {
 		return report, err
 	}
+	if report.Action == "created" {
+		if e := recordBranchCreation(ctx, report.Checkout, report.Branch, options.Base, report.BaseCommit, options.Remote, options.Home); e != nil {
+			report.warn("state.creation_unavailable", e)
+		}
+	}
 	start = time.Now()
 	_, err = Observe(ctx, report.Checkout, options.Home, false)
 	report.measure("observe", start)

@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/analysis"
+	depotdata "github.com/compforge/repokit/toolkit/go/internal/depot"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -141,12 +141,9 @@ func removeEnvironmentContents(ctx context.Context, path string) error {
 }
 
 func worktreeEnvironments(ctx context.Context, root string, policy WorktreePolicy, recover bool) ([]string, bool, error) {
-	report, err := analysis.Inspect(ctx, analysis.InputRequest{Repository: root})
+	resources, err := depotdata.Resources(ctx, root)
 	if err != nil {
 		return nil, false, err
-	}
-	if !report.Complete {
-		return nil, false, errors.New("dependency inventory incomplete")
 	}
 	pending, _, err := pendingReleases(ctx, root, recover)
 	if err != nil {
@@ -157,50 +154,11 @@ func worktreeEnvironments(ctx context.Context, root string, policy WorktreePolic
 	for relative := range pending {
 		managed[filepath.Join(root, relative)] = true
 	}
-	for _, binding := range report.Components {
-		for _, name := range []string{"node_modules", ".venv"} {
-			directory := filepath.Join(root, binding.Root, name)
-			stat, err := os.Lstat(directory)
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
-			if err != nil {
-				return nil, false, err
-			}
-			if !stat.IsDir() {
-				return nil, false, fmt.Errorf("unsafe environment path: %s", directory)
-			}
-			receipt := filepath.Join(directory, ".repokit-dependencies.json")
-			receiptStat, err := os.Lstat(receipt)
-			if errors.Is(err, os.ErrNotExist) {
-				unmanaged[directory] = true
-				continue
-			}
-			if err != nil {
-				return nil, false, err
-			}
-			if !receiptStat.Mode().IsRegular() {
-				return nil, false, fmt.Errorf("invalid dependency receipt: %s", receipt)
-			}
-			data, err := os.ReadFile(receipt)
-			if err != nil {
-				return nil, false, err
-			}
-			var value struct {
-				Manager     string `json:"manager"`
-				Fingerprint string `json:"fingerprint"`
-			}
-			if err = json.Unmarshal(data, &value); err != nil {
-				return nil, false, err
-			}
-			managers := []string{"npm", "pnpm", "yarn", "bun"}
-			if name == ".venv" {
-				managers = []string{"uv", "poetry", "pipenv"}
-			}
-			if value.Fingerprint == "" || !slices.Contains(managers, value.Manager) {
-				return nil, false, fmt.Errorf("invalid dependency receipt: %s", receipt)
-			}
-			managed[directory] = true
+	for _, resource := range resources {
+		if resource.Managed {
+			managed[resource.Path] = true
+		} else {
+			unmanaged[resource.Path] = true
 		}
 	}
 	for _, relative := range policy.Outputs {

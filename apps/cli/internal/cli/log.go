@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"io"
 	"log/slog"
 	"os"
@@ -52,7 +53,7 @@ func startCommandLog(stderr io.Writer, args []string, explicitHome string) *comm
 	now := time.Now()
 	run := &commandLog{logger: slog.New(slog.NewTextHandler(io.Discard, nil)), started: now, runID: rand.Text()}
 	writer := &logWriter{stderr: stderr}
-	home, err := repositoryHome(explicitHome)
+	home, err := state.ResolveHome(explicitHome)
 	if err != nil {
 		writer.warn(err)
 		return run

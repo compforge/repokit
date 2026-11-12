@@ -14,6 +14,7 @@ import (
 	commitgit "github.com/compforge/repokit/toolkit/go/git/commit"
 	"github.com/compforge/repokit/toolkit/go/git/rebase"
 	"github.com/compforge/repokit/toolkit/go/state"
+	"github.com/compforge/repokit/toolkit/go/worktree"
 )
 
 // describeResult projects public domain facts; it never infers failure from log text.
@@ -146,6 +147,34 @@ func describeResult(r *commandResult, data any) {
 		}
 	case repokit.ValidationHistory:
 		r.Summary = "Read retained validation history"
+	case worktree.EnsureReport:
+		describeResult(r, v.EnsureWorktreeReport)
+		if v.Preparation != nil {
+			r.Summary += fmt.Sprintf("; dependencies ready=%t", v.Ready)
+			if !v.Ready {
+				r.Outcome = "partial"
+			}
+			r.Error = v.PreparationError
+			for _, p := range v.Preparation.Phases {
+				name := "depot." + p.Name
+				if p.Bin != "" {
+					name += "/" + p.Bin
+				}
+				r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: name, DurationSeconds: p.DurationSeconds})
+			}
+			for i, bin := range v.Preparation.Bins {
+				if bin.Status != "ready" {
+					message := bin.Reason
+					if bin.Error != nil {
+						message = bin.Error.Message
+					}
+					if message == "" {
+						message = "dependency status: " + bin.Status
+					}
+					r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "depot.not_ready", Severity: "warning", Phase: "depot", Path: bin.Path, Message: message, Evidence: fmt.Sprintf("/data/preparation/bins/%d", i)})
+				}
+			}
+		}
 	case state.EnsureWorktreeReport:
 		r.Summary = fmt.Sprintf("Worktree %s %s; confirmed=%t", v.Action, v.Checkout, v.Confirmed)
 		for _, p := range v.Phases {
@@ -175,9 +204,7 @@ func describeResult(r *commandResult, data any) {
 	case discussion.CommentResult:
 		r.Summary = fmt.Sprintf("Comment %s posted in thread %s", v.Comment.ID, v.ThreadID)
 	case forge.OperationResult:
-		r.Summary = fmt.Sprintf("PR #%d %s; created=%t; %d maintenance errors", v.PullRequest.Key.Number, v.PullRequest.State, v.Created, len(v.Maintenance.Errors))
-		// +spec=Maintenance warnings cannot turn a confirmed PR write into a failed write
-		r.maintenanceDiagnostics(v.Maintenance, "warning", "/data/maintenance")
+		r.Summary = fmt.Sprintf("PR #%d %s; created=%t", v.PullRequest.Key.Number, v.PullRequest.State, v.Created)
 	case forge.PullRequest:
 		r.Summary = fmt.Sprintf("PR #%d %s", v.Key.Number, v.State)
 	case []forge.PullRequest:

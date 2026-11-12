@@ -139,3 +139,94 @@ def test_cancelled_operation_never_launches_cli():
             repocli.list_pull_requests("/repo", branch="topic", state="open")
         assert isinstance(failure.value.__cause__, InterruptedError)
         launch.assert_not_called()
+
+
+def test_operation_partial_effects_survive_nonzero_exit_without_retry():
+    envelope = {
+        "schemaVersion": "1.0",
+        "command": "repocli worktree ensure",
+        "outcome": "partial",
+        "data": {"confirmed": True, "ready": False},
+        "error": {"message": "installer timed out"},
+    }
+    with patch.object(
+        repocli,
+        "run_command",
+        side_effect=subprocess.CalledProcessError(1, "repocli", json.dumps(envelope), ""),
+    ) as invoke:
+        assert repocli.run("/repo", ("worktree", "ensure"), ["/checkout", "--prepare"]) == envelope
+        assert invoke.call_count == 1
+
+
+def test_invalid_operation_timeout_is_rejected_before_process_start():
+    import pytest
+
+    for timeout in (-1, 0, float("nan"), float("inf")):
+        with patch.object(repocli, "run_command") as invoke, pytest.raises(ValueError):
+            repocli.run("/repo", ("git", "push"), [], timeout=timeout)
+        invoke.assert_not_called()
+
+
+def test_prepared_worktree_decoder_retains_partial_bins_and_rejects_contradictions():
+    from pathlib import Path
+
+    import pytest
+
+    data = {
+        "checkout": "/checkout",
+        "branch": "topic",
+        "headSha": "a" * 40,
+        "action": "created",
+        "confirmed": True,
+        "diagnostics": [],
+        "ready": False,
+        "preparation": {
+            "complete": False,
+            "bins": [
+                {
+                    "path": "node_modules",
+                    "status": "unknown",
+                    "stderr": "registry unavailable",
+                    "error": {"message": "timed out"},
+                }
+            ],
+        },
+    }
+    envelope = {"outcome": "partial", "data": data}
+    assert repocli.worktree_result(envelope, Path("/checkout"), "topic", prepared=True) is data
+    data["ready"] = True
+    with pytest.raises(ValueError, match="readiness"):
+        repocli.worktree_result(envelope, Path("/checkout"), "topic", prepared=True)
+    data["ready"] = False
+    envelope["outcome"] = "succeeded"
+    with pytest.raises(ValueError):
+        repocli.worktree_result(envelope, Path("/checkout"), "topic", prepared=True)
+
+
+def test_push_decoder_matches_source_and_destination_independently(tmp_path):
+    """+case=Push decoding accepts explicit destinations and rejects mismatched evidence."""
+    import pytest
+
+    repo = str(tmp_path)
+    commit = "a" * 40
+    data = {
+        "checkout": repo,
+        "branch": "topic",
+        "target": "topic",
+        "remote": "origin",
+        "targetCommit": commit,
+        "confirmed": True,
+        "diagnostics": [],
+    }
+    envelope = {"outcome": "succeeded", "data": data}
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin") is data
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin", target="topic") is data
+    data["target"] = "release"
+    assert repocli.push_result(envelope, repo, "topic", commit, "origin", target="release") is data
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin")
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin", target="other")
+    data["branch"] = "other"
+    with pytest.raises(ValueError, match="mismatching push report"):
+        repocli.push_result(envelope, repo, "topic", commit, "origin", target="release")

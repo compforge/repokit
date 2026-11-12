@@ -94,9 +94,9 @@ func runResultCommand(t *testing.T, data any, err error, stdout io.Writer) (int,
 	return code, stderr.String()
 }
 
-// +case=Confirmed PR creation survives maintenance errors without a retryable creation failure
-func TestPRMaintenanceWarningPreservesSuccess(t *testing.T) {
-	v := forge.OperationResult{Created: true, Maintenance: state.WorktreeCleanReport{Errors: []string{"lookup failed"}}}
+// +case=Confirmed PR creation reports only PR effects and does not include resource maintenance
+func TestPRWriteResultHasNoMaintenance(t *testing.T) {
+	v := forge.OperationResult{Created: true}
 	var out bytes.Buffer
 	code, stderr := runResultCommand(t, v, nil, &out)
 	if code != 0 || stderr != "" {
@@ -105,7 +105,7 @@ func TestPRMaintenanceWarningPreservesSuccess(t *testing.T) {
 	resultData(t, out.Bytes())
 	var r commandResult
 	json.Unmarshal(out.Bytes(), &r)
-	if r.Outcome != "succeeded" || len(r.Diagnostics) != 1 || r.Diagnostics[0].Severity != "warning" {
+	if r.Outcome != "succeeded" || len(r.Diagnostics) != 0 {
 		t.Fatalf("%+v", r)
 	}
 	var data forge.OperationResult
