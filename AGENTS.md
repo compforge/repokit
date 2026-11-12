@@ -120,6 +120,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [README.md](README.md)：判断能力边界、开始使用或接入。
 - [仓库结构识别](docs/repository.md)：tree / inspect、Component、语言与工具证据。
 - [仓库状态](docs/state.md)：state 业务边界、身份、持久化、复用与对账。
+- [Commit](docs/git-commit.md)：候选 index、明确范围、原生 hooks 与提交结果核验。
 - [Git](docs/git.md) / [worktree retention](docs/worktrees.md)：查询、操作、checkout 拓扑及回收保护。
 - [用户配置](docs/configuration.md)：RepoKit home 配置、host 级凭据与 SDK 接入。
 - [PR](docs/pr.md)：Forge 身份、读写、持续扫描和观察生命周期。

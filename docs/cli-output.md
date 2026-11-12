@@ -180,3 +180,9 @@ writeAttempted、pushAttempted、diagnostics 与 phases。`paused` 是已确认�
 
 `git push` 的 `confirmed` 由 `remoteCommit == targetCommit` 的远端观察决定；`pushAttempted` 和 Git 退出码
 分别保留。`--check` 查询成功不保证 confirmed；upstream 配置 warning 不撤回已确认发布。详见 [普通分支发布](git-push.md)。
+
+### Commit results
+
+`git commit plan/create/check` expose the planned branch/head/tree/index fingerprint and the actual
+commit/tree/parents. Check `confirmed` and `indexInstalled` separately; an empty candidate performs
+no commit. `recoveryPath` retains an uncertain or failed attempt. See [Commit](git-commit.md).
