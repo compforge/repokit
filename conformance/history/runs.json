@@ -286,7 +286,7 @@
           "component": ".",
           "inputs": "INPUT",
           "check": {
-            "runID": "AAA",
+            "runID": "DDD",
             "check": "test",
             "scope": "full",
             "status": "running",
@@ -295,7 +295,8 @@
         }
       ],
       "query": {},
-      "error": true
+      "error": true,
+      "errorMessage": "invalid validation history event"
     }
   ]
 }

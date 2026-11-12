@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	repokit "github.com/compforge/repokit/toolkit/go"
@@ -22,6 +23,7 @@ func TestSharedHistoryQueries(t *testing.T) {
 			IDs            []string
 			Total          int
 			HasMore, Error bool
+			ErrorMessage   string
 			Extra          []json.RawMessage
 		}
 	}
@@ -58,6 +60,9 @@ func TestSharedHistoryQueries(t *testing.T) {
 			if row.Error {
 				if err == nil {
 					t.Fatal("accepted invalid history/query")
+				}
+				if row.ErrorMessage != "" && !strings.Contains(strings.ToLower(err.Error()), strings.ToLower(row.ErrorMessage)) {
+					t.Fatalf("expected error containing %q, got %v", row.ErrorMessage, err)
 				}
 				return
 			}

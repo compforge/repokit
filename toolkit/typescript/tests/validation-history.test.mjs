@@ -26,7 +26,7 @@ const encode = events => events.map((e,i)=>JSON.stringify({index:String(i+1),dat
 for (const row of corpus.cases) test(row.name, async t => {
   const {query} = await fixture(t,[...corpus.events,...row.extra??[]]);
   const operation = () => listValidationRuns({...query,...row.query});
-  if (row.error) { await assert.rejects(operation); return; }
+  if (row.error) { await assert.rejects(operation, row.errorMessage ? new RegExp(row.errorMessage, "i") : undefined); return; }
   const report = await operation();
   assert.deepEqual(report.runs.map(run=>run.runID),row.ids);
   assert.equal(report.total,row.total); assert.equal(report.hasMore,row.hasMore);
@@ -35,12 +35,21 @@ for (const row of corpus.cases) test(row.name, async t => {
   const unfinished = report.runs.find(run=>run.runID==="CCC");
   if (unfinished) { assert.equal(unfinished.status,"unfinished"); assert.equal(unfinished.inputsConsistent,null); }
 });
+// @case Both query APIs honor REPOKIT_HOME; reading an absent home does not create it.
 test("missing store stays absent and home environment is shared",async t=>{
-  const {root,home} = await fixture(t,null), previous=process.env.REPOKIT_HOME;
+  const {root,home,directory} = await fixture(t,null), previous=process.env.REPOKIT_HOME;
   process.env.REPOKIT_HOME=home;
   t.after(()=>{if(previous===undefined)delete process.env.REPOKIT_HOME;else process.env.REPOKIT_HOME=previous;});
   assert.equal((await listValidationRuns({repository:root})).total,0);
   await assert.rejects(readdir(home),{code:"ENOENT"});
+  await mkdir(join(directory,"history"),{recursive:true});
+  await writeFile(join(directory,"history","00000000000000000001"),encode(corpus.events));
+  const runs = await listValidationRuns({repository:root});
+  assert.deepEqual(runs.runs.map(run=>run.runID),["CCC","BBB","AAA"]);
+  assert.equal(runs.total,3);
+  const detail = await readValidationRun(root,"AAA");
+  assert.equal(detail.run.runID,"AAA");
+  assert.equal(detail.result.status,"passed");
 });
 test("detail keeps missing evidence distinct from a missing run",async t=>{
   const {root,home,directory} = await fixture(t);
@@ -61,12 +70,17 @@ test("WAL corruption is an error, never empty history",async t=>{
   await assert.rejects(listValidationRuns(query),/Incomplete/);
 });
 test("logical truncation recovery does not mutate segments",async t=>{
-  const {query,directory}=await fixture(t);
+  const {query,directory}=await fixture(t,corpus.events.slice(0,3));
   const path=join(directory,"history");
+  assert.equal((await listValidationRuns(query)).total,2);
   await writeFile(join(path,"00000000000000000001.START"),encode(corpus.events));
   const before=await readdir(path);
-  assert.equal((await listValidationRuns(query)).total,3);
+  const contents=await Promise.all(before.map(name=>readFile(join(path,name),"utf8")));
+  const recovered=await listValidationRuns(query);
+  assert.deepEqual(recovered.runs.map(run=>run.runID),["CCC","BBB","AAA"]);
+  assert.equal(recovered.total,3);
   assert.deepEqual(await readdir(path),before);
+  assert.deepEqual(await Promise.all(before.map(name=>readFile(join(path,name),"utf8"))),contents);
 });
 test("advisory lock wait obeys cancellation",{timeout:4_000},async t=>{
   const {query,directory}=await fixture(t);
