@@ -13,6 +13,7 @@ Repository、PullRequest、Component、Product 复用 harness-common；业务决
 - `src/forge/observation/`：PR 缓存、持久化、刷新与终态收敛；契约见 [PR 观察](../../docs/pr.md#持续观察)。
 - `src/inspect.ts`：输入版本、统一时限及完整性判定。
 - `src/config.ts`：用户配置与 host 级 Forge 连接组装；契约见 [用户配置](../../docs/configuration.md)。
+- `src/validation/`：原生验证历史查询；与 Go 共享 Repository 身份、WAL 回放和 advisory lock，不执行检查。
 - `src/state/`：RepositoryState、home、身份编码和共享记录存储；Git 适配不依赖 state。
 - `src/git/`：operations、checkout/ref 状态、remote 解析与内部 catalog 读取；`index.ts` 汇总公共导出。
 - `src/layout.ts`：manifest / Makefile 组件发现、语言和工具证据。

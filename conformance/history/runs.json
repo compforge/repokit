@@ -1,0 +1,302 @@
+{
+  "events": [
+    {
+      "schemaVersion": 2,
+      "type": "started",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:00.000000001Z",
+      "run": "AAA",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "AAA",
+        "check": "test",
+        "scope": "full",
+        "status": "running",
+        "durationSeconds": 0
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "type": "started",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:00.000000002Z",
+      "run": "BBB",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "BBB",
+        "check": "lint",
+        "scope": "full",
+        "status": "running",
+        "durationSeconds": 0
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "type": "finished",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:02Z",
+      "run": "AAA",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "AAA",
+        "check": "test",
+        "scope": "full",
+        "status": "passed",
+        "durationSeconds": 1,
+        "checkedAt": "2026-11-12T00:00:02Z"
+      },
+      "inputsConsistent": true
+    },
+    {
+      "schemaVersion": 2,
+      "type": "finished",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:02Z",
+      "run": "BBB",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "BBB",
+        "check": "lint",
+        "scope": "full",
+        "status": "failed",
+        "durationSeconds": 1,
+        "checkedAt": "2026-11-12T00:00:02Z"
+      },
+      "inputsConsistent": true
+    },
+    {
+      "schemaVersion": 2,
+      "type": "started",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:01Z",
+      "run": "CCC",
+      "component": "child",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "CCC",
+        "check": "test",
+        "scope": "full",
+        "status": "running",
+        "durationSeconds": 0
+      }
+    },
+    {
+      "schemaVersion": 2,
+      "type": "reused",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:03Z",
+      "run": "AAA",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "AAA",
+        "check": "test",
+        "scope": "full",
+        "status": "passed",
+        "durationSeconds": 1,
+        "checkedAt": "2026-11-12T00:00:02Z"
+      },
+      "inputsConsistent": true
+    },
+    {
+      "schemaVersion": 2,
+      "type": "finished",
+      "checkout": "/retained/checkout",
+      "at": "2026-11-12T00:00:02Z",
+      "run": "ORPHAN",
+      "component": ".",
+      "inputs": "INPUT",
+      "check": {
+        "runID": "ORPHAN",
+        "check": "test",
+        "scope": "full",
+        "status": "passed",
+        "durationSeconds": 1,
+        "checkedAt": "2026-11-12T00:00:02Z"
+      },
+      "inputsConsistent": true
+    }
+  ],
+  "cases": [
+    {
+      "name": "latest unfinished then nanosecond order",
+      "query": {},
+      "ids": [
+        "CCC",
+        "BBB",
+        "AAA"
+      ],
+      "total": 3,
+      "hasMore": false
+    },
+    {
+      "name": "pagination",
+      "query": {
+        "limit": 1,
+        "offset": 1
+      },
+      "ids": [
+        "BBB"
+      ],
+      "total": 3,
+      "hasMore": true
+    },
+    {
+      "name": "passed retains reuse count",
+      "query": {
+        "status": "passed",
+        "check": "test",
+        "component": "."
+      },
+      "ids": [
+        "AAA"
+      ],
+      "total": 1,
+      "hasMore": false
+    },
+    {
+      "name": "missing component",
+      "query": {
+        "component": "missing"
+      },
+      "ids": [],
+      "total": 0,
+      "hasMore": false
+    },
+    {
+      "name": "removed checkout",
+      "query": {
+        "checkout": "/retained/checkout"
+      },
+      "ids": [
+        "CCC",
+        "BBB",
+        "AAA"
+      ],
+      "total": 3,
+      "hasMore": false
+    },
+    {
+      "name": "unknown status",
+      "query": {
+        "status": "running"
+      },
+      "error": true
+    },
+    {
+      "name": "negative offset",
+      "query": {
+        "offset": -1
+      },
+      "error": true
+    },
+    {
+      "name": "excessive limit",
+      "query": {
+        "limit": 101
+      },
+      "error": true
+    },
+    {
+      "name": "duplicate start",
+      "extra": [
+        {
+          "schemaVersion": 2,
+          "type": "started",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:00.000000001Z",
+          "run": "AAA",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "AAA",
+            "check": "test",
+            "scope": "full",
+            "status": "running",
+            "durationSeconds": 0
+          }
+        }
+      ],
+      "query": {},
+      "error": true
+    },
+    {
+      "name": "duplicate finish",
+      "extra": [
+        {
+          "schemaVersion": 2,
+          "type": "finished",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:02Z",
+          "run": "AAA",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "AAA",
+            "check": "test",
+            "scope": "full",
+            "status": "passed",
+            "durationSeconds": 1,
+            "checkedAt": "2026-11-12T00:00:02Z"
+          },
+          "inputsConsistent": true
+        }
+      ],
+      "query": {},
+      "error": true
+    },
+    {
+      "name": "invalid reuse",
+      "extra": [
+        {
+          "schemaVersion": 2,
+          "type": "reused",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:02Z",
+          "run": "BBB",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "BBB",
+            "check": "lint",
+            "scope": "full",
+            "status": "failed",
+            "durationSeconds": 1,
+            "checkedAt": "2026-11-12T00:00:02Z"
+          },
+          "inputsConsistent": true
+        }
+      ],
+      "query": {},
+      "error": true
+    },
+    {
+      "name": "schema mismatch",
+      "extra": [
+        {
+          "schemaVersion": 3,
+          "type": "started",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:00.000000001Z",
+          "run": "DDD",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "DDD",
+            "check": "test",
+            "scope": "full",
+            "status": "running",
+            "durationSeconds": 0
+          }
+        }
+      ],
+      "query": {},
+      "error": true,
+      "errorMessage": "invalid validation history event"
+    }
+  ]
+}

@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"github.com/tidwall/wal"
 )
 
 // ErrRunNotFound means a successful replay did not contain the requested Run.
@@ -44,13 +42,16 @@ func (h *Store) inspect(ctx context.Context, fn func(*State) error) error {
 	if !info.IsDir() {
 		return fmt.Errorf("not a regular history directory")
 	}
-	return h.accessLog(ctx, true, func(log *wal.Log) error {
-		state, err := h.replay(ctx, log)
-		if err != nil {
-			return err
-		}
-		return fn(state)
-	})
+	unlock, err := lock(ctx, filepath.Join(h.dir, "lock"))
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	state, err := h.readRetained(ctx)
+	if err != nil {
+		return err
+	}
+	return fn(state)
 }
 
 func (h *Store) ReadRetained(ctx context.Context) (*State, error) {
