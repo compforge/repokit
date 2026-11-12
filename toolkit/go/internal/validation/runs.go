@@ -110,7 +110,7 @@ func runSummary(run *history.Run, result CheckResult) ValidationRun {
 }
 
 // +spec=History filters and pagination never run checks, renew access, prune records or infer current-code validity.
-// +link=component://docs/validation-history.md
+// +link=component://docs/validation.md
 func ListValidationRuns(ctx context.Context, q ValidationRunQuery) (ValidationRunList, error) {
 	report := ValidationRunList{Runs: []ValidationRun{}, Offset: q.Offset, Limit: q.Limit}
 	if report.Limit == 0 {
