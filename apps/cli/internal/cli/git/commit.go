@@ -52,7 +52,11 @@ func newCommitCommand(opts *command.Options) *cobra.Command {
 				}
 			} else {
 				command.Record(cmd.OutOrStdout(), r)
-				fmt.Fprintf(cmd.OutOrStdout(), "Commit %s: branch=%s head=%s tree=%s commit=%s confirmed=%t indexInstalled=%t\n", action, r.Branch, r.Head, r.Tree, r.Commit, r.Confirmed, r.IndexInstalled)
+				fmt.Fprintf(cmd.OutOrStdout(), "Commit %s: empty=%t attempted=%t confirmed=%t indexInstalled=%t\n", action, r.Empty, r.Attempted, r.Confirmed, r.IndexInstalled)
+				fmt.Fprintf(cmd.OutOrStdout(), "Intent: branch=%s head=%s tree=%s indexFingerprint=%s\n", r.Branch, r.Head, r.Tree, r.IndexFingerprint)
+				if r.Commit != "" {
+					fmt.Fprintf(cmd.OutOrStdout(), "Observed: commit=%s actualTree=%s parents=%v\n", r.Commit, r.ActualTree, r.Parents)
+				}
 				for _, c := range r.Changes {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s %q\n", c.OldMode, c.NewMode, c.Path)
 				}

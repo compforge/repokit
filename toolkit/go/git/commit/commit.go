@@ -35,6 +35,10 @@ func Check(ctx context.Context, repo string, intent Intent) (Report, error) {
 func execute(ctx context.Context, repo, action string, opts Options) (report Report, err error) {
 	report = Report{Intent: opts.Intent, Checkout: repo, Action: action, Changes: []Change{}, Parents: []string{}, Diagnostics: []Diagnostic{}, Phases: []Phase{}}
 	defer func() {
+		// +rule=Create/check reports retain the requested intent, including when preparation rejects a stale plan.
+		if action != "plan" {
+			report.Intent = opts.Intent
+		}
 		err = errs.Wrap(err, "git.commit_failed", "git.commit."+action, report.Checkout)
 		slog.InfoContext(ctx, "Commit operation", "checkout", report.Checkout, "action", action, "branch", report.Branch, "commit", report.Commit, "attempted", report.Attempted, "confirmed", report.Confirmed, "failed", err != nil)
 	}()
