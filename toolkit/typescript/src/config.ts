@@ -12,7 +12,9 @@ export class ConfigError extends Error {}
 // Use the shared host grammar, independent of WHATWG URL normalization.
 function normalizeHost(value: string): string {
   const name = value.toLowerCase();
-  const host = name === "github" ? "github.com" : name === "gitlab" ? "gitlab.com" : name;
+  let host = name;
+  if (name === "github") host = "github.com";
+  else if (name === "gitlab") host = "gitlab.com";
   const invalid = () => new ConfigError("Invalid Forge host");
   let port = "", hasPort = false;
   if (host.startsWith("[")) {

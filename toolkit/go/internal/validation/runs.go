@@ -14,6 +14,7 @@ import (
 
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/validation/history"
+	"github.com/compforge/repokit/toolkit/go/state"
 )
 
 // ValidationRunQuery selects retained actual executions, never current validation evidence.
@@ -72,7 +73,11 @@ type ValidationRunDetail struct {
 
 func runStore(ctx context.Context, directory, checkout string) (*history.Store, error) {
 	if directory == "" {
-		return nil, errors.New("history directory is required")
+		home, err := state.ResolveHome("")
+		if err != nil {
+			return nil, err
+		}
+		directory = filepath.Join(home, "repositories")
 	}
 	return history.Open(ctx, directory, checkout)
 }

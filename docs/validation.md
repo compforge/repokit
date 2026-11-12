@@ -141,11 +141,19 @@ TypeScript 当前不提供验证执行 API。
 | home 解析与 config.json 读取 | 支持 | 支持 | 支持 |
 | lint/test 规划与原生执行 | 支持 | 支持 | 未提供 |
 | format、自动 impact、并发预算、输入声明 | 支持 | 未提供对应选项 | 未提供 |
-| 验证历史写入、复用与查询 | 支持 | 未提供原生 API | 未提供 |
+| 验证历史写入与复用 | 支持 | 未提供原生 API | 未提供 |
+| 保留 Run 列表与单次证据查询 | 支持 | 未提供原生 API | 支持 |
 
 Go 原生验证的空 HistoryDir 关闭持久化；CLI 显式传入 RepoKit home 下的默认历史根。
 Python 当前只执行检查，不写历史；这不表示在独立目录维护另一套历史，也不授权调用方自建复用缓存。
 今后新增历史能力必须读写 validation 拥有的同一协议，不能按 SDK 语言另设存储。
+Go 的保留 Run 查询在 HistoryDir 为空时、TypeScript 查询在 historyDir 未指定时，均使用 RepoKit home 下的 `repositories/`。
+TypeScript 提供 `listValidationRuns({repository, home?, checkout?, component?, check?, status?, limit?, offset?})`
+和 `readValidationRun(repository, runID, {home?, historyDir?, signal?, timeoutMs?})`；缺省查询预算为 5 秒。
+查询读取同一 schemaVersion=2 JSON WAL、input manifest 与日志，保留未完成 Run、复用次数和证据缺口。
+锁等待最多 5 秒；Linux/macOS 使用与 Go 相同的 flock，Node 通过 fs-ext 原生绑定调用，安装需要其原生构建工具链。
+只读回放逻辑处理 `.START`/`.END` 截断恢复，不改名、删除 segment 或续期访问；损坏不能变成空历史或部分成功。
+列表与明细均不判定当前代码已通过；input snapshot 只可用于源码比较，环境、工具链和外部输入仍由 validation 判定复用。
 Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最多 2 秒；
 无效语法和未完成解析报告 unavailable，不触发根入口回退。解析不执行 Make 或展开 includes。
 共有执行语义包括 Component 选择、根入口回退与去重、文件范围、冻结环境和结果判定：
