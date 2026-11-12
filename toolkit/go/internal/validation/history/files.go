@@ -161,6 +161,11 @@ func (h *Store) LoadOutput(ctx context.Context, id string, startedAt time.Time) 
 		return "", "", err
 	}
 	defer unlock()
+	return h.loadOutput(ctx, id, startedAt)
+}
+
+// loadOutput requires the repository lock to cover evidence and its Run together.
+func (h *Store) loadOutput(ctx context.Context, id string, startedAt time.Time) (string, string, error) {
 	prefix := filepath.Join(h.dir, "logs", startedAt.UTC().Format(time.DateOnly))
 	out, foundOut, err := readOutput(ctx, prefix+".stdout.jsonl", id)
 	if err != nil {

@@ -131,6 +131,7 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [Fragment 与 Unit](docs/units.md)：变更形成、关系优先级、聚合及预算。
 - [代码图浏览](docs/view.md)：viewer 的版本、展示与刷新契约。
 - [Depot](docs/depot.md) / [Makefile 验证](docs/validation.md)：依赖准备、检查规划、执行与结果复用。
+- [验证历史查询](docs/validation.md#验证历史查询)：保留 Run 的列表、单次证据、缺口与历史成本。
 - [Go 错误契约](docs/errors.md)：SDK 结构化错误、cause 链及共享 JSON/text 表达。
 - [CLI 输出契约](docs/cli-output.md)：统一输出结构、结果与诊断、证据、退出状态及兼容性。
 - [闲置清理](docs/cleanup.md)：访问记录、30 天策略、磁盘回收与跨语言 lease。

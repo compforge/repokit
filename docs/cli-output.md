@@ -186,3 +186,9 @@ writeAttempted、pushAttempted、diagnostics 与 phases。`paused` 是已确认�
 `git commit plan/create/check` expose the planned branch/head/tree/index fingerprint and the actual
 commit/tree/parents. Check `confirmed` and `indexInstalled` separately; an empty candidate performs
 no commit. `recoveryPath` retains an uncertain or failed attempt. See [Commit](git-commit.md).
+
+## 验证历史明细
+
+`validate history list/show` 的结果语义见[验证历史查询](validation.md#验证历史查询)。
+成功读取 failed Run 仍是查询 succeeded；证据缺失使用 partial，完整性与历史检查状态分开。
+历史执行耗时保留在 data，本次 cost 只计查询，不调用 validation execution 成本投影。

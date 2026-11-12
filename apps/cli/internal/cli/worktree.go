@@ -69,7 +69,7 @@ func newWorktreeCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 		}
 		if len(report.Errors) > 0 {
-			return executionFailure(&resultFailure{"worktree maintenance incomplete"})
+			return executionFailure(&resultFailure{Message: "worktree maintenance incomplete"})
 		}
 		return nil
 	}}

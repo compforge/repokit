@@ -1,4 +1,4 @@
-package cli
+package validation
 
 import (
 	"bytes"
@@ -15,7 +15,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
+func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
 	var planOnly, force, showHistory bool
@@ -48,12 +48,12 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 			defer cancel()
 			// +spec=Optional history must not prevent planning or executing checks
 			if historyDir == "" && !planOnly {
-				home, err := repositoryHome(opts.Home)
+				home, err := state.ResolveHome(opts.Home)
 				if err != nil {
 					if showHistory {
-						return executionFailure(fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err))
+						return cmdutil.ExecutionFailure(fmt.Errorf("resolve validation history directory: %w; specify --history-dir", err))
 					}
-					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "validation.history_unavailable", Severity: "warning", Phase: "history", Message: err.Error()})
+					cmdutil.AddDiagnostic(cmd.OutOrStdout(), cmdutil.Diagnostic{Code: "validation.history_unavailable", Severity: "warning", Phase: "history", Message: err.Error()})
 					if !opts.JSON {
 						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: validation history disabled: %v\n", err)
 					}
@@ -64,14 +64,14 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 			if showHistory {
 				checkout, err := repokit.FindCheckout(ctx, opts.Repository)
 				if err != nil {
-					return executionFailure(err)
+					return cmdutil.ExecutionFailure(err)
 				}
 				if checkout == "" {
-					return executionFailure(errors.New("repository checkout not found"))
+					return cmdutil.ExecutionFailure(errors.New("repository checkout not found"))
 				}
 				history, err := repokit.ReadValidationHistory(ctx, historyDir, checkout)
 				if err != nil {
-					return executionFailure(err)
+					return cmdutil.ExecutionFailure(err)
 				}
 				return cmdutil.JSON(cmd.OutOrStdout(), history)
 			}
@@ -79,27 +79,27 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
-					return executionFailure(err)
+					return cmdutil.ExecutionFailure(err)
 				}
 				decoder := json.NewDecoder(bytes.NewReader(data))
 				decoder.DisallowUnknownFields()
 				if err := decoder.Decode(&request.Inputs); err != nil {
-					return executionFailure(err)
+					return cmdutil.ExecutionFailure(err)
 				}
 			}
 			if name != "validate" {
 				request.Checks = []string{name}
 			}
 			if planOnly {
-				finishPhase := measurePhase(cmd.OutOrStdout(), "planning")
+				finishPhase := cmdutil.MeasurePhase(cmd.OutOrStdout(), "planning")
 				plan, err := repokit.PlanValidation(ctx, request)
 				finishPhase()
 				if err != nil {
-					return executionFailure(err)
+					return cmdutil.ExecutionFailure(err)
 				}
 				return cmdutil.JSON(cmd.OutOrStdout(), plan)
 			}
-			finishPhase := measurePhase(cmd.OutOrStdout(), "validation")
+			finishPhase := cmdutil.MeasurePhase(cmd.OutOrStdout(), "validation")
 			report, err := repokit.Validate(ctx, request)
 			finishPhase()
 			// Preserve available check evidence even if final capture or bookkeeping fails.
@@ -107,12 +107,12 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 				cmdutil.Record(cmd.OutOrStdout(), report)
 			}
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
-			finishPhase = measurePhase(cmd.OutOrStdout(), "observation")
-			if home, stateErr := repositoryHome(opts.Home); stateErr == nil {
+			finishPhase = cmdutil.MeasurePhase(cmd.OutOrStdout(), "observation")
+			if home, stateErr := state.ResolveHome(opts.Home); stateErr == nil {
 				if _, stateErr = state.Observe(ctx, opts.Repository, home, false); stateErr != nil {
-					addDiagnostic(cmd.OutOrStdout(), diagnostic{Code: "state.observation_unavailable", Severity: "warning", Phase: "observation", Message: stateErr.Error()})
+					cmdutil.AddDiagnostic(cmd.OutOrStdout(), cmdutil.Diagnostic{Code: "state.observation_unavailable", Severity: "warning", Phase: "observation", Message: stateErr.Error()})
 					if !opts.JSON {
 						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
 					}
@@ -120,13 +120,13 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 			}
 			finishPhase()
 			if !opts.JSON {
-				if err := writeValidationText(cmd.OutOrStdout(), report); err != nil {
-					return executionFailure(err)
+				if err := WriteText(cmd.OutOrStdout(), report); err != nil {
+					return cmdutil.ExecutionFailure(err)
 				}
 			}
 
 			if (!report.InputsConsistent && len(report.Components) > 0) || !report.Complete || !report.Passed {
-				return executionFailure(&resultFailure{"validation did not establish a complete pass"})
+				return cmdutil.ExecutionFailure(&cmdutil.ResultFailure{Message: "validation did not establish a complete pass"})
 			}
 			return nil
 		},
@@ -143,6 +143,7 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringArrayVar(&changed, "changed-file", nil, "restrict impact seeds to a changed repository-relative path")
 	command.Flags().String("output", "", "atomically save the complete command result to this file")
 	if name == "validate" {
+		command.AddCommand(newValidationHistoryCommand(opts))
 		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test); format runs first, default lint,test")
 	}
 	return command

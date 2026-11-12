@@ -13,6 +13,7 @@ import (
 	gitcmd "github.com/compforge/repokit/apps/cli/internal/cli/git"
 	"github.com/compforge/repokit/apps/cli/internal/cli/pr"
 	releasecmd "github.com/compforge/repokit/apps/cli/internal/cli/release"
+	validationcmd "github.com/compforge/repokit/apps/cli/internal/cli/validation"
 	"github.com/compforge/repokit/apps/cli/internal/upgrade"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -57,7 +58,7 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	}
 	code := 0
 	if err != nil {
-		if command == nil || command.Name() != "stats" {
+		if (command == nil || command.Name() != "stats") && !validationcmd.IsHistoryQuery(command) {
 			start()
 		}
 		code = 2
@@ -109,12 +110,15 @@ func newRootCommand(opts *cmdutil.Options) *cobra.Command {
 	_ = root.MarkPersistentFlagDirname("repo")
 	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
 	root.AddCommand(newWorktreeCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
-	root.AddCommand(newValidationCommand(opts, "format"), newValidationCommand(opts, "validate"), newValidationCommand(opts, "lint"), newValidationCommand(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
+	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
 	trackRepositoryCommands(root, opts)
 	return root
 }
 
 func logCommandHandlers(command *cobra.Command, start func()) {
+	if command.Annotations["history-query"] == "true" {
+		return
+	}
 	// +why=Statistics must not pollute their input or trigger retention cleanup while observing it
 	if (command.Name() == "version" || command.Name() == "stats") && command.Parent() != nil && command.Parent().Parent() == nil {
 		return
@@ -140,7 +144,7 @@ func logCommandHandlers(command *cobra.Command, start func()) {
 func trackRepositoryCommands(root *cobra.Command, opts *cmdutil.Options) {
 	var visit func(*cobra.Command)
 	visit = func(cmd *cobra.Command) {
-		if cmd.Name() == "clean" {
+		if cmd.Name() == "clean" || cmd.Annotations["history-query"] == "true" {
 			return
 		}
 		if run := cmd.RunE; run != nil {

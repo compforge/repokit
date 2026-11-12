@@ -53,7 +53,7 @@ func newStatsCommand(opts *cmdutil.Options) *cobra.Command {
 				return executionFailure(err)
 			}
 			if !report.Complete {
-				return executionFailure(&resultFailure{"statistics are incomplete; see diagnostics in the report"})
+				return executionFailure(&resultFailure{Message: "statistics are incomplete; see diagnostics in the report"})
 			}
 			return nil
 		},

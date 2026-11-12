@@ -134,6 +134,16 @@ func describeResult(r *commandResult, data any) {
 				}
 			}
 		}
+	case repokit.ValidationRunList:
+		r.Summary = fmt.Sprintf("Read %d of %d retained validation runs; hasMore=%t", len(v.Runs), v.Total, v.HasMore)
+	case repokit.ValidationRunDetail:
+		r.Summary = fmt.Sprintf("Historical run %s: %s; evidence complete=%t", v.Run.RunID, v.Run.Status, v.Complete)
+		if !v.Complete {
+			r.Outcome = "partial"
+		}
+		for i, d := range v.Diagnostics {
+			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "validation.evidence_unavailable", Severity: "warning", Phase: "history", Subject: d.Artifact, Message: d.Message, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
+		}
 	case repokit.ValidationHistory:
 		r.Summary = "Read retained validation history"
 	case state.EnsureWorktreeReport:

@@ -57,14 +57,20 @@ func Open(ctx context.Context, base, checkout string) (*Store, error) {
 // WAL caches file offsets and sequence numbers. Hold the OS lock over its entire
 // open/read/write/close lifetime, never across a Make invocation.
 // +spec=Independent CLI processes serialize history access without serializing checks
-func (h *Store) access(ctx context.Context, fn func(*wal.Log) error) (err error) {
-	if h.trackAccess {
+func (h *Store) access(ctx context.Context, fn func(*wal.Log) error) error {
+	return h.accessLog(ctx, false, fn)
+}
+
+func (h *Store) accessLog(ctx context.Context, readOnly bool, fn func(*wal.Log) error) (err error) {
+	if !readOnly && h.trackAccess {
 		if err = repostate.RecordAccess(ctx, h.checkout, filepath.Dir(filepath.Dir(h.dir))); err != nil {
 			return err
 		}
 	}
-	if err = os.MkdirAll(h.dir, 0700); err != nil {
-		return err
+	if !readOnly {
+		if err = os.MkdirAll(h.dir, 0700); err != nil {
+			return err
+		}
 	}
 	unlock, err := lock(ctx, filepath.Join(h.dir, "lock"))
 	if err != nil {

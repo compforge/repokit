@@ -11,23 +11,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 )
 
-type diagnostic struct {
-	Code     string `json:"code"`
-	Severity string `json:"severity"`
-	Phase    string `json:"phase"`
-	Subject  string `json:"subject,omitempty"`
-	Message  string `json:"message"`
-	Path     string `json:"path,omitempty"`
-	Line     int    `json:"line,omitempty"`
-	Version  string `json:"version,omitempty"`
-	Evidence string `json:"evidence,omitempty"` // JSON Pointer within this result.
-	Hint     string `json:"hint,omitempty"`
-}
+type diagnostic = command.Diagnostic
 
 type artifact struct {
 	Kind string `json:"kind"`
@@ -85,16 +75,12 @@ func (o *resultOutput) WriteJSON(data any) error {
 }
 
 func addDiagnostic(w io.Writer, d diagnostic) {
-	if o, ok := w.(*resultOutput); ok {
-		o.result.Diagnostics = append(o.result.Diagnostics, d)
-	}
+	command.AddDiagnostic(w, d)
 }
 
 // resultFailure carries only the exit signal; the recorded report already owns
 // the detailed diagnosis and must not acquire a second generic failure.
-type resultFailure struct{ message string }
-
-func (e *resultFailure) Error() string { return e.message }
+type resultFailure = command.ResultFailure
 
 func (o *resultOutput) applyError(err error) {
 	var reported *resultFailure
@@ -274,4 +260,14 @@ func requestedJSON(root *cobra.Command, args []string) bool {
 		}
 	}
 	return false
+}
+
+func (o *resultOutput) RecordDiagnostic(d command.Diagnostic) {
+	o.result.Diagnostics = append(o.result.Diagnostics, d)
+}
+func (o *resultOutput) RecordPhase(p command.Phase) {
+	o.result.Cost.Phases = append(o.result.Cost.Phases, p)
+}
+func (o *resultOutput) CurrentTiming() (float64, []command.Phase) {
+	return time.Since(o.started).Seconds(), o.result.Cost.Phases
 }
