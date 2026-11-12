@@ -63,6 +63,14 @@ func describeResult(r *commandResult, data any) {
 		for i, d := range v.Diagnostics {
 			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "rebase", Path: v.Checkout, Message: d.Message, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
 		}
+	case repogit.PushReport:
+		r.Summary = fmt.Sprintf("Push %s to %s/%s: %s; confirmed=%t; pushAttempted=%t", v.Branch, v.Remote, v.Target, v.RemoteState, v.Confirmed, v.PushAttempted)
+		for _, p := range v.Phases {
+			r.Cost.Phases = append(r.Cost.Phases, phaseCost{Name: "git.push." + p.Name, DurationSeconds: p.DurationSeconds})
+		}
+		for i, d := range v.Diagnostics {
+			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "push", Path: v.Checkout, Message: d.Message, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
+		}
 	case repogit.TagPublishReport:
 		r.Summary = fmt.Sprintf("%d tags on %s; confirmed=%t", len(v.Tags), v.Remote, v.Confirmed)
 		for _, phase := range v.Phases {

@@ -230,10 +230,11 @@ func TestLinkedCheckoutAndLockCancellation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer unlock()
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
 	r, e := Run(ctx, linked, Start, Options{Branch: "feature/topic", Target: "main"})
-	if e == nil || r.WriteAttempted {
+	reachedLease := len(r.Phases) > 0 && r.Phases[len(r.Phases)-1].Name == "lock_wait" && r.Phases[len(r.Phases)-1].DurationSeconds > 0.05
+	if !errors.Is(e, context.DeadlineExceeded) || !reachedLease || r.WriteAttempted {
 		t.Fatal(r, e)
 	}
 }

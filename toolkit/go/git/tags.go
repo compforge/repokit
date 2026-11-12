@@ -6,8 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -87,27 +85,10 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 		if opts.Target == "" || len(opts.Tags) == 0 || strings.HasPrefix(opts.Remote, "-") {
 			return failure("git.invalid_argument", "tag publication requires tags, an explicit target and a configured remote", nil)
 		}
-		remotes, e := query(ctx, 5*time.Second, "remote")
+		var e error
+		endpoint, e = gitworktree.PushDestination(repo, opts.Remote, func(timeout time.Duration, args ...string) (string, error) { return query(ctx, timeout, args...) })
 		if e != nil {
 			return e
-		}
-		if !slices.Contains(strings.Split(remotes, "\n"), opts.Remote) {
-			return failure("git.invalid_argument", "remote must name a configured Git remote", nil)
-		}
-		urls, e := query(ctx, 5*time.Second, "remote", "get-url", "--push", "--all", opts.Remote)
-		if e != nil {
-			return e
-		}
-		if urls == "" || strings.ContainsAny(urls, "\r\n") {
-			return failure("git.ambiguous_remote", "tag publication requires exactly one push URL", nil)
-		}
-		endpoint = urls
-		// A relative push URL is a path, not another configured remote name.
-		if !strings.Contains(endpoint, ":") && !filepath.IsAbs(endpoint) {
-			endpoint, e = filepath.Abs(filepath.Join(repo, endpoint))
-			if e != nil {
-				return e
-			}
 		}
 		seen := map[string]bool{}
 		for _, name := range opts.Tags {
@@ -191,11 +172,7 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 	var pushed gitworktree.GitResult
 	_ = phase("push", func() error {
 		// +why=Reserve part of the caller's remaining budget for reconciliation; never extend its deadline.
-		budget := 120 * time.Second
-		if deadline, ok := ctx.Deadline(); ok {
-			remaining := time.Until(deadline)
-			budget = min(budget, remaining-min(30*time.Second, remaining/5))
-		}
+		budget := gitworktree.PushBudget(ctx)
 		report.PushAttempted = true
 		pushed = run(ctx, repo, budget, args...)
 		report.PushExitCode = &pushed.ExitCode
@@ -223,22 +200,9 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 // Git porcelain distinguishes a definite rejection from an unacknowledged remote failure.
 // Unknown/localized summaries stay uncertain; never infer rejection from free-form stderr.
 func pushRejected(output string, tags []TagObservation) bool {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) != 3 || fields[0] != "!" {
-			continue
-		}
-		_, ref, ok := strings.Cut(fields[1], ":")
-		if !ok {
-			continue
-		}
-		if !strings.HasPrefix(fields[2], "[rejected]") && !strings.HasPrefix(fields[2], "[remote rejected]") {
-			continue
-		}
-		for _, tag := range tags {
-			if tag.Ref == ref {
-				return true
-			}
+	for _, tag := range tags {
+		if gitworktree.PushRejected(output, tag.Ref) {
+			return true
 		}
 	}
 	return false

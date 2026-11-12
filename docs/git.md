@@ -211,3 +211,8 @@ repocli，不再维护第二套恢复记录。事务与精确 lease 的契约见
 
 Go `git/branch` 与 `repocli git branch create/status` 提供显式分支创建、远端基线刷新和改动携带。
 完整数据保护、确认与恢复契约见 [Branch 创建](git-branch.md)。
+
+## 普通分支发布
+
+Go `git.Push` 与 `repocli git push` 将固定 commit 发布到显式远端分支，通过 push destination 的
+实时观察确认结果。未知响应使用相同 commit 的 `--check` 恢复观察；见 [发布契约](git-push.md)。

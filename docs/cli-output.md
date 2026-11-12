@@ -177,3 +177,6 @@ writeAttempted、pushAttempted、diagnostics 与 phases。`paused` 是已确认�
 `git branch create/status` 分别暴露 `branchConfirmed`、`changesRestored`、`confirmed`、
 精确 `stashOid` 和 `recoveryPath`。创建分支成功但恢复失败时，不能只凭非零退出码推断没有写入；
 消费规则见 [Branch 创建](git-branch.md)。`cost.phases` 的阶段名以 `git.branch.` 开头。
+
+`git push` 的 `confirmed` 由 `remoteCommit == targetCommit` 的远端观察决定；`pushAttempted` 和 Git 退出码
+分别保留。`--check` 查询成功不保证 confirmed；upstream 配置 warning 不撤回已确认发布。详见 [普通分支发布](git-push.md)。
