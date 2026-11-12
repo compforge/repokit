@@ -2,9 +2,9 @@ package rebase
 
 import (
 	"errors"
+	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 )
@@ -139,24 +139,7 @@ func (o *operation) observe() error {
 	return nil
 }
 func (o *operation) destination(remote string) (string, error) {
-	remotes, e := o.query("remote")
-	if e != nil {
-		return "", e
-	}
-	if remote == "" || strings.HasPrefix(remote, "-") || !slices.Contains(strings.Split(remotes, "\n"), remote) {
-		return "", failure("invalid_argument", "remote must name a configured Git remote", nil)
-	}
-	endpoint, e := o.query("remote", "get-url", "--push", "--all", remote)
-	if e != nil {
-		return "", e
-	}
-	if endpoint == "" || strings.ContainsAny(endpoint, "\r\n") {
-		return "", failure("ambiguous_remote", "rebase requires exactly one push destination", nil)
-	}
-	if !strings.Contains(endpoint, ":") && !filepath.IsAbs(endpoint) {
-		endpoint = filepath.Join(o.repo, endpoint)
-	}
-	return endpoint, nil
+	return gitworktree.PushDestination(o.repo, remote, o.queryFor)
 }
 func (o *operation) remoteTip() (string, error) {
 	ref := "refs/heads/" + o.record.Branch
@@ -164,22 +147,6 @@ func (o *operation) remoteTip() (string, error) {
 	if e != nil {
 		return "", e
 	}
-	for _, line := range strings.Split(raw, "\n") {
-		sha, name, ok := strings.Cut(line, "\t")
-		if ok && name == ref && oid(sha) {
-			return sha, nil
-		}
-	}
-	if raw == "" {
-		return "", nil
-	}
-	return "", failure("query_failed", "invalid remote branch observation", nil)
+	return gitworktree.BranchTip(raw, ref)
 }
-func (o *operation) budget() time.Duration {
-	budget := 2 * time.Minute
-	if deadline, ok := o.ctx.Deadline(); ok {
-		remaining := time.Until(deadline)
-		budget = min(budget, remaining-min(30*time.Second, remaining/5))
-	}
-	return budget
-}
+func (o *operation) budget() time.Duration { return gitworktree.PushBudget(o.ctx) }

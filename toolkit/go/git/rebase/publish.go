@@ -2,7 +2,6 @@ package rebase
 
 import (
 	"errors"
-	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
@@ -89,21 +88,8 @@ func (o *operation) finish() error {
 		o.publishState("published")
 		return nil
 	}
-	if e == nil && !result.Uncertain && rejected(result.Stdout, ref) {
+	if e == nil && !result.Uncertain && gitworktree.PushRejected(result.Stdout, ref) {
 		return failure("push_rejected", "remote rejected the lease-protected publication; recovery record retained", result.Err)
 	}
 	return unknown("publication could not be confirmed; frozen commit and lease retained", errors.Join(result.Err, e))
-}
-func rejected(output, ref string) bool {
-	for _, line := range strings.Split(output, "\n") {
-		fields := strings.SplitN(line, "\t", 3)
-		if len(fields) != 3 || fields[0] != "!" {
-			continue
-		}
-		_, dest, ok := strings.Cut(fields[1], ":")
-		if ok && dest == ref && (strings.HasPrefix(fields[2], "[rejected]") || strings.HasPrefix(fields[2], "[remote rejected]")) {
-			return true
-		}
-	}
-	return false
 }
