@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -21,31 +22,40 @@ import (
 // Repository identifies the store through a live checkout. Checkout filters historical paths,
 // including removed worktrees; an empty filter includes all checkouts in that repository.
 type ValidationRunQuery struct {
-	HistoryDir string
-	Repository string
-	Checkout   string
-	Component  string
-	Check      string
-	Status     string
-	Limit      int // zero defaults to 20; maximum 100.
-	Offset     int
+	HistoryDir    string
+	Repository    string
+	Checkout      string
+	Component     string
+	Check         string
+	Status        string
+	Limit         int // zero defaults to 20; maximum 100.
+	Offset        int
+	IncludeInputs bool // load input summaries for this page, without reading outputs.
 }
 
 // ValidationRun is one actual check execution. Reuse does not create or reorder runs.
 type ValidationRun struct {
-	RunID            string     `json:"runID"`
-	Checkout         string     `json:"checkout"`
-	Component        string     `json:"component"`
-	Check            string     `json:"check"`
-	Scope            string     `json:"scope"`
-	Status           string     `json:"status"`
-	StartedAt        time.Time  `json:"startedAt"`
-	FinishedAt       *time.Time `json:"finishedAt,omitempty"`
-	DurationSeconds  float64    `json:"durationSeconds"`
-	InputsConsistent *bool      `json:"inputsConsistent"`
-	InputID          string     `json:"inputID"`
-	ReuseCount       int        `json:"reuseCount"`
-	LastReusedAt     *time.Time `json:"lastReusedAt,omitempty"`
+	RunID            string                     `json:"runID"`
+	Checkout         string                     `json:"checkout"`
+	Component        string                     `json:"component"`
+	Check            string                     `json:"check"`
+	Scope            string                     `json:"scope"`
+	Status           string                     `json:"status"`
+	StartedAt        time.Time                  `json:"startedAt"`
+	FinishedAt       *time.Time                 `json:"finishedAt,omitempty"`
+	DurationSeconds  float64                    `json:"durationSeconds"`
+	InputsConsistent *bool                      `json:"inputsConsistent"`
+	InputID          string                     `json:"inputID"`
+	ReuseCount       int                        `json:"reuseCount"`
+	LastReusedAt     *time.Time                 `json:"lastReusedAt,omitempty"`
+	Inputs           *ValidationRunInputSummary `json:"inputs,omitempty"`
+}
+
+// ValidationRunInputSummary describes input evidence only, never output availability or reuse eligibility.
+type ValidationRunInputSummary struct {
+	Snapshot    string                    `json:"snapshot,omitempty"`
+	Complete    bool                      `json:"complete"`
+	Diagnostics []ValidationEvidenceIssue `json:"diagnostics"`
 }
 
 type ValidationRunList struct {
@@ -115,6 +125,7 @@ func runSummary(run *history.Run, result CheckResult) ValidationRun {
 }
 
 // +spec=History filters and pagination never run checks, renew access, prune records or infer current-code validity.
+// +spec=IncludeInputs reads only the selected page manifests under the replay lock, never output logs.
 // +link=component://docs/validation.md
 func ListValidationRuns(ctx context.Context, q ValidationRunQuery) (ValidationRunList, error) {
 	report := ValidationRunList{Runs: []ValidationRun{}, Offset: q.Offset, Limit: q.Limit}
@@ -122,13 +133,13 @@ func ListValidationRuns(ctx context.Context, q ValidationRunQuery) (ValidationRu
 		report.Limit = 20
 	}
 	if report.Limit < 1 || report.Limit > 100 || q.Offset < 0 {
-		return report, errors.New("limit must be 1–100 and offset must be nonnegative")
+		return report, &errs.Error{Code: "validation.invalid_query", Message: "limit must be 1–100 and offset must be nonnegative"}
 	}
 	if q.Check != "" && q.Check != "lint" && q.Check != "test" {
-		return report, errors.New("check must be lint or test")
+		return report, &errs.Error{Code: "validation.invalid_query", Message: "check must be lint or test"}
 	}
 	if q.Status != "" && !slices.Contains([]string{"passed", "failed", "cancelled", "uncertain", "unfinished"}, q.Status) {
-		return report, errors.New("invalid run status")
+		return report, &errs.Error{Code: "validation.invalid_query", Message: "invalid run status"}
 	}
 	if q.Checkout != "" {
 		var err error
@@ -148,43 +159,69 @@ func ListValidationRuns(ctx context.Context, q ValidationRunQuery) (ValidationRu
 	if err != nil {
 		return report, err
 	}
-	state, err := store.ReadRetained(ctx)
-	if err != nil {
-		return report, err
-	}
-	report.Repository = state.Summary.Repository
-	for _, run := range state.Runs {
-		if err := ctx.Err(); err != nil {
-			return report, err
+	err = store.Inspect(ctx, func(state *history.State) error {
+		report.Repository = state.Summary.Repository
+		for _, run := range state.Runs {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if (q.Checkout != "" && run.Start.Checkout != q.Checkout) || (q.Component != "" && run.Start.Component != q.Component) || (q.Check != "" && run.Check != q.Check) {
+				continue
+			}
+			result, err := runResult(run)
+			if err != nil {
+				return err
+			}
+			if q.Status != "" && result.Status != q.Status {
+				continue
+			}
+			report.Runs = append(report.Runs, runSummary(run, result))
 		}
-		if (q.Checkout != "" && run.Start.Checkout != q.Checkout) || (q.Component != "" && run.Start.Component != q.Component) || (q.Check != "" && run.Check != q.Check) {
-			continue
+		slices.SortFunc(report.Runs, func(a, b ValidationRun) int {
+			if n := b.StartedAt.Compare(a.StartedAt); n != 0 {
+				return n
+			}
+			return strings.Compare(a.RunID, b.RunID)
+		})
+		report.Total = len(report.Runs)
+		start := min(q.Offset, report.Total)
+		end := start + min(report.Limit, report.Total-start)
+		report.Runs, report.HasMore = report.Runs[start:end], end < report.Total
+		if q.IncludeInputs {
+			for i := range report.Runs {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				row := &report.Runs[i]
+				evidence := &ValidationRunInputSummary{Diagnostics: []ValidationEvidenceIssue{}}
+				data, err := store.LoadInputs(row.InputID)
+				if err != nil {
+					evidence.Diagnostics = append(evidence.Diagnostics, ValidationEvidenceIssue{Artifact: "inputs", Message: err.Error()})
+				} else {
+					inputs, issue := decodeRunInputs(data, row.Checkout)
+					if issue != nil {
+						evidence.Diagnostics = append(evidence.Diagnostics, *issue)
+					} else {
+						evidence.Snapshot, evidence.Complete = inputs.Snapshot, true
+					}
+				}
+				row.Inputs = evidence
+			}
 		}
-		result, err := runResult(run)
-		if err != nil {
-			return ValidationRunList{}, err
-		}
-		if q.Status != "" && result.Status != q.Status {
-			continue
-		}
-		report.Runs = append(report.Runs, runSummary(run, result))
-	}
-	slices.SortFunc(report.Runs, func(a, b ValidationRun) int {
-		if n := b.StartedAt.Compare(a.StartedAt); n != 0 {
-			return n
-		}
-		return strings.Compare(a.RunID, b.RunID)
+		return ctx.Err()
 	})
-	report.Total = len(report.Runs)
-	start := min(q.Offset, report.Total)
-	end := start + min(report.Limit, report.Total-start)
-	report.Runs, report.HasMore = report.Runs[start:end], end < report.Total
+	if err != nil {
+		return ValidationRunList{}, err
+	}
 	slog.DebugContext(ctx, "validation history listed", "repository", report.Repository, "matched", report.Total, "returned", len(report.Runs))
 	return report, nil
 }
 
 func ReadValidationRun(ctx context.Context, directory, checkout, id string) (ValidationRunDetail, error) {
 	report := ValidationRunDetail{Diagnostics: []ValidationEvidenceIssue{}}
+	if !runIDPattern.MatchString(id) {
+		return report, &errs.Error{Code: "validation.invalid_run_id", Message: "invalid run ID"}
+	}
 	store, err := runStore(ctx, directory, checkout)
 	if err != nil {
 		return report, err
@@ -204,18 +241,32 @@ func ReadValidationRun(ctx context.Context, directory, checkout, id string) (Val
 	report.Repository, report.Run, report.Result = evidence.Repository, runSummary(evidence.Run, result), result
 	report.Diagnostics = evidence.Issues
 	if evidence.Inputs != nil {
-		var inputs ValidationRunInputs
-		err := json.Unmarshal(evidence.Inputs, &inputs)
-		if err == nil && (inputs.SchemaVersion != 1 || inputs.Checkout != report.Run.Checkout || inputs.Files == nil || inputs.Snapshot == "") {
-			err = errors.New("input manifest identity or schema is invalid")
-		}
-		if err != nil {
-			report.Diagnostics = append(report.Diagnostics, ValidationEvidenceIssue{Artifact: "inputs", Message: fmt.Sprintf("decode input evidence: %v", err)})
+		inputs, issue := decodeRunInputs(evidence.Inputs, report.Run.Checkout)
+		if issue != nil {
+			report.Diagnostics = append([]ValidationEvidenceIssue{*issue}, report.Diagnostics...)
 		} else {
-			report.Inputs = &inputs
+			report.Inputs = inputs
 		}
+	}
+
+	if err := ctx.Err(); err != nil {
+		return ValidationRunDetail{}, err
 	}
 	report.Complete = len(report.Diagnostics) == 0
 	slog.DebugContext(ctx, "validation run read", "repository", report.Repository, "run", id, "status", report.Run.Status, "complete", report.Complete)
 	return report, nil
+}
+
+var runIDPattern = regexp.MustCompile(`^[A-Z2-7]+$`)
+
+func decodeRunInputs(data []byte, checkout string) (*ValidationRunInputs, *ValidationEvidenceIssue) {
+	var inputs ValidationRunInputs
+	err := json.Unmarshal(data, &inputs)
+	if err == nil && (inputs.SchemaVersion != 1 || inputs.Checkout != checkout || inputs.Files == nil || inputs.Snapshot == "") {
+		err = errors.New("input manifest identity or schema is invalid")
+	}
+	if err != nil {
+		return nil, &ValidationEvidenceIssue{Artifact: "inputs", Message: fmt.Sprintf("decode input evidence: %v", err)}
+	}
+	return &inputs, nil
 }

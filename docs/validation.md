@@ -330,17 +330,58 @@ WAL 损坏、读取失败或取消返回失败，不以空集合或部分重放�
 `cost.wallSeconds` 和 `cost.phases.history.query` 度量本次查询；Run 的 `durationSeconds`
 与 CheckResult 的 timing 是历史执行成本，不计入本次查询的 validation execution cost。
 
-### 历史查询 Go API 与存储边界
+### 原生历史查询 API 与存储边界
 
-`ListValidationRuns(ctx, ValidationRunQuery)` 返回筛选、分页后的摘要；
-`ReadValidationRun(ctx, historyDir, checkout, runID)` 返回单次详情。
-调用方显式提供 history root；SDK 不隐式读取 CLI 配置，不返回 CLI envelope。
-详情中的证据缺口通过 `Complete/Diagnostics` 返回；无法建立查询结果时返回结构化 error。
+| 能力 | Go | TypeScript | Python |
+|---|---|---|---|
+| 保留 Run 筛选、分页 | `ListValidationRuns` | `listValidationRuns` | 未提供 |
+| 本页输入证据摘要 | `ValidationRunQuery.IncludeInputs` | `includeInputs` | 未提供 |
+| 单次详情与输出 | `ReadValidationRun` | `readValidationRun` | 未提供 |
 
-查询沿用 history 的仓库锁、WAL 重放和日志读取；单次详情在同一把锁下读取 Run、manifest 和输出，
-避免与保留期清理交错。它不执行清理、不更新访问时间，不产生 CLI 执行日志或初始化缺失的历史库。
-已有历史仍需要可写的锁文件；这是锁协调，不是检查或证据写入。
-本轮只提供 Go API 与 CLI，TS/Python 原生读取及 devloop Board 接入另行实现。
+能力集合按实际需求提供；表中共同能力遵守相同身份、默认值、错误、存储和副作用契约，
+由 `conformance/history/` 的共享语料验证。Python 未提供的能力不以 CLI 子进程隐式补齐。
+
+Go `ListValidationRuns(ctx, ValidationRunQuery)` 和 TS `listValidationRuns(query)` 返回
+筛选、分页后的摘要。Go 的 `HistoryDir` 为空时使用 `REPOKIT_HOME` 或默认 `~/.repokit`
+下的 `repositories`；TS 使用相同默认目录，并可用显式 `home` 覆盖。显式 `HistoryDir` /
+`historyDir` 都直接指定 repositories 根。查询不需要 Forge 请求，也不初始化缺失的 home。
+
+默认列表只读取执行事件。显式 `IncludeInputs` / `includeInputs` 为返回页的每条 Run 附上
+`inputs: {snapshot?, complete, diagnostics}`，在一次 WAL 回放和同一把仓库锁内读取该页
+manifest，不读取 stdout/stderr，也不读取其他页的 manifest。这里的 `complete` 只说明输入
+证据可用，不能证明输出日志完整。缺失或损坏的 manifest 保留 Run，并通过 inputs diagnostics
+报告；分页、排序、total 和执行状态不受影响。摘要不返回完整文件表，也不判定验证可复用。
+
+Go `ReadValidationRun(ctx, historyDir, checkout, runID)` 与 TS
+`readValidationRun(repository, runID, options)` 才读取完整 manifest 和输出；详情的
+`complete/diagnostics` 表达所有执行证据的可用性。SDK 返回领域对象，不返回 CLI envelope。
+
+两种查询均不执行检查、不清理、不续期访问、不产生 CLI 执行日志。
+已有历史使用同一 advisory lock 协调读取、写入与保留期清理；读取仍需可写的锁文件。
+Go/TS 支持 Linux/macOS，TS 使用 `fs-ext` 原生模块。读取逻辑恢复 WAL 截断状态，但不重命名、
+删除或修复磁盘段。损坏的历史使查询失败，不能作为成功的空列表或部分历史返回。
+
+### 查询错误与取消
+
+Go 返回 `errs.Error`，TS 抛出公开的 `ValidationHistoryError`。调用方使用 `code`、`op`、
+`subject` 判断，保留原始 cause 供诊断，不解析 message。list 的 op 是
+`validation.history.list`、subject 是传入的 repository；详情的 op 是
+`validation.history.show`、subject 是请求的 runID。
+
+| code | 含义 |
+|---|---|
+| `validation.invalid_query` | 非法分页、check 或 status |
+| `validation.invalid_run_id` | 非法 Run ID |
+| `validation.run_not_found` | 成功读取的保留历史中没有目标 Run |
+| `validation.history_failed` | 历史损坏或其他未分类的查询失败 |
+| `execution.canceled` | 调用方取消 |
+| `execution.deadline_exceeded` | 调用预算或锁等待预算耗尽 |
+| `filesystem.permission_denied` / `filesystem.not_found` | 建立查询时的文件访问失败 |
+
+Go context 与 TS AbortSignal/timeoutMs 在 Git 定位、锁等待、回放和证据读取阶段生效；
+取消或超时不能降级为缺失证据或成功的空集合。两端都沿用调用方总预算，不隐式限制整次查询时长；
+TS 可用 `timeoutMs` 显式设置总预算，或直接传入 AbortSignal。两端锁等待上限均为 5 秒。
+非法参数在访问仓库前拒绝。manifest/输出缺失属于详情诊断，不是上述查询终止错误。
 
 ## 执行与预算
 

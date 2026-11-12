@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtemp, mkdir, readFile, writeFile, readdir, open, rm, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createRequire } from "node:module";
+import { createRequire, syncBuiltinESMExports } from "node:module";
 import { listValidationRuns, readValidationRun } from "../dist/index.js";
 
 const corpus = JSON.parse(await readFile(new URL("../../../conformance/history/runs.json", import.meta.url), "utf8"));
@@ -26,7 +26,7 @@ const encode = events => events.map((e,i)=>JSON.stringify({index:String(i+1),dat
 for (const row of corpus.cases) test(row.name, async t => {
   const {query} = await fixture(t,[...corpus.events,...row.extra??[]]);
   const operation = () => listValidationRuns({...query,...row.query});
-  if (row.error) { await assert.rejects(operation, row.errorMessage ? new RegExp(row.errorMessage, "i") : undefined); return; }
+  if (row.error) { await assert.rejects(operation, {code: row.errorCode, op: "validation.history.list", subject: query.repository}); return; }
   const report = await operation();
   assert.deepEqual(report.runs.map(run=>run.runID),row.ids);
   assert.equal(report.total,row.total); assert.equal(report.hasMore,row.hasMore);
@@ -93,10 +93,54 @@ test("advisory lock wait obeys cancellation",{timeout:4_000},async t=>{
   flockSync(lock.fd,"exnb");
   try {
     const started=performance.now();
-    await assert.rejects(listValidationRuns({...query,timeoutMs:1_000}),{name:"AbortError"});
+    await assert.rejects(listValidationRuns({...query,timeoutMs:1_000}),{code:"execution.deadline_exceeded", op:"validation.history.list", subject:query.repository});
     assert.ok(attempts>0,"query must contend on the advisory lock before cancellation");
     assert.ok(performance.now()-started<2_500,"caller timeout must take effect before the 5 second lock cap");
   }
   finally {flockSync(lock.fd,"un");await lock.close();}
   assert.equal((await listValidationRuns(query)).total,3);
+});
+
+const contracts = JSON.parse(await readFile(new URL("../../../conformance/history/contracts.json", import.meta.url), "utf8"));
+// @case Shared history failures classify list and detail identically across Go and TypeScript.
+for (const row of contracts.errors) test(row.name, async t => {
+  const {root, home, directory, query} = await fixture(t);
+  if (row.mode === "corrupt") await writeFile(join(directory,"history","00000000000000000001"),"broken\n");
+  const signal = row.mode === "cancelled" ? AbortSignal.abort() : row.mode === "deadline" ? AbortSignal.abort(new DOMException("deadline", "TimeoutError")) : undefined;
+  const operation = row.operation === "list" ? () => listValidationRuns({...query,signal}) : () => readValidationRun(root,row.runID,{home,signal});
+  await assert.rejects(operation, {code:row.code, op:`validation.history.${row.operation}`, subject:row.operation === "list" ? root : row.runID});
+});
+for (const row of contracts.inputs) test(row.name, async t => {
+  const {root,home,directory,query} = await fixture(t);
+  if (row.inputs) {
+    await mkdir(join(directory,"inputs"));
+    await writeFile(join(directory,"inputs","INPUT.json"),JSON.stringify(row.inputs));
+  }
+  const report = await listValidationRuns({...query,includeInputs:true,limit:1,offset:2});
+  assert.deepEqual(report.runs.map(run=>run.runID),["AAA"]);
+  const summary = report.runs[0].inputs;
+  assert.equal(summary.complete,row.complete);
+  assert.equal(summary.snapshot,row.complete ? "digest" : undefined);
+  assert.deepEqual(summary.diagnostics.map(issue=>issue.artifact),row.complete ? [] : ["inputs"]);
+  const detail = await readValidationRun(root,"AAA",{home});
+  assert.equal(detail.complete,false,"inputs do not prove output availability");
+  assert.equal(detail.inputs !== null,row.complete);
+  assert.deepEqual(detail.diagnostics.map(issue=>issue.artifact),row.complete ? ["output"] : ["inputs","output"]);
+  assert.equal((await listValidationRuns(query)).runs[0].inputs,undefined);
+});
+// @case A page replays WAL once, reads only its input manifests and never opens daily output logs.
+test("input summaries have bounded evidence IO", async t => {
+  const {directory,query} = await fixture(t);
+  await mkdir(join(directory,"inputs"));
+  await writeFile(join(directory,"inputs","INPUT.json"),JSON.stringify(contracts.inputs[0].inputs));
+  const fs = createRequire(import.meta.url)("node:fs/promises"), original = fs.readFile, paths=[];
+  fs.readFile = async (path,...args) => { paths.push(String(path)); return original(path,...args); };
+  syncBuiltinESMExports();
+  try {
+    const report=await listValidationRuns({...query,includeInputs:true,limit:1,offset:2});
+    assert.equal(report.runs[0].inputs.complete,true);
+    assert.deepEqual(paths.filter(path=>path.startsWith(directory)),[
+      join(directory,"history","00000000000000000001"), join(directory,"inputs","INPUT.json")
+    ]);
+  } finally { fs.readFile=original; syncBuiltinESMExports(); }
 });

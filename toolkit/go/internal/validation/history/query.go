@@ -26,9 +26,10 @@ type RunEvidence struct {
 	Issues     []EvidenceIssue
 }
 
-// inspect reads retained facts without creating a store, recording access or pruning.
+// Inspect reads retained facts without creating a store, recording access or pruning.
+// The callback may load input evidence under the same lock; it must not retain the store view.
 // +spec=Replay and evidence reads share the repository lock; corruption is never a partial successful history.
-func (h *Store) inspect(ctx context.Context, fn func(*State) error) error {
+func (h *Store) Inspect(ctx context.Context, fn func(*State) error) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -56,7 +57,7 @@ func (h *Store) inspect(ctx context.Context, fn func(*State) error) error {
 
 func (h *Store) ReadRetained(ctx context.Context) (*State, error) {
 	var state *State
-	err := h.inspect(ctx, func(s *State) error { state = s; return nil })
+	err := h.Inspect(ctx, func(s *State) error { state = s; return nil })
 	return state, err
 }
 
@@ -65,7 +66,7 @@ func (h *Store) ReadRun(ctx context.Context, id string) (RunEvidence, error) {
 	if !validID(id) {
 		return evidence, errors.New("invalid run ID")
 	}
-	err := h.inspect(ctx, func(state *State) error {
+	err := h.Inspect(ctx, func(state *State) error {
 		run := state.Runs[id]
 		if run == nil {
 			return ErrRunNotFound

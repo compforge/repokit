@@ -94,6 +94,7 @@ func ReadValidationHistory(ctx context.Context, directory, checkout string) (Val
 type ValidationRunQuery = validation.ValidationRunQuery
 type ValidationRun = validation.ValidationRun
 type ValidationRunList = validation.ValidationRunList
+type ValidationRunInputSummary = validation.ValidationRunInputSummary
 type ValidationRunDetail = validation.ValidationRunDetail
 type ValidationRunInputs = validation.ValidationRunInputs
 type ValidationInputFile = validation.ValidationInputFile

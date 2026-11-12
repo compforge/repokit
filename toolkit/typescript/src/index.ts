@@ -17,4 +17,6 @@ export { loadConfig, RepoKitConfig, ConfigError } from "./config.js";
 
 export { pullRequestContext } from "./access.js";
 export { listValidationRuns, readValidationRun } from "./validation/history.js";
-export type { ValidationHistoryOptions, ValidationRunQuery, ValidationRun, ValidationRunList, ValidationRunInputs, ValidationRunDetail } from "./validation/history.js";
+export type { ValidationHistoryOptions, ValidationRunQuery, ValidationRun, ValidationRunList, ValidationRunInputs, ValidationRunDetail, ValidationRunInputSummary } from "./validation/history.js";
+
+export { ValidationHistoryError } from "./validation/errors.js";
