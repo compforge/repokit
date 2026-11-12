@@ -77,3 +77,32 @@ func TestSharedHistoryQueries(t *testing.T) {
 		})
 	}
 }
+
+// +case=Both retained-run query APIs read the same REPOKIT_HOME as the writer; a missing home stays absent.
+func TestHistoryQueriesDefaultHome(t *testing.T) {
+	ctx := context.Background()
+	root := validationRepo(t, "test:\n\t@echo verified\n")
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	report, err := repokit.Validate(ctx, repokit.ValidationRequest{Repository: root, HistoryDir: filepath.Join(home, "repositories"), Checks: []string{"test"}})
+	if err != nil || !report.Passed {
+		t.Fatal(report, err)
+	}
+	list, err := repokit.ListValidationRuns(ctx, repokit.ValidationRunQuery{Repository: root})
+	if err != nil || list.Total != 1 {
+		t.Fatal(list, err)
+	}
+	detail, err := repokit.ReadValidationRun(ctx, "", root, list.Runs[0].RunID)
+	if err != nil || !detail.Complete || detail.Result.Stdout != "verified\n" {
+		t.Fatal(detail, err)
+	}
+	absent := filepath.Join(t.TempDir(), "absent")
+	t.Setenv("REPOKIT_HOME", absent)
+	list, err = repokit.ListValidationRuns(ctx, repokit.ValidationRunQuery{Repository: root})
+	if err != nil || list.Total != 0 {
+		t.Fatal(list, err)
+	}
+	if _, err := os.Stat(absent); !os.IsNotExist(err) {
+		t.Fatalf("query created home: %v", err)
+	}
+}
