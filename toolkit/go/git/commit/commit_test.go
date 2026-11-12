@@ -179,7 +179,7 @@ func TestPlanRejectsConcurrentChanges(t *testing.T) {
 
 // +case=Native hook failure retains the original index; hook tree changes are reported as actual unconfirmed commits and never rolled back.
 func TestHooksAndRecovery(t *testing.T) {
-	for _, kind := range []string{"reject", "tree", "message", "post_timeout"} {
+	for _, kind := range []string{"reject", "tree", "message", "post_response_lost"} {
 		t.Run(kind, func(t *testing.T) {
 			repo := fixture(t)
 			put(t, repo, "a", "selected")
@@ -192,17 +192,18 @@ func TestHooksAndRecovery(t *testing.T) {
 				hook(t, repo, "pre-commit", "echo hook > b\ngit add b")
 			case "message":
 				hook(t, repo, "commit-msg", "echo modified > \"$1\"")
-			case "post_timeout":
-				hook(t, repo, "post-commit", "sleep 5")
+			case "post_response_lost":
+				// The ref is already updated when this hook runs. Interrupt the Git
+				// response at that event rather than racing preparation against a short deadline.
+				hook(t, repo, "post-commit", `kill -TERM "$PPID"`)
 			}
-			ctx := context.Background()
-			if kind == "post_timeout" {
-				var cancel context.CancelFunc
-				ctx, cancel = context.WithTimeout(ctx, 2*time.Second)
-				defer cancel()
-			}
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
 			r, e := Create(ctx, repo, Options{Intent: p.Intent, Message: "change"})
-			if kind == "message" || kind == "post_timeout" {
+			if kind == "post_response_lost" && (len(r.Diagnostics) != 1 || r.Diagnostics[0].Code != "git.commit_reconciled") {
+				t.Fatal("lost Git response was not reconciled", r, e)
+			}
+			if kind == "message" || kind == "post_response_lost" {
 				if e != nil || !r.Confirmed || !r.IndexInstalled {
 					t.Fatal(r, e)
 				}
@@ -298,5 +299,42 @@ func TestLinkedCheckoutAndCanceledOperation(t *testing.T) {
 	r, e := Create(ctx, linked, Options{Intent: p.Intent, Message: "canceled"})
 	if e == nil || r.Attempted {
 		t.Fatal(r, e)
+	}
+}
+
+// +case=Recovery observes missing or different content without authorizing a replay or mutating the index; changing checkout branches is an identity error.
+func TestCheckUnconfirmedIntent(t *testing.T) {
+	for _, kind := range []string{"unchanged", "different_tree", "different_parent", "different_branch"} {
+		t.Run(kind, func(t *testing.T) {
+			repo := fixture(t)
+			put(t, repo, "a", "planned")
+			p := plan(t, repo, Selection{Mode: "files", Paths: []string{"a"}})
+			switch kind {
+			case "different_tree":
+				put(t, repo, "a", "other")
+				git(t, repo, "add", "a")
+				git(t, repo, "commit", "-qm", "other")
+			case "different_parent":
+				git(t, repo, "commit", "--allow-empty", "-qm", "intermediate")
+				git(t, repo, "add", "a")
+				git(t, repo, "commit", "-qm", "same tree, different parent")
+			case "different_branch":
+				git(t, repo, "checkout", "-qb", "other")
+			}
+			before := bytes(t, repo)
+			tip := git(t, repo, "rev-parse", "HEAD")
+			r, e := Check(context.Background(), repo, p.Intent)
+			if (e != nil) != (kind == "different_branch") || r.Confirmed || r.Attempted || r.IndexInstalled || bytes(t, repo) != before || git(t, repo, "rev-parse", "HEAD") != tip {
+				t.Fatal(r, e)
+			}
+			if kind == "different_tree" || kind == "different_parent" {
+				if r.Commit != tip || r.ActualTree != git(t, repo, "rev-parse", "HEAD^{tree}") {
+					t.Fatal(r)
+				}
+				if kind == "different_parent" && r.ActualTree != p.Tree {
+					t.Fatal("fixture must isolate parent mismatch")
+				}
+			}
+		})
 	}
 }
