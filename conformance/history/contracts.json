@@ -1,0 +1,109 @@
+{
+  "errors": [
+    {
+      "name": "list cancelled",
+      "operation": "list",
+      "mode": "cancelled",
+      "runID": "AAA",
+      "code": "execution.canceled"
+    },
+    {
+      "name": "list deadline",
+      "operation": "list",
+      "mode": "deadline",
+      "runID": "AAA",
+      "code": "execution.deadline_exceeded"
+    },
+    {
+      "name": "list corrupt",
+      "operation": "list",
+      "mode": "corrupt",
+      "runID": "AAA",
+      "code": "validation.history_failed"
+    },
+    {
+      "name": "show cancelled",
+      "operation": "show",
+      "mode": "cancelled",
+      "runID": "AAA",
+      "code": "execution.canceled"
+    },
+    {
+      "name": "show deadline",
+      "operation": "show",
+      "mode": "deadline",
+      "runID": "AAA",
+      "code": "execution.deadline_exceeded"
+    },
+    {
+      "name": "show corrupt",
+      "operation": "show",
+      "mode": "corrupt",
+      "runID": "AAA",
+      "code": "validation.history_failed"
+    },
+    {
+      "name": "missing run",
+      "operation": "show",
+      "runID": "ZZZ",
+      "code": "validation.run_not_found"
+    },
+    {
+      "name": "invalid run",
+      "operation": "show",
+      "runID": "../private",
+      "code": "validation.invalid_run_id"
+    }
+  ],
+  "inputs": [
+    {
+      "name": "valid inputs, absent outputs",
+      "inputs": {
+        "schemaVersion": 1,
+        "checkout": "/retained/checkout",
+        "snapshot": "digest",
+        "files": {}
+      },
+      "complete": true
+    },
+    {
+      "name": "missing inputs",
+      "complete": false
+    },
+    {
+      "name": "invalid schema",
+      "inputs": {
+        "schemaVersion": 2,
+        "checkout": "/retained/checkout",
+        "snapshot": "digest",
+        "files": {}
+      },
+      "complete": false
+    },
+    {
+      "name": "wrong checkout",
+      "inputs": {
+        "schemaVersion": 1,
+        "checkout": "/other",
+        "snapshot": "digest",
+        "files": {}
+      },
+      "complete": false
+    },
+    {
+      "name": "invalid file digest",
+      "inputs": {
+        "schemaVersion": 1,
+        "checkout": "/retained/checkout",
+        "snapshot": "digest",
+        "files": {
+          "file": {
+            "kind": "file",
+            "digest": 12
+          }
+        }
+      },
+      "complete": false
+    }
+  ]
+}

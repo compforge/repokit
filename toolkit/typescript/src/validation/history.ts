@@ -1,3 +1,4 @@
+import { ValidationHistoryError, historyError } from "./errors.js";
 import { readFile, realpath } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Git } from "../git/catalog.js";
@@ -10,13 +11,16 @@ export interface ValidationHistoryOptions { readonly home?: string; readonly his
 export interface ValidationRunQuery extends ValidationHistoryOptions {
   readonly repository: string; readonly checkout?: string; readonly component?: string;
   readonly check?: string; readonly status?: string; readonly limit?: number; readonly offset?: number;
+  readonly includeInputs?: boolean;
 }
 export interface ValidationRun {
   readonly runID: string; readonly checkout: string; readonly component: string; readonly check: string;
   readonly scope: string; readonly status: string; readonly startedAt: string; readonly finishedAt?: string;
   readonly durationSeconds: number; readonly inputsConsistent: boolean | null; readonly inputID: string;
   readonly reuseCount: number; readonly lastReusedAt?: string;
+  readonly inputs?: ValidationRunInputSummary;
 }
+export interface ValidationRunInputSummary { readonly snapshot?: string; readonly complete: boolean; readonly diagnostics: readonly {artifact: string; message: string}[] }
 export interface ValidationRunList { readonly repository: string; readonly runs: readonly ValidationRun[]; readonly total: number; readonly offset: number; readonly limit: number; readonly hasMore: boolean }
 export interface ValidationRunInputs { readonly schemaVersion: 1; readonly checkout: string; readonly snapshot: string; readonly files: Readonly<Record<string, {kind: string; digest: string; version?: boolean}>> }
 export interface ValidationRunDetail {
@@ -90,7 +94,8 @@ function summary(run: Run): ValidationRun {
     ...(run.finishedAt ? {finishedAt: run.finishedAt} : {}), ...(run.lastReusedAt ? {lastReusedAt: run.lastReusedAt} : {}) };
 }
 function budget(options: ValidationHistoryOptions): AbortSignal {
-  const timeout = AbortSignal.timeout(options.timeoutMs ?? 5_000);
+  if (options.timeoutMs === undefined) return options.signal ?? new AbortController().signal;
+  const timeout = AbortSignal.timeout(options.timeoutMs);
   return options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
 }
 async function location(repository: string, options: ValidationHistoryOptions, signal: AbortSignal) {
@@ -114,27 +119,42 @@ async function location(repository: string, options: ValidationHistoryOptions, s
 /**
  * @spec Go-equivalent filtering and pagination of retained executions; reuse never reorders runs.
  * Historical success is never evidence that the current checkout passed.
+ * includeInputs reads only the selected page's manifests under the replay lock, never logs.
  * @see {@link component://docs/validation.md}
  */
 export async function listValidationRuns(query: ValidationRunQuery): Promise<ValidationRunList> {
-  const limit = query.limit === undefined || query.limit === 0 ? 20 : query.limit, offset = query.offset ?? 0;
-  if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) fail("Limit must be 1–100 and offset must be nonnegative");
-  if (query.check && !["lint", "test"].includes(query.check)) fail("Check must be lint or test");
-  if (query.status && !["passed", "failed", "cancelled", "uncertain", "unfinished"].includes(query.status)) fail("Invalid run status");
-  const signal = budget(query), {key, directory} = await location(query.repository, query, signal);
-  let checkout = query.checkout ? resolve(query.checkout) : "";
-  if (checkout) { try { checkout = await realpath(checkout); } catch (error) { if (!missing(error)) throw error; } }
-  return inspectHistory(directory, signal, async events => {
-    const runs: ValidationRun[] = [];
-    for (const run of replay(events).values()) {
-      signal.throwIfAborted();
-      if (checkout && run.start.checkout !== checkout || query.component && run.start.component !== query.component || query.check && run.check !== query.check) continue;
-      const row = summary(run);
-      if (!query.status || row.status === query.status) runs.push(row);
-    }
-    runs.sort((a, b) => compareTime(b.startedAt, a.startedAt) || Buffer.compare(Buffer.from(a.runID), Buffer.from(b.runID)));
-    return {repository: key, runs: runs.slice(offset, offset + limit), total: runs.length, offset, limit, hasMore: offset + limit < runs.length};
-  });
+  let signal: AbortSignal | undefined;
+  const op = "validation.history.list";
+  const invalid = (message: string): never => { throw new ValidationHistoryError("validation.invalid_query", message, op, query.repository); };
+  try {
+    const limit = query.limit === undefined || query.limit === 0 ? 20 : query.limit, offset = query.offset ?? 0;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) invalid("Limit must be 1–100 and offset must be nonnegative");
+    if (query.check && !["lint", "test"].includes(query.check)) invalid("Check must be lint or test");
+    if (query.status && !["passed", "failed", "cancelled", "uncertain", "unfinished"].includes(query.status)) invalid("Invalid run status");
+    signal = budget(query);
+    const budgetSignal = signal, {key, directory} = await location(query.repository, query, budgetSignal);
+    let checkout = query.checkout ? resolve(query.checkout) : "";
+    if (checkout) { try { checkout = await realpath(checkout); } catch (error) { if (!missing(error)) throw error; } }
+    return await inspectHistory(directory, budgetSignal, async events => {
+      const runs: ValidationRun[] = [];
+      for (const run of replay(events).values()) {
+        budgetSignal.throwIfAborted();
+        if (checkout && run.start.checkout !== checkout || query.component && run.start.component !== query.component || query.check && run.check !== query.check) continue;
+        const row = summary(run);
+        if (!query.status || row.status === query.status) runs.push(row);
+      }
+      runs.sort((a, b) => compareTime(b.startedAt, a.startedAt) || Buffer.compare(Buffer.from(a.runID), Buffer.from(b.runID)));
+      const page = runs.slice(offset, offset + limit);
+      const selected = query.includeInputs ? await Promise.all(page.map(async run => {
+        const evidence = await inputEvidence(directory, run, budgetSignal);
+        const inputs: ValidationRunInputSummary = {complete: evidence.inputs !== null, diagnostics: evidence.diagnostics,
+          ...(evidence.inputs ? {snapshot: evidence.inputs.snapshot} : {})};
+        return {...run, inputs};
+      })) : page;
+      budgetSignal.throwIfAborted();
+      return {repository: key, runs: selected, total: runs.length, offset, limit, hasMore: offset + limit < runs.length};
+    });
+  } catch (error) { throw historyError(error, op, query.repository, signal); }
 }
 async function output(path: string, id: string, signal: AbortSignal): Promise<string | undefined> {
   let data: string;
@@ -150,32 +170,48 @@ async function output(path: string, id: string, signal: AbortSignal): Promise<st
 }
 /** @spec Missing evidence yields incomplete detail; corrupt history never yields successful partial data. */
 export async function readValidationRun(repository: string, runID: string, options: ValidationHistoryOptions = {}): Promise<ValidationRunDetail> {
-  if (!/^[A-Z2-7]+$/.test(runID)) fail("Invalid run ID");
-  const signal = budget(options), {key, directory} = await location(repository, options, signal);
-  return inspectHistory(directory, signal, async events => {
-    const stored = replay(events).get(runID);
-    if (!stored) throw Object.assign(new Error("Run is not present in retained repository history"), {code: "validation.run_not_found"});
-    const run = summary(stored), check = result(stored), diagnostics: {artifact: string; message: string}[] = [];
-    let inputs: ValidationRunInputs | null = null, stdout = "", stderr = "";
-    try {
-      if (!/^[A-Z2-7]+$/.test(run.inputID)) fail("Invalid input record ID");
-      const raw = object(JSON.parse(await readFile(join(directory, "inputs", run.inputID + ".json"), {encoding: "utf8", signal})));
-      if (raw.schemaVersion !== 1 || raw.checkout !== run.checkout || !text(raw.snapshot)) fail("Input manifest identity or schema is invalid");
-      object(raw.files);
-      for (const value of Object.values(object(raw.files))) {
-        const entry = object(value);
-        text(entry.kind); text(entry.digest);
-        if (entry.version != null && typeof entry.version !== "boolean") fail("Invalid input version marker");
-      }
-      inputs = raw as unknown as ValidationRunInputs;
-    } catch (error) { signal.throwIfAborted(); diagnostics.push({artifact: "inputs", message: String(error)}); }
-    try {
-      const prefix = join(directory, "logs", new Date(run.startedAt).toISOString().slice(0, 10));
-      const out = await output(prefix + ".stdout.jsonl", runID, signal), err = await output(prefix + ".stderr.jsonl", runID, signal);
-      if (out !== undefined && err !== undefined) { stdout = out; stderr = err; }
-      else if (out !== undefined || err !== undefined) fail("Incomplete daily output for run " + runID);
-      else { stdout = await readFile(join(directory, "logs", runID, "stdout"), {encoding: "utf8", signal}); stderr = await readFile(join(directory, "logs", runID, "stderr"), {encoding: "utf8", signal}); }
-    } catch (error) { signal.throwIfAborted(); diagnostics.push({artifact: "output", message: String(error)}); }
-    return {repository: key, run, result: {...check, stdout, stderr}, inputs, complete: diagnostics.length === 0, diagnostics};
-  });
+  const op = "validation.history.show";
+  let signal: AbortSignal | undefined;
+  try {
+    if (!/^[A-Z2-7]+$/.test(runID)) throw new ValidationHistoryError("validation.invalid_run_id", "Invalid run ID", op, runID);
+    signal = budget(options);
+    const budgetSignal = signal, {key, directory} = await location(repository, options, budgetSignal);
+    return await inspectHistory(directory, budgetSignal, async events => {
+      const stored = replay(events).get(runID);
+      if (!stored) throw new ValidationHistoryError("validation.run_not_found", "Run is not present in retained repository history", op, runID);
+      const run = summary(stored), check = result(stored), diagnostics: {artifact: string; message: string}[] = [];
+      const evidence = await inputEvidence(directory, run, budgetSignal);
+      const inputs = evidence.inputs;
+      diagnostics.push(...evidence.diagnostics);
+      let stdout = "", stderr = "";
+      try {
+        const prefix = join(directory, "logs", new Date(run.startedAt).toISOString().slice(0, 10));
+        const out = await output(prefix + ".stdout.jsonl", runID, budgetSignal), err = await output(prefix + ".stderr.jsonl", runID, budgetSignal);
+        if (out !== undefined && err !== undefined) { stdout = out; stderr = err; }
+        else if (out !== undefined || err !== undefined) fail("Incomplete daily output for run " + runID);
+        else { stdout = await readFile(join(directory, "logs", runID, "stdout"), {encoding: "utf8", signal: budgetSignal}); stderr = await readFile(join(directory, "logs", runID, "stderr"), {encoding: "utf8", signal: budgetSignal}); }
+      } catch (error) { budgetSignal.throwIfAborted(); diagnostics.push({artifact: "output", message: String(error)}); }
+      budgetSignal.throwIfAborted();
+      return {repository: key, run, result: {...check, stdout, stderr}, inputs, complete: diagnostics.length === 0, diagnostics};
+    });
+  } catch (error) { throw historyError(error, op, runID, signal); }
+}
+
+async function inputEvidence(directory: string, run: ValidationRun, signal: AbortSignal) {
+  let inputs: ValidationRunInputs | null = null;
+  const diagnostics: {artifact: string; message: string}[] = [];
+  try {
+    if (!/^[A-Z2-7]+$/.test(run.inputID)) fail("Invalid input record ID");
+    const raw = object(JSON.parse(await readFile(join(directory, "inputs", run.inputID + ".json"), {encoding: "utf8", signal})));
+    if (raw.schemaVersion !== 1 || raw.checkout !== run.checkout || !text(raw.snapshot)) fail("Input manifest identity or schema is invalid");
+    object(raw.files);
+    for (const value of Object.values(object(raw.files))) {
+      const entry = object(value);
+      text(entry.kind); text(entry.digest);
+      if (entry.version != null && typeof entry.version !== "boolean") fail("Invalid input version marker");
+    }
+    inputs = raw as unknown as ValidationRunInputs;
+  } catch (error) { signal.throwIfAborted(); diagnostics.push({artifact: "inputs", message: String(error)}); }
+  signal.throwIfAborted();
+  return {inputs, diagnostics};
 }

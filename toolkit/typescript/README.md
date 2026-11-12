@@ -23,8 +23,8 @@ Go inspect's schema 1. Its completeness describes organization metadata, not bui
 content identity. See [the shared contract](../../docs/repository.md).
 
 This package also provides Git queries, content snapshots and read-only GitHub/GitLab Forge access.
-The Go API separately provides diff and graph analysis. Logging, persistence, validation policy and handling partial results
-belong to callers.
+The Go API separately provides diff and graph analysis. RepoKit owns its persistent repository state
+and validation history; callers own logging destinations, validation policy and handling partial results.
 
 ## Development
 
@@ -112,3 +112,20 @@ The observer wraps an existing `ForgeReader` with durable state,
 bounded background polling and merged-terminal convergence; hosts call `close()` on shutdown. Supply `home` and a stable access-configuration
 `connection` revision; never pass the credential itself as that revision. See
 [PR observation](../../docs/pr.md#持续观察) for directory layout, freshness, cancellation and recovery.
+
+## Validation history
+
+`listValidationRuns({repository, checkout, limit, includeInputs: true, signal})` reads retained
+executions and the selected page's input evidence summaries in one locked query. It does not
+read output logs. `readValidationRun(repository, runID, {signal})` explicitly reads full evidence.
+The default history location is `REPOKIT_HOME` or `~/.repokit`, shared with Go and the CLI.
+An absent store stays absent. Pass a signal or `timeoutMs` for a total query budget;
+lock acquisition is capped at five seconds. Native `fs-ext` locking requires Linux/macOS
+and native build tooling at installation.
+
+History failures expose `ValidationHistoryError.code`, `op`, `subject` and the original `cause`.
+Missing input/output evidence is reported as incomplete evidence, while corrupt history,
+cancellation and timeout reject the query. Historical success and an unchanged source snapshot
+do not prove current validation or reuse eligibility. Supported capabilities and error codes
+are defined in [the shared validation contract](../../docs/validation.md#原生历史查询-api-与存储边界)
+and tested by `conformance/history/` in both Go and TypeScript.

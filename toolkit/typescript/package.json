@@ -1,6 +1,6 @@
 {
   "name": "@compforge/repokit",
-  "version": "0.21.0",
+  "version": "0.22.0",
   "description": "Native repository inspection, Git queries and Forge reads for Node.js",
   "type": "module",
   "exports": {

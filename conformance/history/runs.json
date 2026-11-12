@@ -185,21 +185,24 @@
       "query": {
         "status": "running"
       },
-      "error": true
+      "error": true,
+      "errorCode": "validation.invalid_query"
     },
     {
       "name": "negative offset",
       "query": {
         "offset": -1
       },
-      "error": true
+      "error": true,
+      "errorCode": "validation.invalid_query"
     },
     {
       "name": "excessive limit",
       "query": {
         "limit": 101
       },
-      "error": true
+      "error": true,
+      "errorCode": "validation.invalid_query"
     },
     {
       "name": "duplicate start",
@@ -222,7 +225,8 @@
         }
       ],
       "query": {},
-      "error": true
+      "error": true,
+      "errorCode": "validation.history_failed"
     },
     {
       "name": "duplicate finish",
@@ -247,7 +251,8 @@
         }
       ],
       "query": {},
-      "error": true
+      "error": true,
+      "errorCode": "validation.history_failed"
     },
     {
       "name": "invalid reuse",
@@ -272,7 +277,8 @@
         }
       ],
       "query": {},
-      "error": true
+      "error": true,
+      "errorCode": "validation.history_failed"
     },
     {
       "name": "schema mismatch",
@@ -296,7 +302,8 @@
       ],
       "query": {},
       "error": true,
-      "errorMessage": "invalid validation history event"
+      "errorMessage": "invalid validation history event",
+      "errorCode": "validation.history_failed"
     }
   ]
 }
