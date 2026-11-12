@@ -1,6 +1,6 @@
 [project]
 name = "compforge-repokit"
-version = "0.26.0"
+version = "0.27.0"
 description = "Native repository inspection, content identity, Git and Forge operations"
 readme = "README.md"
 requires-python = ">=3.11"

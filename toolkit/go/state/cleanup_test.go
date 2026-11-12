@@ -394,15 +394,7 @@ func TestGlobalCleanDiscoversWorktreesWithoutActivity(t *testing.T) {
 
 func setCleanupPolicy(t *testing.T, root string, policy WorktreePolicy) {
 	t.Helper()
-	info, err := Checkout(context.Background(), root)
-	if err != nil {
-		t.Fatal(err)
-	}
-	data, err := json.Marshal(map[string]WorktreePolicy{"worktree": policy})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.WriteFile(filepath.Join(info.CommonDir, "repokit.json"), data, 0600); err != nil {
+	if err := SaveWorktreePolicy(context.Background(), root, "", policy); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -639,7 +631,7 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 				t.Fatal(err)
 			}
 			for _, entry := range entries {
-				if entry.Name() != "activity.json" && entry.Name() != "repository.json" {
+				if entry.Name() != "activity.json" && entry.Name() != "repository.json" && entry.Name() != "persistent" {
 					size, err := directoryBytes(ctx, filepath.Join(directory, entry.Name()))
 					if err != nil {
 						t.Fatal(err)
@@ -672,7 +664,7 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 				}
 			}
 			entries, err = os.ReadDir(directory)
-			if err != nil || len(entries) != 2 || entries[0].Name() != "activity.json" || entries[1].Name() != "repository.json" {
+			if err != nil || len(entries) != 3 || entries[0].Name() != "activity.json" || entries[1].Name() != "persistent" || entries[2].Name() != "repository.json" {
 				t.Fatal("cache not reclaimed independently of registration", entries, err)
 			}
 			registration, err := readActivity(directory)

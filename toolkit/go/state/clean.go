@@ -49,21 +49,42 @@ func safeRelative(path string) bool {
 }
 
 // LoadWorktreePolicy reads configuration shared by the repository's checkouts.
-func LoadWorktreePolicy(ctx context.Context, repo string) (policy WorktreePolicy, err error) {
+func LoadWorktreePolicy(ctx context.Context, repo, home string) (policy WorktreePolicy, err error) {
 	defer func() { err = errs.Wrap(err, "state.policy_failed", "state.policy", repo) }()
 	config := struct {
 		Worktree WorktreePolicy `json:"worktree"`
 	}{WorktreePolicy{MaxCount: 10, MaxPrepared: 3}}
-	info, err := Checkout(ctx, repo)
+	directory, err := PersistentDirectory(ctx, repo, home)
 	if err != nil {
 		return config.Worktree, err
 	}
-	data, err := os.ReadFile(filepath.Join(info.CommonDir, "repokit.json"))
+	data, err := os.ReadFile(filepath.Join(directory, "config.json"))
 	if errors.Is(err, os.ErrNotExist) {
 		return config.Worktree, nil
 	}
 	if err == nil {
-		err = json.Unmarshal(data, &config)
+		var fields map[string]json.RawMessage
+		err = json.Unmarshal(data, &fields)
+		if err == nil && fields == nil {
+			err = errors.New("repository configuration must be an object")
+		}
+		if err == nil {
+			if value, found := fields["worktree"]; found {
+				var policyFields map[string]json.RawMessage
+				err = json.Unmarshal(value, &policyFields)
+				if err == nil && policyFields == nil {
+					err = errors.New("worktree configuration must be an object")
+				}
+				for _, name := range []string{"max_count", "max_prepared", "outputs"} {
+					if string(policyFields[name]) == "null" {
+						err = fmt.Errorf("worktree %s must not be null", name)
+					}
+				}
+			}
+		}
+		if err == nil {
+			err = json.Unmarshal(data, &config)
+		}
 	}
 	if err == nil {
 		err = config.Worktree.Validate()
@@ -123,7 +144,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	report := WorktreeCleanReport{Actions: []WorktreeAction{}, Errors: []string{}, DryRun: options.DryRun}
 	policy := options.Policy
 	if policy == nil {
-		loaded, err := LoadWorktreePolicy(ctx, repo)
+		loaded, err := LoadWorktreePolicy(ctx, repo, options.Home)
 		if err != nil {
 			return report, err
 		}

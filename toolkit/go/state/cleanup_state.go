@@ -20,8 +20,13 @@ func reclaimRepositoryState(ctx context.Context, lease *activityLease, dryRun bo
 		return action, err
 	}
 	registered := len(lease.record.Checkouts) > 0
+	_, persistentErr := os.Lstat(filepath.Join(directory, "persistent"))
+	if persistentErr != nil && !errors.Is(persistentErr, os.ErrNotExist) {
+		return action, persistentErr
+	}
+	retained := registered || persistentErr == nil
 	paths := []string{filepath.Base(directory)}
-	if registered {
+	if retained {
 		action.Action = "remove_repository_cache"
 		entries, err := os.ReadDir(directory)
 		if err != nil {
@@ -29,7 +34,7 @@ func reclaimRepositoryState(ctx context.Context, lease *activityLease, dryRun bo
 		}
 		paths = nil
 		for _, entry := range entries {
-			if entry.Name() != "activity.json" && entry.Name() != "repository.json" {
+			if entry.Name() != "activity.json" && entry.Name() != "repository.json" && entry.Name() != "persistent" {
 				paths = append(paths, filepath.Join(filepath.Base(directory), entry.Name()))
 			}
 		}
@@ -51,7 +56,7 @@ func reclaimRepositoryState(ctx context.Context, lease *activityLease, dryRun bo
 	if dryRun {
 		return action, nil
 	}
-	if registered {
+	if retained {
 		// Persist the discovery inventory before its source observations can disappear.
 		if err := Write(filepath.Join(directory, "activity.json"), lease.record, lease.owned); err != nil {
 			return action, err

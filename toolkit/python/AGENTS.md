@@ -3,7 +3,7 @@
 ## 项目定位与边界
 
 `compforge-repokit`（导入名 `repokit`）提供原生同步 tree / inspect / owner，通过 Git CLI 读取版本控制事实，
-原生 API 不包装 repocli CLI；显式 `repokit.cli` 提供已安装 CLI 的有界查询客户端。身份复用 harness-common；布局与工具证据归本包，消费方拥有执行策略。
+原生 API 不包装 repocli CLI；显式 `repokit.cli` 提供已安装 CLI 的有界操作与查询客户端。身份复用 harness-common；布局与工具证据归本包，消费方拥有执行策略。
 
 ## 代码地图与核心模块
 

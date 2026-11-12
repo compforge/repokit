@@ -212,7 +212,7 @@ func TestEnsureObservationWarning(t *testing.T) {
 		t.Fatal(e)
 	}
 	r := requireEnsure(t, root, filepath.Join(root, "target"), EnsureWorktreeOptions{Branch: "topic", Base: "HEAD", Home: home})
-	if len(r.Diagnostics) == 0 || r.Diagnostics[0].Code != "state.observation_unavailable" {
+	if len(r.Diagnostics) != 2 || r.Diagnostics[0].Code != "state.creation_unavailable" || r.Diagnostics[1].Code != "state.observation_unavailable" {
 		t.Fatal(r)
 	}
 }

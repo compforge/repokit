@@ -17,11 +17,12 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
+	depotdata "github.com/compforge/repokit/toolkit/go/internal/depot"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
-const receiptName = ".repokit-dependencies.json"
+const receiptName = depotdata.ReceiptName
 
 var nodeLocks = map[string][]string{"npm": {"npm-shrinkwrap.json", "package-lock.json"}, "pnpm": {"pnpm-lock.yaml"}, "yarn": {"yarn.lock"}, "bun": {"bun.lock", "bun.lockb"}}
 
@@ -322,11 +323,7 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 	return nil
 }
 
-type receipt struct {
-	Manager     string `json:"manager"`
-	Fingerprint string `json:"fingerprint"`
-	Generation  string `json:"generation"`
-}
+type receipt = depotdata.Receipt
 
 func observe(checkout string, bin *Bin) error {
 	directory, err := checkedPath(checkout, bin.Path)
@@ -353,25 +350,23 @@ func observe(checkout string, bin *Bin) error {
 		bin.Status, bin.Reason = "unsupported", "dependency path is not a directory"
 		return nil
 	}
-	file := filepath.Join(directory, receiptName)
-	info, err = os.Lstat(file)
-	if errors.Is(err, os.ErrNotExist) {
+	value, err := depotdata.ReadReceipt(directory)
+	if errors.Is(err, depotdata.ErrUnsafeReceipt) {
+		bin.Status, bin.Reason = "unsupported", err.Error()
+		return nil
+	}
+	if errors.Is(err, depotdata.ErrInvalidReceipt) {
+		bin.Status, bin.Reason = "stale", err.Error()
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if value == nil {
 		bin.Status, bin.Reason = "present", "dependencies present without a receipt; consistency unverified"
 		return nil
 	}
-	if err != nil {
-		return err
-	}
-	if !info.Mode().IsRegular() || info.Size() > 2<<20 {
-		bin.Status, bin.Reason = "unsupported", "receipt is not a bounded regular file"
-		return nil
-	}
-	data, err := os.ReadFile(file)
-	if err != nil {
-		return err
-	}
-	var value receipt
-	if json.Unmarshal(data, &value) != nil || value.Manager != bin.Manager || value.Fingerprint != bin.Fingerprint {
+	if value.Manager != bin.Manager || value.Fingerprint != bin.Fingerprint {
 		bin.Status, bin.Reason = "stale", "dependency inputs or receipt changed"
 		return nil
 	}

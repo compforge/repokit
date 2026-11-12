@@ -192,3 +192,11 @@ no commit. `recoveryPath` retains an uncertain or failed attempt. See [Commit](g
 `validate history list/show` 的结果语义见[验证历史查询](validation.md#验证历史查询)。
 成功读取 failed Run 仍是查询 succeeded；证据缺失使用 partial，完整性与历史检查状态分开。
 历史执行耗时保留在 data，本次 cost 只计查询，不调用 validation execution 成本投影。
+
+## Python 显式客户端
+
+`repokit.cli.run(repo, operation, arguments, timeout=...)` 使用整轮预算、有界输出与进程组取消，
+核验 schemaVersion、command、outcome 与退出码一致性。failed/partial/unknown 的 envelope 和 data
+原样保留，不自动重试，也不回退原生 SDK。branch_result、worktree_result、commit_plan_result、
+commit_result、push_result、rebase_result 校验相应操作的结果结构与请求身份；调用方继续拥有是否推进的策略。
+原生 SDK 不隐式调用该适配器。安装命令及其逐 Bin stdout/stderr 属于 preparation 结果，不能污染 JSON stdout。

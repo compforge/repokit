@@ -7,6 +7,18 @@ RepoKit 是 Repository 理解与操作工具包：结合仓库布局、代码、
 能力覆盖布局与组件识别、代码关系、变更与影响分析、仓库状态、Git/Forge 操作、构建及包工具约定。
 这是职责范围；各语言的实际支持以公共 API 与专题文档为准。
 
+### 三处信息与操作联动
+
+RepoKit 协调远端 Forge / Git remote、本地 Repository / Checkout 与 RepoKit home
+（`~/.repokit`），提供 Git branch、PR 等对象操作，以及 validation 的规划、执行、历史查询和清理。
+
+- 远端拥有远端分支、PR、权限与默认分支等事实；本地 Git 拥有本地分支、提交、index、工作区及 worktree。
+- RepoKit home 保存访问配置、仓库登记、操作来源记录，以及可失效的观测和执行历史；缓存不替代源端事实。
+- 操作按需联动三处信息：例如创建分支时核验基线、修改本地 Git、记录创建来源；push 后核验远端并更新观测。
+  跨 Git、Forge 与本地记录不构成原子事务，结果必须保留已确认的效果、失败步骤与未确认状态，不能盲目重试。
+- state 管理身份关联、观测和生命周期；Git / Forge 执行各自操作，validation / Depot 管理各自领域证据。
+  CLI 是公共能力的命令入口，调用方拥有任务、session、验证门禁与合并策略。
+
 ### 核心概念与职责
 
 | 概念或组件 | 身份、关系与职责 |
@@ -42,7 +54,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
 | depot inspect / prepare | 按 Component 选择、按物理 Bin 聚合；只读观察或显式锁定安装，保留逐项结果和阶段耗时。validate 不触发安装。 |
-| worktree ensure | 按显式路径、分支和基线创建或复用 checkout；核验身份、登记状态，不隐式准备依赖。 |
+| worktree ensure | 按显式路径、分支和基线创建或复用 checkout；核验身份、登记状态；显式 `--prepare` 组合依赖准备并保留逐阶段结果。 |
 | clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |
 | stats / upgrade | stats 只读汇总保留历史、日志与容量并报告读取缺口；upgrade 由 CLI 显式查询和安装 Release，不访问目标仓库。 |
 
@@ -61,6 +73,7 @@ repokit/
 │   │   ├── units.go          # Fragment / Unit 公共 API
 │   │   ├── validation.go     # 验证公共入口；实现归 internal/validation
 │   │   ├── depot/            # Bin 运行态观察、依赖准备与回执
+│   │   ├── worktree/         # checkout 生命周期与 Depot 的应用层组合
 │   │   ├── state/            # 仓库状态业务、checkout 生命周期与共享存储
 │   │   ├── config/           # 用户配置与 host 级 Forge 访问解析
 │   │   ├── git/              # 显式 Git 操作、分支创建/发布、tag 发布与 rebase 恢复

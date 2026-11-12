@@ -23,7 +23,7 @@ func newWorktreeCommand(opts *cmdutil.Options) *cobra.Command {
 		}
 		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
 		defer cancel()
-		policy, err := state.LoadWorktreePolicy(ctx, opts.Repository)
+		policy, err := state.LoadWorktreePolicy(ctx, opts.Repository, opts.Home)
 		if err != nil {
 			return executionFailure(err)
 		}

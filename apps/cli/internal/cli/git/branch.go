@@ -7,6 +7,7 @@ import (
 
 	"github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go/git/branch"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -24,7 +25,7 @@ func newBranchCommand(opts *command.Options) *cobra.Command {
 			var report branch.Report
 			var err error
 			if action == "create" {
-				report, err = branch.Create(ctx, opts.Repository, input)
+				report, err = state.CreateBranch(ctx, opts.Repository, input, opts.Home)
 			} else {
 				report, err = branch.Status(ctx, opts.Repository, input.Name)
 			}
@@ -61,5 +62,37 @@ func newBranchCommand(opts *command.Options) *cobra.Command {
 		}
 		root.AddCommand(cmd)
 	}
+	root.AddCommand(&cobra.Command{Use: "show <name>", Short: "Read current branch facts and clone-scoped creation provenance", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if opts.Timeout <= 0 {
+			return errors.New("--timeout must be positive")
+		}
+		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
+		defer cancel()
+		observed, err := state.LoadBranch(ctx, opts.Repository, args[0], opts.Home, 0)
+		if err != nil {
+			return err
+		}
+		creation, err := state.LoadBranchCreation(ctx, opts.Repository, args[0], opts.Home)
+		if err != nil {
+			return err
+		}
+		report := struct {
+			Observation *state.BranchObservation `json:"observation"`
+			Creation    *state.BranchCreation    `json:"creation"`
+		}{observed, creation}
+		if opts.JSON {
+			return command.JSON(cmd.OutOrStdout(), report)
+		}
+		command.Record(cmd.OutOrStdout(), report)
+		if observed == nil {
+			fmt.Fprintln(cmd.OutOrStdout(), "Branch not found")
+		} else {
+			fmt.Fprintf(cmd.OutOrStdout(), "%s %s complete=%t\n", observed.Branch, observed.Head, observed.Complete)
+		}
+		if creation != nil {
+			fmt.Fprintf(cmd.OutOrStdout(), "Created from %s at %s\n", creation.BaseRef, creation.BaseCommit)
+		}
+		return nil
+	}})
 	return root
 }

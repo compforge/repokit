@@ -426,3 +426,20 @@ def dependency_witnesses(path: str | Path) -> dict[str, str] | None:
     if inspect_dependencies(path) != environments:
         return None
     return dict(sorted(witnesses.items()))
+
+
+def dependency_owned(directory: Path, manager: str) -> bool:
+    """Read ownership separately from input freshness for safe Depot reclamation."""
+    receipt = directory / ".repokit-dependencies.json"
+    if not receipt.exists():
+        return False
+    if receipt.is_symlink() or not receipt.is_file() or receipt.stat().st_size > 2 << 20:
+        raise ValueError(f"invalid dependency receipt: {receipt}")
+    value = json.loads(receipt.read_text())
+    if (
+        not isinstance(value, dict)
+        or value.get("manager") != manager
+        or not value.get("fingerprint")
+    ):
+        raise ValueError(f"invalid dependency receipt: {receipt}")
+    return True

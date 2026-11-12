@@ -3,7 +3,6 @@ package forge
 import (
 	"context"
 	"errors"
-	"log/slog"
 	"slices"
 
 	"github.com/compforge/quality-harness/sdks/go/common"
@@ -11,7 +10,6 @@ import (
 	"github.com/compforge/repokit/toolkit/go/forge/model"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
-	"github.com/compforge/repokit/toolkit/go/state"
 )
 
 // RepositoryIdentity observes origin without storing credentials in the identity.
@@ -28,8 +26,8 @@ func RepositoryIdentity(ctx context.Context, path string) (result *common.Reposi
 	return project.FromOrigin(origin), nil
 }
 
-// Context binds PR operations and maintenance to a checkout and explicit target repositories.
-// Query methods never clean files; successful writes call Maintain directly.
+// Context binds PR operations to a checkout and explicit target repositories.
+// PR operations never trigger filesystem maintenance.
 type Context struct {
 	Client   *Client
 	Checkout string
@@ -104,21 +102,9 @@ func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (nu
 	return pr.Key.Number, nil
 }
 
-func (c *Context) Maintain(ctx context.Context) state.WorktreeCleanReport {
-	report, err := state.CleanWorktrees(ctx, c.Checkout, state.WorktreeCleanOptions{PullRequests: c, Home: c.Client.config.Home})
-	if err != nil {
-		report.Errors = append(report.Errors, err.Error())
-	}
-	for _, issue := range report.Errors {
-		slog.Warn("PR maintenance incomplete", "checkout", c.Checkout, "reason", issue)
-	}
-	return report
-}
-
 type OperationResult struct {
-	PullRequest PullRequest               `json:"pull_request"`
-	Created     bool                      `json:"created"`
-	Maintenance state.WorktreeCleanReport `json:"maintenance"`
+	PullRequest PullRequest `json:"pull_request"`
+	Created     bool        `json:"created"`
 }
 
 func (c *Context) Ensure(ctx context.Context, r CreateRequest) (operation OperationResult, err error) {
@@ -151,7 +137,6 @@ func (c *Context) Ensure(ctx context.Context, r CreateRequest) (operation Operat
 		}
 		result.Created = true
 	}
-	result.Maintenance = c.Maintain(ctx)
 	return result, nil
 }
 
@@ -161,7 +146,7 @@ func (c *Context) Update(ctx context.Context, key model.Key, r UpdateRequest) (o
 		return OperationResult{}, err
 	}
 	pr, err := c.Client.Update(ctx, key, r)
-	return c.afterWrite(ctx, pr, err)
+	return OperationResult{PullRequest: pr}, err
 }
 func (c *Context) Close(ctx context.Context, key model.Key) (operation OperationResult, err error) {
 	defer func() { err = errs.Wrap(err, "forge.close_failed", "forge.close", key.Repository.Path) }()
@@ -169,7 +154,7 @@ func (c *Context) Close(ctx context.Context, key model.Key) (operation Operation
 		return OperationResult{}, err
 	}
 	pr, err := c.Client.Close(ctx, key)
-	return c.afterWrite(ctx, pr, err)
+	return OperationResult{PullRequest: pr}, err
 }
 func (c *Context) Merge(ctx context.Context, key model.Key, expectedSHA, method string) (operation OperationResult, err error) {
 	defer func() { err = errs.Wrap(err, "forge.merge_failed", "forge.merge", key.Repository.Path) }()
@@ -177,7 +162,7 @@ func (c *Context) Merge(ctx context.Context, key model.Key, expectedSHA, method 
 		return OperationResult{}, err
 	}
 	pr, err := c.Client.Merge(ctx, key, expectedSHA, method)
-	return c.afterWrite(ctx, pr, err)
+	return OperationResult{PullRequest: pr}, err
 }
 func (c *Context) authorize(ctx context.Context, key model.Key) error {
 	if err := c.verifyOrigin(ctx); err != nil {
@@ -187,11 +172,4 @@ func (c *Context) authorize(ctx context.Context, key model.Key) error {
 		return errors.New("PR target outside repository context")
 	}
 	return nil
-}
-func (c *Context) afterWrite(ctx context.Context, pr PullRequest, err error) (OperationResult, error) {
-	result := OperationResult{PullRequest: pr}
-	if err == nil {
-		result.Maintenance = c.Maintain(ctx)
-	}
-	return result, err
 }

@@ -50,9 +50,11 @@ class WorktreePolicy:
                 raise ValueError(f"unsafe regenerable output: {value!r}")
 
 
-def load_policy(repo: str | Path) -> WorktreePolicy:
+def load_policy(repo: str | Path, *, home: str | Path | None = None) -> WorktreePolicy:
     """Repository-local configuration shared by all its checkouts."""
-    path = Path(state.checkout_info(repo).common_dir) / "repokit.json"
+    from .persistent import persistent_directory
+
+    path = persistent_directory(repo, home=home) / "config.json"
     try:
         document = json.loads(path.read_text())
         if not isinstance(document, dict):
@@ -156,14 +158,11 @@ def _environments(
     for binding in report.components:
         for env in inspect_dependencies(root / binding.root, inspection=report):
             if env.directory.is_dir():
-                # A missing receipt means user-owned, even when the basename is familiar.
-                receipt = env.directory / ".repokit-dependencies.json"
-                if not receipt.is_file() or receipt.is_symlink():
+                from ..dependencies import dependency_owned
+
+                if not dependency_owned(env.directory, env.manager):
                     unmanaged.add(env.directory)
                     continue
-                value = json.loads(receipt.read_text())
-                if value.get("manager") != env.manager or not value.get("fingerprint"):
-                    raise ValueError(f"invalid dependency receipt: {receipt}")
                 directories.add(env.directory)
     directories.update(root / value for value in policy.outputs if (root / value).exists())
     # Only explicitly managed, ignored, checkout-local trees can be erased.
@@ -302,7 +301,7 @@ def clean_worktrees(
     times sort before recorded times, with paths breaking ties deterministically.`
     +link=`component://docs/worktrees.md`
     """
-    policy = policy or load_policy(repo)
+    policy = policy or load_policy(repo, home=home)
     info = state.checkout_info(repo)
     control = info.main_root or info.root
     with worktree_lease(control):

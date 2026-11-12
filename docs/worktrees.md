@@ -44,7 +44,7 @@ confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不�
 
 ## Policy and ordering
 
-Configuration lives in `<git-common-dir>/repokit.json`, shared by every checkout of one repository:
+Configuration lives in `~/.repokit/repositories/<repo-key>/persistent/config.json`, shared by every checkout of one repository:
 
 ```json
 {"worktree":{"max_count":10,"max_prepared":3,"outputs":[]}}
@@ -96,12 +96,9 @@ at the mutation boundary. Partial environment deletion is reported and can be re
 
 ## Entrypoints
 
-The native Python operation is `repokit.state.clean_worktrees`. `PullRequestContext.refresh()`
-owns observation plus maintenance; its `ensure_pull_request`, `update`, `merge` and `close` methods
-invoke that lifecycle after success. Maintenance errors are logged and available in
-`last_lifecycle`, without changing the successful remote operation's result. There is no
-`after_success` callback. Raw Forge clients, `get_branch`, `local_branches` and other ordinary
-queries do not invoke filesystem maintenance.
+The native Python cleanup operation is `repokit.state.clean_worktrees`. PR writes refresh only
+the affected observations and never trigger filesystem maintenance. Choose cleanup explicitly
+with `repocli clean` or `repocli worktree clean`; both share the same reclamation service.
 
 The Go implementation lives in `toolkit/go/state`; the CLI directly calls this package.
 Python provides a toolkit only: the `repokit-worktree` console entry point has been removed.
@@ -132,3 +129,17 @@ Deletion journals are stored outside disposable environments. A normal cleanup r
 whose directory is already absent, completing an interrupted deletion before later preparation.
 Dry-run only observes these records. A different directory identity at the same path remains
 protected; recovery never authorizes deleting a replacement directory.
+
+## Checkout with dependency preparation
+
+`repocli worktree ensure <path> --branch <name> --base <ref> --prepare --json` composes
+checkout confirmation and Depot preparation in `toolkit/go/worktree.Ensure`. State owns checkout
+lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepare`, ensure only
+confirms the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed
+lockfiles; `depot inspect` is a query, never a mandatory preflight before preparation.
+
+The flat checkout report remains available together with `preparation` and `ready`. If creation
+succeeds but preparation fails or remains unverified, outcome is `partial`, `confirmed=true`, and
+`ready=false`. Do not recreate or remove that checkout: inspect each Bin and resume preparation.
+`ready` requires complete observations and ready Bins; a receipt-free existing directory is only
+`present`. Costs include checkout phases and individual Depot phases. Validation is independent.

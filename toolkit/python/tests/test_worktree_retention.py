@@ -173,7 +173,10 @@ def test_invalid_policy_and_shared_repo_config(repo):
     with pytest.raises(ValueError):
         WorktreePolicy(outputs=("../outside",))
     path = linked(repo, "config")
-    config = Path(state.checkout_info(repo).common_dir) / "repokit.json"
+    from repokit.state.persistent import persistent_directory
+
+    config = persistent_directory(repo) / "config.json"
+    config.parent.mkdir(parents=True, exist_ok=True)
     config.write_text('{"worktree":{"max_count":2,"max_prepared":1}}')
     assert load_policy(path) == WorktreePolicy(2, 1)
 
@@ -227,7 +230,7 @@ def test_checkout_identity_rechecked_after_pr_verification(repo, tmp_path, chang
     assert report.actions[0].reason == "checkout_identity_changed"
 
 
-def test_successful_pr_write_survives_maintenance_failure(repo, tmp_path):
+def test_successful_pr_write_does_not_refresh_the_repository(repo, tmp_path):
     context = context_for(repo, tmp_path, "topic", "open")
     from repokit.forge import PullRequestKey
 
@@ -236,13 +239,11 @@ def test_successful_pr_write_survives_maintenance_failure(repo, tmp_path):
     pr = reader.get(1)
     with (
         patch.object(reader, "update", return_value=pr, create=True),
-        patch(
-            "repokit.forge.observation.context.clean_worktrees",
-            side_effect=OSError("disk read failed"),
-        ),
+        patch.object(context, "refresh", side_effect=AssertionError("full refresh")) as refresh,
     ):
         assert context.update(key, title="updated") is pr
-    assert context.last_lifecycle.errors == ("disk read failed",)
+    refresh.assert_not_called()
+    assert context.last_lifecycle is None
 
 
 def test_failed_pr_write_does_not_run_maintenance(repo, tmp_path):

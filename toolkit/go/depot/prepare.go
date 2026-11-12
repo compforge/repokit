@@ -191,7 +191,7 @@ func prepareBin(ctx context.Context, report *Report, index int, options Options)
 		fail("receipt_failed", e.Error(), false)
 		return
 	}
-	data, e := json.Marshal(receipt{bin.Manager, bin.Fingerprint, hex.EncodeToString(generation)})
+	data, e := json.Marshal(receipt{Manager: bin.Manager, Fingerprint: bin.Fingerprint, Generation: hex.EncodeToString(generation)})
 	if e == nil {
 		e = writeReceipt(ctx, receiptPath, data)
 	}

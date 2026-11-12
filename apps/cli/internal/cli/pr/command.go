@@ -151,9 +151,7 @@ func NewCommand(opts *cmdutil.Options) *cobra.Command {
 				}
 			case forge.OperationResult:
 				display(value.PullRequest)
-				for _, issue := range value.Maintenance.Errors {
-					fmt.Fprintln(cmd.ErrOrStderr(), "maintenance warning:", issue)
-				}
+
 			}
 			return nil
 		}
