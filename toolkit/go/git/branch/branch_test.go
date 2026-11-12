@@ -129,8 +129,9 @@ func TestRemoteBaseRefreshed(t *testing.T) {
 	head := git(t, d, "rev-parse", "HEAD")
 	git(t, d, "push", "origin", "main")
 	git(t, d, "update-ref", "refs/remotes/origin/main", "HEAD~1")
+	git(t, d, "reset", "--hard", "HEAD~1")
 	r, e := Create(context.Background(), d, Options{Name: "topic", Base: "main", Remote: "origin"})
-	if e != nil || !r.Confirmed || r.BaseCommit != head || git(t, d, "rev-parse", "HEAD") != head {
+	if e != nil || !r.Confirmed || r.BaseCommit != head || git(t, d, "rev-parse", "HEAD") != head || git(t, d, "rev-parse", "refs/remotes/origin/main") != head {
 		t.Fatal(r, e)
 	}
 }
@@ -268,10 +269,11 @@ func TestSharedLeaseHonorsCallerCancellation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer unlock()
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	r, e := Create(ctx, d, Options{Name: "topic", Base: "main"})
-	if !errors.Is(e, context.DeadlineExceeded) || r.WriteAttempted || git(t, d, "branch", "--show-current") != "main" {
+	reachedLease := len(r.Phases) > 0 && r.Phases[len(r.Phases)-1].Name == "lock_wait" && r.Phases[len(r.Phases)-1].DurationSeconds > 0.05
+	if !errors.Is(e, context.DeadlineExceeded) || !reachedLease || r.WriteAttempted || git(t, d, "branch", "--show-current") != "main" {
 		t.Fatal(r, e)
 	}
 }

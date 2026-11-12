@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -41,8 +42,15 @@ func TestGitBranchCLI(t *testing.T) {
 		t.Fatal(code, r)
 	}
 	data := r["data"].(map[string]any)
-	if data["confirmed"] != true || data["stashOid"] == "" {
+	stash, ok := data["stashOid"].(string)
+	if data["confirmed"] != true || !ok || stash == "" {
 		t.Fatal(r)
+	}
+	if contents, e := os.ReadFile(filepath.Join(repo, "new file")); e != nil || string(contents) != "local" {
+		t.Fatal(string(contents), e)
+	}
+	if got := strings.TrimSpace(gitCommand(t, repo, "rev-parse", "--verify", stash+"^{commit}")); got != stash {
+		t.Fatal(got, stash)
 	}
 	if len(r["cost"].(map[string]any)["phases"].([]any)) < 5 {
 		t.Fatal(r)
