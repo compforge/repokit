@@ -216,3 +216,8 @@ Go `git/branch` 与 `repocli git branch create/status` 提供显式分支创建�
 
 Go `git.Push` 与 `repocli git push` 将固定 commit 发布到显式远端分支，通过 push destination 的
 实时观察确认结果。未知响应使用相同 commit 的 `--check` 恢复观察；见 [发布契约](git-push.md)。
+
+## Commit
+
+`git/commit` and `repocli git commit plan/create/check` prepare explicit index content and verify
+native commits. Selection, concurrency, hooks and recovery are defined in [Commit](git-commit.md).

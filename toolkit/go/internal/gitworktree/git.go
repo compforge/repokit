@@ -42,10 +42,18 @@ type CheckoutInfo struct {
 }
 
 func Run(ctx context.Context, repo string, timeout time.Duration, args ...string) GitResult {
+	return RunIndex(ctx, repo, "", timeout, args...)
+}
+
+// RunIndex uses an explicit candidate index while preserving checkout-bound Git execution.
+func RunIndex(ctx context.Context, repo, index string, timeout time.Duration, args ...string) GitResult {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...)
 	cmd.Env = gitenv.ForCheckout(os.Environ())
+	if index != "" {
+		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+index)
+	}
 	cmd.WaitDelay = time.Second
 	gitProcessGroup(cmd)
 	var out, stderr bytes.Buffer
