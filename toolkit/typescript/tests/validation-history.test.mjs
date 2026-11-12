@@ -68,12 +68,21 @@ test("logical truncation recovery does not mutate segments",async t=>{
   assert.equal((await listValidationRuns(query)).total,3);
   assert.deepEqual(await readdir(path),before);
 });
-test("advisory lock wait obeys cancellation",async t=>{
+test("advisory lock wait obeys cancellation",{timeout:4_000},async t=>{
   const {query,directory}=await fixture(t);
-  const {flockSync}=createRequire(import.meta.url)("fs-ext");
+  const fsExt=createRequire(import.meta.url)("fs-ext");
+  const {flockSync,flock}=fsExt;
+  let attempts=0;
+  fsExt.flock=(fd,flags,callback)=>{if(flags==="exnb")attempts++;return flock(fd,flags,callback);};
+  t.after(()=>{fsExt.flock=flock;});
   const lock=await open(join(directory,"lock"),"a+");
   flockSync(lock.fd,"exnb");
-  try { await assert.rejects(listValidationRuns({...query,timeoutMs:50})); }
+  try {
+    const started=performance.now();
+    await assert.rejects(listValidationRuns({...query,timeoutMs:1_000}),{name:"AbortError"});
+    assert.ok(attempts>0,"query must contend on the advisory lock before cancellation");
+    assert.ok(performance.now()-started<2_500,"caller timeout must take effect before the 5 second lock cap");
+  }
   finally {flockSync(lock.fd,"un");await lock.close();}
   assert.equal((await listValidationRuns(query)).total,3);
 });
