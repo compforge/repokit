@@ -205,6 +205,9 @@ paths 是仓库相对的字面文件或目录，不展开 glob；非法声明报
 
 ### 执行历史
 
+逐次执行、复用次数、筛选分页与单次输出/输入证据通过
+[`validate history list/show`](validation-history.md) 查询；汇总统计入口保持独立。
+
 代码按职责拆分：`internal/validation/history/` 拥有事件记录、WAL 存储、重放统计、保留期清理和文件锁；
 父包的 `reuse.go` 解释检查结果及输入清单，判断本轮是否可复用，并衔接执行。依赖方向仅为 validation → history。
 history 原样保存检查载荷，仅解析统计和事件一致性所需字段，不依赖父包的 CheckResult、输入类型或规划策略。

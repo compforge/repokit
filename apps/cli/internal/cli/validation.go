@@ -143,6 +143,7 @@ func newValidationCommand(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringArrayVar(&changed, "changed-file", nil, "restrict impact seeds to a changed repository-relative path")
 	command.Flags().String("output", "", "atomically save the complete command result to this file")
 	if name == "validate" {
+		command.AddCommand(newValidationHistoryCommand(opts))
 		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test); format runs first, default lint,test")
 	}
 	return command

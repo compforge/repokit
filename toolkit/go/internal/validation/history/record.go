@@ -44,12 +44,15 @@ type Event struct {
 
 // Run projects a start and optional completion; Result retains the full check payload.
 type Run struct {
-	Start      Event
-	Result     json.RawMessage
-	Check      string
-	Status     string
-	CheckedAt  time.Time
-	Consistent bool
+	FinishedAt   time.Time
+	ReuseCount   int
+	LastReusedAt time.Time
+	Start        Event
+	Result       json.RawMessage
+	Check        string
+	Status       string
+	CheckedAt    time.Time
+	Consistent   bool
 }
 
 // State is a replayed snapshot of retained Runs and repository statistics.
@@ -96,6 +99,7 @@ func (s *State) apply(e Event) error {
 		s.Order = append(s.Order, e.Run)
 		result := check
 		run.Result, run.Status, run.CheckedAt, run.Consistent = e.Check, result.Status, result.CheckedAt, e.Consistent
+		run.FinishedAt = e.At
 		counts.Unfinished--
 		counts.ExecutionSeconds += result.DurationSeconds
 		counts.LookupSeconds += result.LookupSeconds
@@ -117,6 +121,10 @@ func (s *State) apply(e Event) error {
 		}
 		if run.Result == nil || !run.Consistent || run.Status != "passed" || run.Start.Checkout != e.Checkout || run.Start.Component != e.Component || run.Check != check.Check {
 			return fmt.Errorf("invalid reuse of run %s", e.Run)
+		}
+		run.ReuseCount++
+		if e.At.After(run.LastReusedAt) {
+			run.LastReusedAt = e.At
 		}
 		counts.Reuses++
 		counts.LookupSeconds += check.LookupSeconds

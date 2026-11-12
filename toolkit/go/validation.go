@@ -89,3 +89,22 @@ func ReadValidationHistory(ctx context.Context, directory, checkout string) (Val
 	result, err := validation.ReadValidationHistory(ctx, directory, checkout)
 	return result, errs.Wrap(err, "validation.history_failed", "validation.history", checkout)
 }
+
+// Retained-run queries expose validation-owned history without executing checks.
+type ValidationRunQuery = validation.ValidationRunQuery
+type ValidationRun = validation.ValidationRun
+type ValidationRunList = validation.ValidationRunList
+type ValidationRunDetail = validation.ValidationRunDetail
+type ValidationRunInputs = validation.ValidationRunInputs
+type ValidationInputFile = validation.ValidationInputFile
+type ValidationEvidenceIssue = validation.ValidationEvidenceIssue
+
+func ListValidationRuns(ctx context.Context, query ValidationRunQuery) (ValidationRunList, error) {
+	result, err := validation.ListValidationRuns(ctx, query)
+	return result, errs.Wrap(err, "validation.history_failed", "validation.history.list", query.Repository)
+}
+
+func ReadValidationRun(ctx context.Context, directory, checkout, runID string) (ValidationRunDetail, error) {
+	result, err := validation.ReadValidationRun(ctx, directory, checkout, runID)
+	return result, errs.Wrap(err, "validation.history_failed", "validation.history.show", runID)
+}
