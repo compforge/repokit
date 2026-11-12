@@ -224,5 +224,317 @@
     },
     "host": "github",
     "error": "credential"
+  },
+  {
+    "name": "case sensitive Forges",
+    "config": {
+      "Forges": {}
+    },
+    "host": "github",
+    "error": "config",
+    "loadError": true
+  },
+  {
+    "name": "case sensitive FORGES",
+    "config": {
+      "FORGES": {}
+    },
+    "host": "github",
+    "error": "config",
+    "loadError": true
+  },
+  {
+    "name": "case sensitive Token",
+    "config": {
+      "forges": {
+        "github.com": {
+          "Token": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "config",
+    "loadError": true
+  },
+  {
+    "name": "case sensitive Provider",
+    "config": {
+      "forges": {
+        "github.com": {
+          "Provider": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "config",
+    "loadError": true
+  },
+  {
+    "name": "case sensitive APIHost",
+    "config": {
+      "forges": {
+        "github.com": {
+          "APIHost": "secret-canary"
+        }
+      }
+    },
+    "host": "github",
+    "error": "config",
+    "loadError": true
+  },
+  {
+    "name": "invalid host example.com:abc",
+    "config": {
+      "forges": {
+        "example.com:abc": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "example.com:abc",
+    "error": "host"
+  },
+  {
+    "name": "invalid host example.com:65536",
+    "config": {
+      "forges": {
+        "example.com:65536": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "example.com:65536",
+    "error": "host"
+  },
+  {
+    "name": "invalid host example.com:",
+    "config": {
+      "forges": {
+        "example.com:": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "example.com:",
+    "error": "host"
+  },
+  {
+    "name": "invalid host example.com:0",
+    "config": {
+      "forges": {
+        "example.com:0": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "example.com:0",
+    "error": "host"
+  },
+  {
+    "name": "invalid host a b.example",
+    "config": {
+      "forges": {
+        "a b.example": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "a b.example",
+    "error": "host"
+  },
+  {
+    "name": "invalid host -bad.example",
+    "config": {
+      "forges": {
+        "-bad.example": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "-bad.example",
+    "error": "host"
+  },
+  {
+    "name": "invalid host bad..example",
+    "config": {
+      "forges": {
+        "bad..example": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "bad..example",
+    "error": "host"
+  },
+  {
+    "name": "invalid host example.com%2f",
+    "config": {
+      "forges": {
+        "example.com%2f": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "example.com%2f",
+    "error": "host"
+  },
+  {
+    "name": "invalid host 127.1",
+    "config": {
+      "forges": {
+        "127.1": {
+          "provider": "gitlab",
+          "token": "secret-canary"
+        }
+      }
+    },
+    "host": "127.1",
+    "error": "host"
+  },
+  {
+    "name": "valid host example.com:443",
+    "config": {
+      "forges": {
+        "example.com:443": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "example.com:443",
+    "expected": {
+      "host": "example.com:443",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "valid host example.com:8443",
+    "config": {
+      "forges": {
+        "example.com:8443": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "example.com:8443",
+    "expected": {
+      "host": "example.com:8443",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "valid host localhost",
+    "config": {
+      "forges": {
+        "localhost": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "localhost",
+    "expected": {
+      "host": "localhost",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "valid host [::1]:8443",
+    "config": {
+      "forges": {
+        "[::1]:8443": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "[::1]:8443",
+    "expected": {
+      "host": "[::1]:8443",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "valid host 127.0.0.1:8080",
+    "config": {
+      "forges": {
+        "127.0.0.1:8080": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "127.0.0.1:8080",
+    "expected": {
+      "host": "127.0.0.1:8080",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
+  },
+  {
+    "name": "null map is empty",
+    "config": {
+      "forges": null
+    },
+    "host": "github",
+    "error": "credential"
+  },
+  {
+    "name": "null entry is empty",
+    "config": {
+      "forges": {
+        "github.com": null
+      }
+    },
+    "host": "github",
+    "error": "credential"
+  },
+  {
+    "name": "null field is empty",
+    "config": {
+      "forges": {
+        "github.com": {
+          "token": null
+        }
+      }
+    },
+    "host": "github",
+    "error": "credential"
+  },
+  {
+    "name": "prototype name is a valid host",
+    "config": {
+      "forges": {
+        "constructor": {
+          "provider": "gitlab",
+          "token": "configured"
+        }
+      }
+    },
+    "host": "constructor",
+    "expected": {
+      "host": "constructor",
+      "provider": "gitlab",
+      "token": "configured",
+      "apiHost": ""
+    }
   }
 ]

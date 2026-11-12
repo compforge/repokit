@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
+import ipaddress
 import json
 import logging
 import os
+import re
 import stat
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
-from urllib.parse import urlsplit
 
 from .forge.connection import ForgeConnection
 from .forge.model import ForgeAuthError
@@ -23,14 +24,31 @@ class ConfigError(ValueError):
 
 
 def _host(value: str) -> str:
+    """Use the shared host grammar, independent of each language's URL parser."""
     host = {"github": "github.com", "gitlab": "gitlab.com"}.get(value.lower(), value.lower())
     try:
-        parsed = urlsplit("https://" + host)
-        valid = bool(host and parsed.hostname and parsed.netloc == host)
+        if host.startswith("["):
+            name, close, suffix = host[1:].partition("]")
+            if not close or ":" not in name or "%" in name:
+                raise ValueError
+            ipaddress.IPv6Address(name)
+            if suffix and not suffix.startswith(":"):
+                raise ValueError
+            port, has_port = suffix[1:], bool(suffix)
+        else:
+            name, separator, port = host.partition(":")
+            has_port = bool(separator)
+            if len(name) > 253 or any(
+                re.fullmatch(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?", label) is None
+                for label in name.split(".")
+            ):
+                raise ValueError
+            if re.fullmatch(r"[0-9.]+", name):
+                ipaddress.IPv4Address(name)
+        if has_port and (re.fullmatch(r"[0-9]{1,5}", port) is None or not 1 <= int(port) <= 65535):
+            raise ValueError
     except ValueError:
-        valid = False
-    if not valid or host.strip() != host or any(c in host for c in "/@?#\\"):
-        raise ConfigError("Invalid Forge host")
+        raise ConfigError("Invalid Forge host") from None
     return host
 
 

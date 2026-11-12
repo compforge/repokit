@@ -14,12 +14,13 @@ import (
 // +case=One host-scoped configuration contract is shared by native Go, Python and TypeScript consumers.
 func TestForgeConfigContract(t *testing.T) {
 	var cases []struct {
-		Name     string
-		Config   json.RawMessage
-		Env      map[string]string
-		Host     string
-		Expected struct{ Host, Provider, Token, APIHost string }
-		Error    string
+		Name      string
+		Config    json.RawMessage
+		Env       map[string]string
+		Host      string
+		Expected  struct{ Host, Provider, Token, APIHost string }
+		Error     string
+		LoadError bool
 	}
 	data, err := os.ReadFile("../../../conformance/config/cases.json")
 	if err != nil {
@@ -43,6 +44,9 @@ func TestForgeConfigContract(t *testing.T) {
 				}
 			}
 			c, err := config.Load(home)
+			if row.LoadError && err == nil {
+				t.Fatal("invalid fields accepted during config load")
+			}
 			if err == nil {
 				dumped, _ := json.Marshal(c)
 				if strings.Contains(string(dumped)+fmt.Sprintf("%v %+v %#v", c, c, c), "secret-canary") {

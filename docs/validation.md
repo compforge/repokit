@@ -133,13 +133,34 @@ Python 原生 API 为 `plan_validation`、`execute_validation`、`validate`、`l
 包含 format 的计划是修改前的预览；ExecuteValidation 拒绝执行 format，组合执行必须经 Validate 重新规划。
 TypeScript 当前不提供验证执行 API。
 
+各语言能力可以按需求增减，共有能力的行为必须一致；“尚未实现”不能混同为同名能力的另一套语义。
+当前配置与验证能力如下，CLI 是 Go 工具包的应用入口：
+
+| 能力 | Go SDK | Python SDK | TypeScript SDK |
+|---|---|---|---|
+| home 解析与 config.json 读取 | 支持 | 支持 | 支持 |
+| lint/test 规划与原生执行 | 支持 | 支持 | 未提供 |
+| format、自动 impact、并发预算、输入声明 | 支持 | 未提供对应选项 | 未提供 |
+| 验证历史写入、复用与查询 | 支持 | 未提供原生 API | 未提供 |
+
+Go 原生验证的空 HistoryDir 关闭持久化；CLI 显式传入 RepoKit home 下的默认历史根。
+Python 当前只执行检查，不写历史；这不表示在独立目录维护另一套历史，也不授权调用方自建复用缓存。
+今后新增历史能力必须读写 validation 拥有的同一协议，不能按 SDK 语言另设存储。
+Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最多 2 秒；
+无效语法和未完成解析报告 unavailable，不触发根入口回退。解析不执行 Make 或展开 includes。
+共有执行语义包括 Component 选择、根入口回退与去重、文件范围、冻结环境和结果判定：
+`complete` 表示选中检查的终态已知（包括 unavailable），`inputsConsistent` / `inputs_consistent`
+独立表示输入未变；输入变化使 passed 为 false，但不抹掉已经完成的单项检查。
+`conformance/validation/cases.json` 与 `execution.json` 由 Go/Python 分别执行，配置和 home 语料由三语言共享。
+
+
 ## 选择检查范围
 
 未提供 impact 时，对选中的 Component 做全量检查；未指定 Component 时选择全部已发现 Component。
 显式空 Component 列表表示不选任何 Component，未知 Component 是参数错误。
 
 `--component` 限定请求来源，不禁止为缺失入口回退到 root；即使未显式选择 root，也可在那里执行回退检查。
-Go/CLI 对每个所选或受影响 Component 的 lint/test 分别选择入口：本地存在对应 target 就使用本地；
+Go/Python 对每个所选或受影响 Component 的 lint/test 分别选择入口：本地存在对应 target 就使用本地；
 否则直接回退到根 Component（`.`），不逐级寻找父 Component。根也没有对应 target 时记为 unavailable。
 不为不存在的根 Component 伪造执行对象。无关的 skipped 请求不触发回退；Makefile 无法安全读取或解析时
 保留错误，不把它解释为没有目标；已声明目标执行失败时不再回退。format 只使用自身入口，不参与回退。

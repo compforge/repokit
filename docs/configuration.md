@@ -1,9 +1,9 @@
 # 用户配置与 Forge 访问
 
 RepoKit 的用户配置是 `<home>/config.json`。home 沿用显式 `--home` / SDK home、
-`REPOKIT_HOME`、`~/.repokit` 的优先级；只支持 JSON。配置由用户维护，加载不创建目录或文件。
+`REPOKIT_HOME`、`~/.repokit` 的优先级；只支持 JSON。配置由用户维护，加载不创建目录或文件。空字符串 home 视为省略，纯空白路径拒绝；路径做绝对化和词法规范化，不解析 symlink。
 文件必须是仅 owner 可访问的普通文件（`chmod 600`）。文件缺失等价于空配置；损坏、未知字段、
-字段类型错误或权限过宽会报错，不转成空配置，也不在错误里输出文件内容。
+字段名大小写不匹配、字段类型错误或权限过宽会报错，不转成空配置，也不在错误里输出文件内容。
 
 ```json
 {
@@ -26,6 +26,9 @@ Repository 元信息已经包含 Forge 身份与仓库路径；配置以具体 F
 共享访问配置。`github` / `gitlab` 公共身份分别解析到 `github.com` / `gitlab.com`；host 大小写
 规范化，重复的规范化键拒绝加载。provider 是 `github` 或 `gitlab` 平台类型，不是实例身份。
 自建 host 必须声明 provider，不根据名字猜测平台。
+host 与 apiHost 使用同一语法：ASCII DNS label（国际化域名使用 punycode）、标准 IPv4 或带方括号的 IPv6；
+可选端口为 1–65535 的十进制整数，不允许空端口、空 label、地址缩写或 IPv6 zone。
+大小写规范化不改写显式端口或 IPv6 文本；三种语言不依赖各自 URL parser 的隐式规范化。
 
 | 内容 | Owner |
 |---|---|

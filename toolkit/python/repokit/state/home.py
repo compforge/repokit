@@ -11,7 +11,11 @@ def resolve_home(home: str | Path | None = None) -> Path:
     Omission never disables persistence.
     @link component://docs/state.md
     """
-    value = home if home is not None else os.environ.get("REPOKIT_HOME") or Path.home() / ".repokit"
+    value = (
+        home
+        if home is not None and str(home) != ""
+        else os.environ.get("REPOKIT_HOME") or Path.home() / ".repokit"
+    )
     if not str(value).strip():
         raise ValueError("RepoKit home must be nonempty")
-    return Path(value).absolute()
+    return Path(os.path.abspath(value))

@@ -21,6 +21,10 @@ for (const row of cases) test(row.name,async t=>{
   Object.assign(process.env,row.env ?? {});
   const root=await home(t);
   if ("config" in row) await writeFile(join(root,"config.json"),JSON.stringify(row.config),{mode:0o600});
+  if (row.loadError) {
+    await assert.rejects(loadConfig(root), /config/i);
+    return;
+  }
   const operation=async()=>{
     const config=await loadConfig(root);
     assert.ok(!JSON.stringify(config).includes("secret-canary"));

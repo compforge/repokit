@@ -49,6 +49,12 @@ func readMakeContract(ctx context.Context, source []byte) makeContract {
 	}
 	for i := 0; i < root.NamedChildCount(); i++ {
 		rule := root.NamedChild(i)
+		// Bare expression fragments are not Make statements. Some parser recovery
+		// paths retain them without setting HasError; they cannot authorize execution.
+		// +tmp:text=`Reject recovered top-level fragments`,until=`The parser reports these recovery paths as syntax errors`
+		if rule.Type(language) == "word" || rule.Type(language) == "list" {
+			return makeContract{targets: map[string]bool{}, variables: map[string]bool{}, problem: "Makefile contains unsupported or invalid syntax"}
+		}
 		if rule.Type(language) != "rule" {
 			continue
 		}

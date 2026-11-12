@@ -1,0 +1,325 @@
+[
+  {
+    "name": "passed",
+    "makefile": "test:\n\t@true\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "known failure",
+    "makefile": "test:\n\t@false\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "failed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "unavailable is terminal",
+    "makefile": "other:\n\t@true\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "unavailable",
+          "status": "unavailable",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "content changed during execution",
+    "makefile": "test:\n\t@echo changed >> source.py\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "source.py": "# source\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": false,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "explicit empty checks",
+    "makefile": "test:\n\t@false\n",
+    "checks": [],
+    "files": {},
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": []
+    }
+  },
+  {
+    "name": "explicit empty components",
+    "makefile": "test:\n\t@false\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": []
+    },
+    "components": []
+  },
+  {
+    "name": "root fallback deduplicates",
+    "makefile": "test:\n\t@echo run >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "a",
+            "b"
+          ],
+          "files": []
+        }
+      ]
+    },
+    "components": [
+      "b",
+      "a"
+    ]
+  },
+  {
+    "name": "root request dominates focused fallback",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/code.py": "pass\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            ".",
+            "a"
+          ],
+          "files": []
+        }
+      ]
+    },
+    "selected": [
+      "a/code.py"
+    ]
+  },
+  {
+    "name": "focused fallback keeps root relative paths",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/code.py": "pass\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": [
+            "a/code.py"
+          ]
+        }
+      ]
+    },
+    "components": [
+      "a"
+    ],
+    "selected": [
+      "a/code.py"
+    ]
+  },
+  {
+    "name": "failed child never falls back",
+    "makefile": "test:\n\t@true\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@false\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "full",
+          "status": "failed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": []
+        }
+      ]
+    },
+    "components": [
+      "a"
+    ]
+  },
+  {
+    "name": "invalid child syntax never falls back",
+    "makefile": "test:\n\t@true\n",
+    "checks": [
+      "test"
+    ],
+    "components": [
+      "a"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n broken syntax\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "unavailable",
+          "status": "unavailable",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "invalid root fallback preserves diagnostic",
+    "makefile": "test:\n broken syntax\n",
+    "checks": [
+      "test"
+    ],
+    "components": [
+      "a"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n"
+    },
+    "reason": "root Makefile contains unsupported or invalid syntax",
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "unavailable",
+          "status": "unavailable",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": []
+        }
+      ]
+    }
+  }
+]
