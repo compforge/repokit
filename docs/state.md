@@ -111,8 +111,11 @@ checkout 消失连带删除历史。仓库根保留信息不会触发全量 Forg
 
 Python/Go worktree 创建、移除和清理接受显式 state directory，并在成功操作后观察/对账。
 CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同一入口。Python/TS PR context
-查询 branch PR 时使用 Git 当前 inventory，不把 topology 发布作为读取前置条件。CLI validation 在执行后尽力更新 repository 观测；
-观测失败单独报告，不改变检查结果。原生纯分析 API 不隐式写入此目录；CLI 的仓库命令（含 plan）只额外记录所选 checkout 的访问，不改项目内容。
+查询 branch PR 时使用 Git 当前 inventory，不把 topology 发布作为读取前置条件。
+CLI 的 `validate`、`lint`、`test`、`format` 在完成检查、输入核验和历史保存后返回，不刷新 branch/checkout 拓扑。
+CLI 统一记录所选 checkout 的访问；访问时间不代表拓扑的新鲜度。拓扑由按需分支查询、worktree 生命周期操作
+或显式 `worktree observe` 更新，首次验证也不要求预先建立拓扑投影。
+原生纯分析 API 不隐式写入此目录；CLI 的仓库命令（含 plan）只额外记录所选 checkout 的访问，不改项目内容。
 
 ```sh
 repocli worktree observe --repo /path/to/repository
