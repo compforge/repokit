@@ -109,7 +109,7 @@ func TestValidationCLIFormatCompositionAndReuseReport(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
 			t.Fatal(err)
 		}
-		if result.Cost.WallSeconds <= 0 || result.Cost.Validation == nil || len(result.Cost.Phases) < 2 || result.Cost.Phases[0].Name != "validation" {
+		if result.Cost.WallSeconds <= 0 || result.Cost.Validation == nil || len(result.Cost.Phases) == 0 || result.Cost.Phases[0].Name != "validation" {
 			t.Fatalf("missing measured cost: %s", &out)
 		}
 		for _, step := range result.Cost.Validation.Steps {
@@ -295,7 +295,7 @@ func TestValidationExportFailurePreservesReport(t *testing.T) {
 	if code != 1 || stderr.Len() != 0 || !report.Passed || result.Error == nil || result.Error.Op != "export" || len(result.Artifacts) != 0 {
 		t.Fatalf("code=%d result=%s stderr=%s", code, &out, &stderr)
 	}
-	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) != 2 {
+	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) != 1 || result.Cost.Phases[0].Name != "validation" {
 		t.Fatalf("lost cost: %s", &out)
 	}
 }

@@ -15,6 +15,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// +spec=Validation completion publishes check evidence without refreshing repository topology.
+// +why=The CLI records checkout access separately; topology consumers own observation freshness.
+// +link=component://docs/state.md
 func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
@@ -109,16 +112,6 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 			if err != nil {
 				return cmdutil.ExecutionFailure(err)
 			}
-			finishPhase = cmdutil.MeasurePhase(cmd.OutOrStdout(), "observation")
-			if home, stateErr := state.ResolveHome(opts.Home); stateErr == nil {
-				if _, stateErr = state.Observe(ctx, opts.Repository, home, false); stateErr != nil {
-					cmdutil.AddDiagnostic(cmd.OutOrStdout(), cmdutil.Diagnostic{Code: "state.observation_unavailable", Severity: "warning", Phase: "observation", Message: stateErr.Error()})
-					if !opts.JSON {
-						fmt.Fprintf(cmd.ErrOrStderr(), "repocli: repository observation unavailable: %v\n", stateErr)
-					}
-				}
-			}
-			finishPhase()
 			if !opts.JSON {
 				if err := WriteText(cmd.OutOrStdout(), report); err != nil {
 					return cmdutil.ExecutionFailure(err)
