@@ -1,0 +1,22 @@
+[
+  {
+    "wire": {
+      "code": "repository.failed",
+      "message": "read failed"
+    },
+    "text": "[repository.failed]: read failed"
+  },
+  {
+    "wire": {
+      "code": "forge.outcome_unknown",
+      "message": "request failed",
+      "op": "POST",
+      "subject": "/repos/acme/repo/pulls",
+      "hint": "Reconcile before retrying",
+      "uncertain": true,
+      "httpStatus": 503,
+      "retryAt": "2026-01-01T00:00:00Z"
+    },
+    "text": "[forge.outcome_unknown] POST (/repos/acme/repo/pulls): request failed; outcome unknown; HTTP 503; retry after 2026-01-01T00:00:00Z\nHint: Reconcile before retrying"
+  }
+]

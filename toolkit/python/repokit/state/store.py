@@ -14,6 +14,7 @@ from threading import Event, RLock, Thread
 from typing import cast
 
 from ..budget import current_budget
+from ..errors import RepoKitError
 
 JSON = dict[str, object]
 
@@ -24,8 +25,11 @@ def digest(value: object) -> str:
     ).hexdigest()
 
 
-class ObservationStorageError(OSError):
+class ObservationStorageError(RepoKitError, OSError):
     """A successful observation could not be durably read or published."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__("state.storage_failed", message)
 
 
 class ObservationStore:

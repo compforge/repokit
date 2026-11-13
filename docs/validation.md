@@ -363,7 +363,7 @@ Go/TS 支持 Linux/macOS，TS 使用 `fs-ext` 原生模块。读取逻辑恢复 
 
 ### 查询错误与取消
 
-Go 返回 `errs.Error`，TS 抛出公开的 `ValidationHistoryError`。调用方使用 `code`、`op`、
+Go 返回 `errs.Error`，TS 抛出继承公共 `RepoKitError` 的 `ValidationHistoryError`。调用方使用 `code`、`op`、
 `subject` 判断，保留原始 cause 供诊断，不解析 message。list 的 op 是
 `validation.history.list`、subject 是传入的 repository；详情的 op 是
 `validation.history.show`、subject 是请求的 runID。

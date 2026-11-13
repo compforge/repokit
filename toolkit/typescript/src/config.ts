@@ -1,3 +1,4 @@
+import { RepoKitError } from "./errors.js";
 import { isIP } from "node:net";
 import { open } from "node:fs/promises";
 import { join } from "node:path";
@@ -7,7 +8,9 @@ import { resolveHome } from "./state/home.js";
 
 type Entry = { provider?: string; apiHost?: string; token?: string };
 
-export class ConfigError extends Error {}
+export class ConfigError extends RepoKitError {
+  constructor(message: string = "", options?: ErrorOptions) { super("config.invalid", message, options); this.name = "ConfigError"; }
+}
 
 // Use the shared host grammar, independent of WHATWG URL normalization.
 function normalizeHost(value: string): string {

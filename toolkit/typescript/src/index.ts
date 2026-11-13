@@ -20,3 +20,5 @@ export { listValidationRuns, readValidationRun } from "./validation/history.js";
 export type { ValidationHistoryOptions, ValidationRunQuery, ValidationRun, ValidationRunList, ValidationRunInputs, ValidationRunDetail, ValidationRunInputSummary } from "./validation/history.js";
 
 export { ValidationHistoryError } from "./validation/errors.js";
+
+export { RepoKitError, type RepoKitErrorOptions } from "./errors.js";

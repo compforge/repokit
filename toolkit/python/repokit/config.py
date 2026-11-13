@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal
 
+from .errors import RepoKitError
 from .forge.connection import ForgeConnection
 from .forge.model import ForgeAuthError
 from .state.home import resolve_home
@@ -19,8 +20,11 @@ from .state.home import resolve_home
 _log = logging.getLogger(__name__)
 
 
-class ConfigError(ValueError):
+class ConfigError(RepoKitError, ValueError):
     """Invalid RepoKit configuration; messages never contain configuration values."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__("config.invalid", message)
 
 
 def _host(value: str) -> str:
