@@ -24,10 +24,10 @@ import (
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
-// ValidationRequest selects Makefile-defined checks. Files are repository-relative
-// candidates, not shell arguments. Nil components means all discovered Components;
-// an explicitly empty slice means none. An impact report is supplied, never obtained
-// implicitly by executing validation. Tags selects affected file roles for automatic checks.
+// ValidationRequest selects Makefile-defined checks. Repository-relative Files select
+// their most specific Component owners. Nil Components imposes no boundary; an empty
+// slice selects none. Files and impact are alternative selections.
+// Tags selects affected file roles for automatic checks.
 type ValidationRequest struct {
 	Base                 string
 	ChangedFiles         []string
@@ -132,6 +132,7 @@ var makeFilePath = regexp.MustCompile(`^[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*$`)
 // +spec=Inherited tool call identity is removed from both execution and reuse inputs; explicit environments retain it
 // +why=Per-invocation tracing metadata must not invalidate otherwise identical checks
 // +spec=Makefile is the execution contract; absent targets never select language-specific commands
+// +spec=Explicit files select their most specific Component owners; explicit Components constrain that selection before execution
 // +spec=Missing lint/test targets fall back only to the root Component; format never falls back
 // +spec=Recorded inputs bind execution evidence and never decide affected-file selection
 // +link=component://docs/validation.md
@@ -230,6 +231,23 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 	for _, root := range req.Components {
 		selected[root] = false
 	}
+	filesByComponent := map[string][]string{}
+	for _, name := range req.Files {
+		if name == "" || filepath.IsAbs(name) || filepath.ToSlash(filepath.Clean(name)) != name || name == ".." || strings.HasPrefix(name, "../") {
+			return ValidationPlan{}, fmt.Errorf("selected file %q must be normalized and repository-relative", name)
+		}
+		owner := layout.Layout.Owner(name)
+		if owner == nil {
+			return ValidationPlan{}, fmt.Errorf("selected file %q has no Component owner", name)
+		}
+		if req.Components != nil && !slices.Contains(req.Components, owner.Root) {
+			return ValidationPlan{}, fmt.Errorf("selected file %q belongs to Component %q outside selected Components", name, owner.Root)
+		}
+		filesByComponent[owner.Root] = append(filesByComponent[owner.Root], name)
+	}
+	if len(req.Files) > 0 {
+		slog.DebugContext(ctx, "validation file owners selected", "files", len(req.Files), "components", len(filesByComponent))
+	}
 	tags := req.Tags
 	if tags == nil {
 		tags = []string{"source", "test", "config", "manifest", "lockfile"}
@@ -259,13 +277,16 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 			}
 			selected[component.Root] = true
 		}
+		if len(req.Files) > 0 && len(filesByComponent[component.Root]) == 0 {
+			continue
+		}
 		contract, err := contractFor(component)
 		if err != nil {
 			return ValidationPlan{}, err
 		}
 		for _, check := range checks {
 			spec := CheckSpec{Check: check, RequestedComponents: []string{component.Root}, Scope: "full", Command: []string{}, Files: []string{}, Reason: "full Component check", Environment: hex.EncodeToString(digest[:])}
-			candidates := slices.Clone(req.Files)
+			candidates := slices.Clone(filesByComponent[component.Root])
 			if req.Impact != nil {
 				var impact *project.ComponentImpact
 				for i := range req.Impact.Components {

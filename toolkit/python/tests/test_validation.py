@@ -171,9 +171,8 @@ def test_nested_ownership(tmp_path: Path) -> None:
     (child / "pyproject.toml").write_text("[project]\nname='child'\nversion='0.1.0'\n")
     (child / "Makefile").write_text("test:\n\t@echo $(TEST_FILES)\n")
     (child / "a.py").write_text("# source\n")
-    plan = plan_validation(root, components=(".",), checks=("test",), files=("child/a.py",))
-    assert plan.components[0].checks[0].scope == "full"
-    assert "no longer belongs" in plan.components[0].checks[0].reason
+    with pytest.raises(ValueError, match="outside selected Components"):
+        plan_validation(root, components=(".",), checks=("test",), files=("child/a.py",))
 
 
 def test_output_budget_and_prestart_cancellation(tmp_path: Path) -> None:
@@ -217,6 +216,19 @@ def test_shared_execution_contract(tmp_path, case):
         path = root / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(text)
+    if case.get("withoutRoot"):
+        (root / "Makefile").unlink()
+        (root / "pyproject.toml").unlink()
+    if "error" in case:
+        with pytest.raises(ValueError, match=case["error"]):
+            validate(
+                root,
+                components=case.get("components"),
+                checks=case["checks"],
+                files=case.get("selected", ()),
+            )
+        assert not (root / "runs.out").exists()
+        return
     report = validate(
         root,
         components=case.get("components"),

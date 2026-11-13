@@ -164,8 +164,13 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 
 ## 选择检查范围
 
-未提供 impact 时，对选中的 Component 做全量检查；未指定 Component 时选择全部已发现 Component。
+未提供 impact 或非空 `files` 时，对选中的 Component 做全量检查；未指定 Component 时选择全部已发现 Component。
 显式空 Component 列表表示不选任何 Component，未知 Component 是参数错误。
+
+非空 `files` 按当前布局的最具体归属选择 Component，并只向各组件传递属于它的候选文件。
+同时指定 `components` 时，它是允许的来源边界；边界内没有候选文件的组件不执行，越界文件在执行前报错。
+父组件不隐含包含嵌套组件。显式空边界与非空文件列表冲突；无法确定归属或路径不规范也在执行前报错。
+文件缺失但当前布局仍能确定归属时，只在该组件内回退全量，并在 reason 中说明缺失。
 
 `--component` 限定请求来源，不禁止为缺失入口回退到 root；即使未显式选择 root，也可在那里执行回退检查。
 Go/Python 对每个所选或受影响 Component 的 lint/test 分别选择入口：本地存在对应 target 就使用本地；
@@ -177,7 +182,7 @@ Go/Python 对每个所选或受影响 Component 的 lint/test 分别选择入口
 原始 ImpactReport 不改写，requestedComponents 记录来源，报告 components 按执行位置组织。
 没有文件过滤契约、安全路径无法表达或归属变化时仍使用全量检查。Makefile recipe 是不透明的；
 同时声明了父子入口就分别运行，不通过解析 recipe 推断覆盖关系。只为转发到 root 而声明的 target 可由项目移除，
-让缺失入口自然回退。Python 原生规划与报告本轮不扩展此规则。
+让缺失入口自然回退。Go 与 Python 原生规划共同遵循该选择与回退契约。
 
 调用方可提供当前工作区的 `ImpactReport`。规划器核对 checkout、input 和 snapshot，拒绝把旧报告、
 index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中出现 source/test/config/manifest/lockfile
@@ -188,9 +193,9 @@ index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中�
 回退全量并记录原因。没有返回候选文件、项目不支持文件过滤、路径无法安全传给 Make 时，也回退全量。
 不为已不存在的 Component 或 unowned 路径伪造执行目标。
 
-手工 `files` 与 impact 是两种互斥的选择来源。文件必须是仓库相对路径；进入 Make 前转换为
+手工 `files` 与 impact 是两种互斥的选择来源。文件必须是规范的仓库相对路径；进入 Make 前转换为
 Component 相对路径并去重排序。包含空格、shell/Make 元字符或穿过符号链接的路径不进入文件参数。
-这类候选会导致全量回退，不会被静默丢掉。
+这类候选只在其所属组件内导致全量回退，不会被静默丢掉或扩大到无关组件。
 
 ## 检查输入与结果复用
 

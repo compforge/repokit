@@ -211,6 +211,7 @@ def plan_validation(
     """Read a frozen execution plan; never run Make or implicitly obtain impact.
 
     +spec=`Makefile targets and file-list variables are the only check execution contract`
+    +spec=`Explicit files select their Component owners within any explicit Component boundary`
     +spec=`Deleted and before-side paths fall back to full checks in their current Component`
     +link=component://docs/validation.md
     """
@@ -239,6 +240,26 @@ def plan_validation(
     known = {component.root for component in layout.components}
     if selected is not None and selected - known:
         raise ValueError(f"unknown Components: {sorted(selected - known)}")
+    files_by_component: dict[str, list[str]] = {}
+    for name in files:
+        path = Path(name)
+        if not name or path.is_absolute() or path.as_posix() != name or ".." in path.parts:
+            raise ValueError(f"selected file {name!r} must be normalized and repository-relative")
+        binding = owner(layout, name)
+        if binding is None:
+            raise ValueError(f"selected file {name!r} has no Component owner")
+        if selected is not None and binding.root not in selected:
+            raise ValueError(
+                f"selected file {name!r} belongs to Component {binding.root!r} "
+                "outside selected Components"
+            )
+        files_by_component.setdefault(binding.root, []).append(name)
+    if files:
+        _LOG.debug(
+            "validation file owners selected: files=%d components=%d",
+            len(files),
+            len(files_by_component),
+        )
     groups: dict[str, ComponentValidationPlan] = {}
     contracts: dict[str, MakeContract] = {}
 
@@ -260,9 +281,11 @@ def plan_validation(
     for component in layout.components:
         if selected is not None and component.root not in selected:
             continue
+        if files and component.root not in files_by_component:
+            continue
         contract = makefile(component)
         for check in names:
-            candidates = tuple(files)
+            candidates = tuple(files_by_component.get(component.root, ()))
             scope, reason = "full", "full Component check"
             if impact is not None:
                 group = _impact_component(impact, component.root)

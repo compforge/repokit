@@ -153,7 +153,8 @@ func TestValidationFallbackImpactMergesFilesAndFullDominates(t *testing.T) {
 func TestValidationFallbackRootFullAndSkippedRequests(t *testing.T) {
 	root := validationRepo(t, "test:\n\t@echo $(TEST_FILES) >> runs.out\n")
 	fallbackChild(t, root, "child", "")
-	plan, err := repokit.PlanValidation(context.Background(), repokit.ValidationRequest{Repository: root, Checks: []string{"test"}, Files: []string{"child/code.py"}})
+	// A missing root-owned file requires full root coverage even when the child falls back focused.
+	plan, err := repokit.PlanValidation(context.Background(), repokit.ValidationRequest{Repository: root, Checks: []string{"test"}, Files: []string{"missing.py", "child/code.py"}})
 	if err != nil || len(plan.Components) != 1 || len(plan.Components[0].Checks) != 1 || plan.Components[0].Checks[0].Scope != "full" {
 		t.Fatalf("full root must dominate: %+v %v", plan.Components, err)
 	}

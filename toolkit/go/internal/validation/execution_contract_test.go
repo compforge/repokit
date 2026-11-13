@@ -20,7 +20,8 @@ func TestSharedExecutionContract(t *testing.T) {
 	}
 	var rows []struct {
 		Name, Makefile               string
-		Reason                       string
+		Reason, Error                string
+		WithoutRoot                  bool
 		Checks, Components, Selected []string
 		Files                        map[string]string
 		Expected                     map[string]any
@@ -34,7 +35,23 @@ func TestSharedExecutionContract(t *testing.T) {
 			for name, text := range row.Files {
 				writeValidationFile(t, root, name, text)
 			}
+			if row.WithoutRoot {
+				for _, name := range []string{"Makefile", "pyproject.toml"} {
+					if err := os.Remove(filepath.Join(root, name)); err != nil {
+						t.Fatal(err)
+					}
+				}
+			}
 			report, err := repokit.Validate(context.Background(), repokit.ValidationRequest{Repository: root, Checks: row.Checks, Components: row.Components, Files: row.Selected})
+			if row.Error != "" {
+				if err == nil || !strings.Contains(err.Error(), row.Error) {
+					t.Fatalf("got %v, want %q", err, row.Error)
+				}
+				if _, err := os.Stat(filepath.Join(root, "runs.out")); !os.IsNotExist(err) {
+					t.Fatal("invalid selection ran checks")
+				}
+				return
+			}
 			if err != nil {
 				t.Fatal(err)
 			}
