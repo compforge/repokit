@@ -124,8 +124,8 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 			return nil
 		},
 	}
-	command.Flags().StringSliceVar(&components, "component", nil, "Component root(s); default: all discovered Components")
-	command.Flags().StringArrayVar(&files, "file", nil, "repository-relative file candidate (repeatable)")
+	command.Flags().StringSliceVar(&components, "component", nil, "Component boundary; default: file owners with --file, otherwise all Components")
+	command.Flags().StringArrayVar(&files, "file", nil, "repository-relative file selecting its owning Component (repeatable)")
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
 	command.Flags().BoolVar(&planOnly, "plan", false, "print the plan as JSON without running checks")
 	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")

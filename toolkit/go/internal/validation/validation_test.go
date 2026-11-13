@@ -177,7 +177,7 @@ func TestValidationNestedOwnershipAndExplicitBoundaries(t *testing.T) {
 		}
 	}
 	plan, err := repokit.PlanValidation(context.Background(), repokit.ValidationRequest{Repository: root, Components: []string{"."}, Checks: []string{"test"}, Files: []string{"child/a.py"}})
-	if err != nil || plan.Components[0].Checks[0].Scope != "full" {
+	if err == nil || !strings.Contains(err.Error(), "outside selected Components") {
 		t.Fatalf("%+v %v", plan, err)
 	}
 	if _, err := repokit.PlanValidation(context.Background(), repokit.ValidationRequest{Repository: root, Components: []string{"missing"}}); err == nil {

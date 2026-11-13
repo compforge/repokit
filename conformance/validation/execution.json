@@ -162,7 +162,7 @@
     ]
   },
   {
-    "name": "root request dominates focused fallback",
+    "name": "inferred file owner falls back to root",
     "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
     "checks": [
       "test"
@@ -179,13 +179,14 @@
         {
           "component": ".",
           "check": "test",
-          "scope": "full",
+          "scope": "focused",
           "status": "passed",
           "requestedComponents": [
-            ".",
             "a"
           ],
-          "files": []
+          "files": [
+            "a/code.py"
+          ]
         }
       ]
     },
@@ -321,5 +322,358 @@
         }
       ]
     }
+  },
+  {
+    "name": "explicit root files exclude children",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "root_test.py"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": [
+            "root_test.py"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "explicit files select their owner",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": [
+            "test.py"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "explicit files partition candidates",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "b/test.py",
+      "a/test.py",
+      "a/test.py"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": [
+            "test.py"
+          ]
+        },
+        {
+          "component": "b",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "b"
+          ],
+          "files": [
+            "test.py"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "explicit boundary does not add unrelated checks",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py"
+    ],
+    "components": [
+      "a",
+      "b"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": [
+            "test.py"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "missing file widens only its owner",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/gone.py"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": "a",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "a"
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "file owner fallback merges at root",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py",
+      "b/test.py"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "focused",
+          "status": "passed",
+          "requestedComponents": [
+            "a",
+            "b"
+          ],
+          "files": [
+            "a/test.py",
+            "b/test.py"
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "name": "file outside explicit boundary",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py"
+    ],
+    "error": "outside selected Components",
+    "components": [
+      "b"
+    ]
+  },
+  {
+    "name": "empty explicit boundary rejects files",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py"
+    ],
+    "error": "outside selected Components",
+    "components": []
+  },
+  {
+    "name": "parent boundary does not include child owner",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/test.py"
+    ],
+    "error": "outside selected Components",
+    "components": [
+      "."
+    ]
+  },
+  {
+    "name": "unowned explicit file rejects request",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "unknown/test.py"
+    ],
+    "error": "has no Component owner",
+    "withoutRoot": true
+  },
+  {
+    "name": "unnormalized file rejects request",
+    "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {
+      "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n",
+      "a/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "a/test.py": "# a\n",
+      "b/pyproject.toml": "[project]\nname='b'\nversion='0.1.0'\n",
+      "b/Makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
+      "b/test.py": "# b\n",
+      "root_test.py": "# root\n"
+    },
+    "selected": [
+      "a/../root_test.py"
+    ],
+    "error": "normalized and repository-relative"
   }
 ]
