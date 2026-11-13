@@ -18,6 +18,7 @@ from .dependencies import DependencyPreparation as DependencyPreparation
 from .dependencies import dependency_witnesses as dependency_witnesses
 from .dependencies import inspect_dependencies as inspect_dependencies
 from .dependencies import prepare_dependencies as prepare_dependencies
+from .errors import RepoKitError as RepoKitError
 from .model import ComponentBinding as ComponentBinding
 from .model import Diagnostic as Diagnostic
 from .model import InspectReport as InspectReport

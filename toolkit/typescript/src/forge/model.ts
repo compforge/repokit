@@ -1,3 +1,4 @@
+import { RepoKitError } from "../errors.js";
 import type { RepositoryKey, RepositorySnapshot, PullRequestSnapshot, PullRequestKey, PullRequestState, PullRequestMergeReadiness } from "@compforge/harness-common";
 export type { PullRequestKey } from "@compforge/harness-common";
 
@@ -112,11 +113,18 @@ export interface ForgeReaderOptions {
   /** Maximum response body; default 4 MiB. */
   readonly maxResponseBytes?: number;
 }
-export class ForgeError extends Error {}
-export class ForgeCoverageError extends ForgeError {}
-export class ForgeAuthError extends ForgeError {}
-export class ForgeNotFound extends ForgeError {}
+export class ForgeError extends RepoKitError {
+  protected static readonly errorCode: string = "forge.request_failed";
+  constructor(message: string = "", options?: ErrorOptions) {
+    super(new.target.errorCode, message, options);
+    this.name = new.target.name;
+  }
+}
+export class ForgeCoverageError extends ForgeError { protected static readonly errorCode = "forge.coverage_incomplete"; }
+export class ForgeAuthError extends ForgeError { protected static readonly errorCode = "forge.authentication_required"; }
+export class ForgeNotFound extends ForgeError { protected static readonly errorCode = "forge.not_found"; }
 export class ForgeRateLimitError extends ForgeError {
+  protected static readonly errorCode = "forge.rate_limited";
   constructor(message: string, readonly retryAfterMs: number) { super(message); this.name = "ForgeRateLimitError"; }
 }
 export function isForgeRateLimitError(error: unknown): error is ForgeRateLimitError {

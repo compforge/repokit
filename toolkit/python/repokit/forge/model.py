@@ -10,6 +10,8 @@ from typing import Any, Generic, TypeVar
 
 from harness_common import Repository
 
+from ..errors import RepoKitError
+
 
 def parse_pr_number(s: str) -> int | None:
     """Extract a PR/MR number from a URL or a bare ref. Knows both forges' URL shapes
@@ -19,8 +21,15 @@ def parse_pr_number(s: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-class ForgeError(Exception):
+class ForgeError(RepoKitError):
     """Any forge transport/API failure."""
+
+    _error_code = "forge.request_failed"
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__(
+            self._error_code, message, uncertain=self._error_code == "forge.outcome_unknown"
+        )
 
 
 T = TypeVar("T")
@@ -37,19 +46,26 @@ class Page(Generic[T]):
 class ForgeOutcomeUnknown(ForgeError):
     """A request may have taken effect; inspect remote state before retrying."""
 
+    _error_code = "forge.outcome_unknown"
+
 
 class ForgeAuthError(ForgeError):
     """No usable token or insufficient permission (excluding rate limits)."""
+
+    _error_code = "forge.authentication_required"
 
 
 class ForgeRateLimited(ForgeError):
     """Requests must wait until retry_at (UTC epoch seconds); never an auth failure."""
 
+    retry_at: float
+    _error_code = "forge.rate_limited"
+
     def __init__(self, resource: str, retry_at: float, *, secondary: bool = False):
+        super().__init__(f"forge rate limited: resource={resource}, retry_at={retry_at:.0f}")
         self.resource = resource
         self.retry_at = retry_at
         self.secondary = secondary
-        super().__init__(f"forge rate limited: resource={resource}, retry_at={retry_at:.0f}")
 
     def __str__(self) -> str:
         return f"forge rate limited: resource={self.resource}, retry_at={self.retry_at:.0f}"
@@ -57,6 +73,8 @@ class ForgeRateLimited(ForgeError):
 
 class ForgeNotFound(ForgeError):
     """404 from the API."""
+
+    _error_code = "forge.not_found"
 
 
 @dataclass(frozen=True)

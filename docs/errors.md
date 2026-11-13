@@ -1,8 +1,22 @@
-# Go 错误契约
+# SDK 错误契约
 
 `toolkit/go/errs` 拥有公共 `Error` 类型及 JSON/text 表达。SDK 通过标准 `error` 返回它，
 CLI 直接将它放入结果的 `error` 字段，文本模式直接调用 `Text()`；不建立另一套错误 DTO。
 包本身不读取参数、不选择 stdout/stderr、不输出日志、不决定进程退出码或自动重试。
+
+TypeScript 和 Python 提供公共 `RepoKitError` 基类，沿用下述字段与 JSON/text 表达，
+三端由 `conformance/errors.json` 验证。TS 使用 `JSON.stringify(error)` / `error.text()`；
+Python 使用 `error.to_dict()` / `error.text()`，`str(error)` 与 Go `Error()` 一样返回 message。
+TS 的 cause 与 Python 的 `__cause__` 保留原始异常，均不进入 JSON 或格式化 text。
+Python 属性使用 `http_status` / `retry_at`，JSON 使用 `httpStatus` / `retryAt`；
+TS/Python 的 retryAt/retry_at 接受 RFC3339 字符串，保留源时间精度。
+
+TS `ValidationHistoryError` 继承 `RepoKitError`，可通过公共基类统一捕获，仍可识别具体领域类型。
+TS/Python 自定义领域异常统一继承 RepoKitError，保留具体领域类型与既有构造参数。
+Python ConfigError / ObservationStorageError 仍兼容 ValueError / OSError 捕获。
+API 直接传播的底层原生异常不在本轮做统一包装；这不是所有 API 只抛 RepoKitError 的保证。
+Python 未提供原生 validation history API。ForgeRateLimited 原有 retry_at epoch 秒值保持不变，
+在公共 JSON/text 中转为 RFC3339。
 
 ## 字段与表达
 

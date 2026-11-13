@@ -1,3 +1,4 @@
+import { RepoKitError } from "../errors.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -5,7 +6,9 @@ import { setTimeout as delay } from "node:timers/promises";
 import lockfile from "proper-lockfile";
 
 export const digest = (value: unknown): string => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-export class ObservationStorageError extends Error {}
+export class ObservationStorageError extends RepoKitError {
+  constructor(message: string = "", options?: ErrorOptions) { super("state.storage_failed", message, options); this.name = "ObservationStorageError"; }
+}
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 
 /** Local state only. Callers hold the record lock throughout read/refresh/write. */

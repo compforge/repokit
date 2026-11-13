@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+from ..errors import RepoKitError
 from ..git import operations as git
 from ..git import state as git_state
 from ..git.remote import parse_remote_url
@@ -50,8 +51,11 @@ class BranchObservation:
     source: str
 
 
-class _IncompleteObservation(OSError):
+class _IncompleteObservation(RepoKitError, OSError):
     """A rebuildable projection is incomplete; Git absence has not been established."""
+
+    def __init__(self, message: str = "") -> None:
+        super().__init__("state.incomplete", message)
 
 
 class RepositoryState:

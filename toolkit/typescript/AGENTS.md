@@ -27,3 +27,5 @@ Repository、PullRequest、Component、Product 复用 harness-common；业务决
 包版本由 package.json 独立维护；代码变化同时遵守仓库根 VERSION 约定。
 
 仓库操作契约见 [Git](../../docs/git.md) 与 [PR](../../docs/pr.md)。分析与写操作分别显式调用，不能让分析触发写入。
+
+公共结构化错误 `RepoKitError` 的字段、cause 与 JSON/text 表达见 [SDK 错误契约](../../docs/errors.md)。

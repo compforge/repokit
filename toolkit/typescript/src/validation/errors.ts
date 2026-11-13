@@ -1,10 +1,12 @@
+import { RepoKitError } from "../errors.js";
+
 /**
  * @spec History failures expose the same code, operation and subject as the Go API; cause is retained for diagnosis.
  * @see {@link component://docs/validation.md}
  */
-export class ValidationHistoryError extends Error {
-  constructor(readonly code: string, message: string, readonly op: string, readonly subject: string, cause?: unknown) {
-    super(message, {cause});
+export class ValidationHistoryError extends RepoKitError {
+  constructor(code: string, message: string, op: string, subject: string, cause?: unknown) {
+    super(code, message, {op, subject, cause});
     this.name = "ValidationHistoryError";
   }
 }

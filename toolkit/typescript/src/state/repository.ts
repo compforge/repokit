@@ -1,3 +1,4 @@
+import { RepoKitError } from "../errors.js";
 import { recordAccess } from "./activity.js";
 import { resolveHome } from "./home.js";
 import { realpathSync } from "node:fs";
@@ -24,7 +25,9 @@ function location(repo: string) {
   const forge = remote ? ({ "github.com":"github", "gitlab.com":"gitlab" }[remote.host] ?? remote.host) : "";
   return { info, key: remote ? repositoryKey(forge,remote.path) : localKey(info.commonDir), identity: remote ? {forge:{name:forge},path:remote.path} : {local:info.commonDir} };
 }
-class IncompleteObservation extends Error {}
+class IncompleteObservation extends RepoKitError {
+  constructor(message: string = "", options?: ErrorOptions) { super("state.incomplete", message, options); this.name = "IncompleteObservation"; }
+}
 /** Repository-local observations share storage with Forge facts and execution history.
  * @spec One clone never replaces another clone's branch heads or checkout records.
  * Persisted topology is not authority to mutate Git resources.
