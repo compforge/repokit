@@ -24,8 +24,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			if err := connection.Validate(opts); err != nil {
 				return err
 			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
-			defer cancel()
+			ctx := cmd.Context()
 			cwd, err := os.Getwd()
 			if err != nil {
 				return executionFailure(err)
@@ -34,7 +33,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				selected = opts.Repository
 			}
-			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
+			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, RepositoryTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
 				return connection.WorktreePullRequests(ctx, repo, opts.Home)
 			}})
 			if opts.JSON {
@@ -58,6 +57,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 			return nil
 		}}
+	command.Flags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "cleanup deadline per repository (shared by its clones and worktrees)")
 	command.Flags().BoolVar(&dry, "dry-run", false, "preview decisions without deleting resources")
 	command.Flags().IntVar(&days, "inactive-days", state.DefaultInactiveDays, "minimum days since repository state was accessed")
 	connection.Flags(command)

@@ -23,6 +23,8 @@ type CleanOptions struct {
 	InactiveDays     int
 	DryRun           bool
 	CurrentDirectory string
+	// RepositoryTimeout bounds each repository, including all its clones. Zero uses only the caller context.
+	RepositoryTimeout time.Duration
 	// PullRequests resolves the same live PR capability used by direct worktree cleanup.
 	PullRequests func(context.Context, string) (WorktreePullRequests, error)
 }
@@ -41,12 +43,16 @@ type CleanReport struct {
 
 // Clean applies repository worktree retention and reclaims expired repository state. Source repositories and branch refs are never deleted.
 // +spec=Dry-run shares eligibility and deletion protections with execution. Worktree cleanup uses CleanWorktrees and its repository policy. Cleanup never renews activity; missing repository activity sorts oldest. Worktree retention and errors do not prevent expired cache removal; checkout registration survives expiry, and access and writer protections still apply.
+// +spec=Each repository receives an independent timeout. Expiry retains partial results and continues to the next repository; caller cancellation stops the sweep.
 // +link=component://docs/cleanup.md
 func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err error) {
 	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.clean", options.Home) }()
 	report = CleanReport{DryRun: options.DryRun, Actions: []CleanAction{}, Errors: []string{}}
 	if options.InactiveDays < 1 || options.InactiveDays > 36500 {
 		return report, errors.New("inactive days must be between 1 and 36500")
+	}
+	if options.RepositoryTimeout < 0 {
+		return report, errors.New("repository timeout must not be negative")
 	}
 	report.Home, err = ResolveHome(options.Home)
 	if err != nil {
@@ -89,13 +95,6 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 	if e != nil {
 		return report, e
 	}
-	appendAction := func(key string, a WorktreeAction) {
-		report.Actions = append(report.Actions, CleanAction{key, a})
-		if a.Status == "completed" || a.Status == "planned" {
-			report.EstimatedBytes += a.EstimatedBytes
-		}
-		slog.InfoContext(ctx, "repository cleanup", "repository", key, "action", a.Action, "status", a.Status, "reason", a.Reason, "path", a.Path, "estimated_bytes", a.EstimatedBytes)
-	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return report, err
@@ -106,112 +105,29 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 		}
 		directory := filepath.Join(root, key)
 		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			appendAction(key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: "not_directory", Path: directory})
+			report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: "not_directory", Path: directory})
 			continue
 		}
-		// Snapshot discovery under the activity lease. Remote queries and worktree
-		// maintenance use their own repository lease and the caller's deadline.
-		locations := map[string]checkoutAccess{}
-		e := withActivity(ctx, directory, func(_ context.Context, lease *activityLease) error {
-			for key, access := range lease.record.Checkouts {
-				locations[key] = access
-			}
-			return nil
-		})
+		started := time.Now()
+		previousErrors := len(report.Errors)
+		repoCtx, cancel := context.WithCancel(ctx)
+		if options.RepositoryTimeout > 0 {
+			cancel()
+			repoCtx, cancel = context.WithTimeout(ctx, options.RepositoryTimeout)
+		}
+		slog.InfoContext(ctx, "repository cleanup started", "repository", key, "timeout", options.RepositoryTimeout)
+		e := report.cleanRepository(repoCtx, directory, options, protected)
+		if repoCtx.Err() != nil {
+			e = repoCtx.Err()
+		}
+		cancel()
 		if e != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", key, e))
-			appendAction(key, WorktreeAction{Action: "retain_repository", Status: "failed", Reason: e.Error(), Path: directory})
-			continue
+			report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "failed", Reason: e.Error(), Path: directory})
 		}
-		e = checkoutLocations(directory, locations)
-		if e == nil {
-			e = func() error {
-				clones := map[string]bool{}
-				paths := make([]string, 0, len(locations))
-				for key := range locations {
-					paths = append(paths, key)
-				}
-				sort.Strings(paths)
-				for _, checkout := range paths {
-					access := locations[checkout]
-					if clones[access.CommonDir] {
-						continue
-					}
-					_, e := os.Lstat(access.Path)
-					if errors.Is(e, os.ErrNotExist) {
-						continue
-					}
-					if e != nil {
-						return e
-					}
-					live, info, _, e := stateLocation(ctx, access.Path, report.Home)
-					if e != nil {
-						return e
-					}
-					if live != directory || info.CommonDir != access.CommonDir {
-						return fmt.Errorf("checkout identity changed: %s", access.Path)
-					}
-					topology, e := Checkout(ctx, access.Path)
-					if e != nil {
-						return e
-					}
-					control := access.Path
-					if topology.MainRoot != "" {
-						control = topology.MainRoot
-					}
-					clones[access.CommonDir] = true
-					request := WorktreeCleanOptions{Home: report.Home, DryRun: options.DryRun, ProtectedPaths: protected}
-					if options.PullRequests != nil {
-						request.PullRequests, e = options.PullRequests(ctx, control)
-						if e != nil {
-							report.Errors = append(report.Errors, fmt.Sprintf("%s: PR status unavailable: %v", control, e))
-						}
-					}
-					result, e := CleanWorktrees(ctx, control, request)
-					for _, a := range result.Actions {
-						appendAction(key, a)
-					}
-					if e != nil {
-						return e
-					}
-					report.Errors = append(report.Errors, result.Errors...)
-				}
-				return nil
-			}()
-		}
-		if e != nil {
-			report.Errors = append(report.Errors, fmt.Sprintf("%s: worktree discovery or cleanup: %v", key, e))
-		}
-		// Re-read access under a fresh lease: a foreground access during Git/PR
-		// maintenance must retain the cache. Worktree outcomes do not veto expiry.
-		e = withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
-			reason := ""
-			if lease.record.LastAccessAt >= float64(report.InactiveBefore.UnixNano())/1e9 {
-				reason = "recently_accessed"
-			}
-			if reason == "" {
-				// Protect active record writers, including those that started during
-				// remote maintenance. Cache mtime does not renew user access.
-				var e error
-				reason, e = stateProtection(ctx, directory)
-				if e != nil {
-					return e
-				}
-			}
-			if reason != "" {
-				appendAction(key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: reason, Path: directory, LastAccessAt: lease.record.LastAccessAt})
-				return nil
-			}
-			action, e := reclaimRepositoryState(ctx, lease, options.DryRun)
-			if e != nil {
-				return e
-			}
-			appendAction(key, action)
-			return nil
-		})
-		if e != nil {
-			report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", key, e))
-			appendAction(key, WorktreeAction{Action: "retain_repository", Status: "failed", Reason: e.Error(), Path: directory})
+		slog.InfoContext(ctx, "repository cleanup finished", "repository", key, "elapsed", time.Since(started), "errors", len(report.Errors)-previousErrors, "error", e)
+		if err := ctx.Err(); err != nil {
+			return report, err
 		}
 	}
 	return report, nil
@@ -294,4 +210,124 @@ func checkoutLocations(directory string, checkouts map[string]checkoutAccess) er
 		}
 	}
 	return nil
+}
+
+func (report *CleanReport) cleanRepository(ctx context.Context, directory string, options CleanOptions, protected []string) error {
+	key := filepath.Base(directory)
+	// Snapshot discovery under the activity lease. Remote queries and worktree
+	// maintenance use their own repository lease and the caller's deadline.
+	locations := map[string]checkoutAccess{}
+	e := withActivity(ctx, directory, func(_ context.Context, lease *activityLease) error {
+		for key, access := range lease.record.Checkouts {
+			locations[key] = access
+		}
+		return nil
+	})
+	if e != nil {
+		return e
+	}
+	e = checkoutLocations(directory, locations)
+	if e == nil {
+		e = func() error {
+			clones := map[string]bool{}
+			paths := make([]string, 0, len(locations))
+			for key := range locations {
+				paths = append(paths, key)
+			}
+			sort.Strings(paths)
+			for _, checkout := range paths {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				access := locations[checkout]
+				if clones[access.CommonDir] {
+					continue
+				}
+				_, e := os.Lstat(access.Path)
+				if errors.Is(e, os.ErrNotExist) {
+					continue
+				}
+				if e != nil {
+					return e
+				}
+				live, info, _, e := stateLocation(ctx, access.Path, report.Home)
+				if e != nil {
+					return e
+				}
+				if live != directory || info.CommonDir != access.CommonDir {
+					return fmt.Errorf("checkout identity changed: %s", access.Path)
+				}
+				topology, e := Checkout(ctx, access.Path)
+				if e != nil {
+					return e
+				}
+				control := access.Path
+				if topology.MainRoot != "" {
+					control = topology.MainRoot
+				}
+				clones[access.CommonDir] = true
+				request := WorktreeCleanOptions{Home: report.Home, DryRun: options.DryRun, ProtectedPaths: protected}
+				if options.PullRequests != nil {
+					request.PullRequests, e = options.PullRequests(ctx, control)
+					if ctx.Err() != nil {
+						return ctx.Err()
+					}
+					if e != nil {
+						report.Errors = append(report.Errors, fmt.Sprintf("%s: PR status unavailable: %v", control, e))
+					}
+				}
+				result, e := CleanWorktrees(ctx, control, request)
+				for _, a := range result.Actions {
+					report.appendAction(ctx, key, a)
+				}
+				report.Errors = append(report.Errors, result.Errors...)
+				if e != nil {
+					return e
+				}
+			}
+			return nil
+		}()
+	}
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if e != nil {
+		report.Errors = append(report.Errors, fmt.Sprintf("%s: worktree discovery or cleanup: %v", key, e))
+	}
+	// Re-read access under a fresh lease: a foreground access during Git/PR
+	// maintenance must retain the cache. Worktree outcomes do not veto expiry.
+	e = withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
+		reason := ""
+		if lease.record.LastAccessAt >= float64(report.InactiveBefore.UnixNano())/1e9 {
+			reason = "recently_accessed"
+		}
+		if reason == "" {
+			// Protect active record writers, including those that started during
+			// remote maintenance. Cache mtime does not renew user access.
+			var e error
+			reason, e = stateProtection(ctx, directory)
+			if e != nil {
+				return e
+			}
+		}
+		if reason != "" {
+			report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: reason, Path: directory, LastAccessAt: lease.record.LastAccessAt})
+			return nil
+		}
+		action, e := reclaimRepositoryState(ctx, lease, options.DryRun)
+		if e != nil {
+			return e
+		}
+		report.appendAction(ctx, key, action)
+		return nil
+	})
+	return e
+}
+
+func (report *CleanReport) appendAction(ctx context.Context, key string, a WorktreeAction) {
+	report.Actions = append(report.Actions, CleanAction{key, a})
+	if a.Status == "completed" || a.Status == "planned" {
+		report.EstimatedBytes += a.EstimatedBytes
+	}
+	slog.InfoContext(ctx, "repository cleanup", "repository", key, "action", a.Action, "status", a.Status, "reason", a.Reason, "path", a.Path, "estimated_bytes", a.EstimatedBytes)
 }

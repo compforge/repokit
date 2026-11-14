@@ -708,3 +708,96 @@ type cleanupUnavailablePR struct{}
 func (cleanupUnavailablePR) MergedPullRequest(context.Context, string, string) (int, error) {
 	return 0, errors.New("PR temporarily unavailable")
 }
+
+type cleanupPRFunc func(context.Context, string, string) (int, error)
+
+func (f cleanupPRFunc) MergedPullRequest(ctx context.Context, branch, sha string) (int, error) {
+	return f(ctx, branch, sha)
+}
+
+// +case=Cancellation during a PR lookup preserves earlier actions and does not query remaining worktrees.
+func TestCleanWorktreesStopsOnCancellation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	protected := create("a-protected", false)
+	create("b-pending", false)
+	create("c-untouched", false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{
+		Home: home, DryRun: true, ProtectedPaths: []string{protected},
+		PullRequests: cleanupPRFunc(func(context.Context, string, string) (int, error) {
+			calls++
+			cancel()
+			return 0, ctx.Err()
+		}),
+	})
+	if !errors.Is(err, context.Canceled) || calls != 1 || len(report.Errors) != 0 {
+		t.Fatal(report, err, calls)
+	}
+	if len(report.Actions) != 1 || report.Actions[0].Path != protected || report.Actions[0].Reason != "current_checkout" {
+		t.Fatal(report)
+	}
+}
+
+// +case=Caller cancellation during one repository stops the sweep rather than receiving a fresh budget for the next repository.
+func TestCleanCallerCancellationStopsSweep(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, _ := retentionFixture(t)
+	if _, err := Observe(context.Background(), root, home, false); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(home, "repositories", "zz-untouched"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, DryRun: true, RepositoryTimeout: time.Minute,
+		PullRequests: func(context.Context, string) (WorktreePullRequests, error) { cancel(); return nil, ctx.Err() },
+	})
+	if !errors.Is(err, context.Canceled) || len(report.Errors) != 1 {
+		t.Fatal(report, err)
+	}
+	for _, a := range report.Actions {
+		if a.Repository == "zz-untouched" {
+			t.Fatal("continued after caller cancellation", report)
+		}
+	}
+}
+
+// +case=An actual worktree deletion remains reported after cancellation in a later PR lookup.
+func TestCleanWorktreesPreservesCompletedRemovalOnCancellation(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	removed := create("a-completed", false)
+	retained := create("b-pending", false)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	calls := 0
+	report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{Home: home,
+		PullRequests: cleanupPRFunc(func(context.Context, string, string) (int, error) {
+			calls++
+			if calls <= 2 {
+				return 1, nil
+			}
+			cancel()
+			return 0, ctx.Err()
+		}),
+	})
+	if !errors.Is(err, context.Canceled) || calls != 3 || len(report.Errors) != 0 {
+		t.Fatal(report, err, calls)
+	}
+	if len(report.Actions) != 1 || report.Actions[0].Path != removed || report.Actions[0].Status != "completed" {
+		t.Fatal(report)
+	}
+	if _, err := os.Stat(removed); !os.IsNotExist(err) {
+		t.Fatal("first worktree not removed", err)
+	}
+	if _, err := os.Stat(retained); err != nil {
+		t.Fatal("later worktree changed", err)
+	}
+}

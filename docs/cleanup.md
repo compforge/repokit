@@ -12,7 +12,9 @@ repocli clean --home /path/to/repokit-home --inactive-days 90 --json
 
 不传 `--repo` 时覆盖所选 home 的已登记仓库；显式传入则只处理该 repository 身份，包含其记录的多个
 clone。home 沿用显式参数、`REPOKIT_HOME`、`~/.repokit` 的优先级。`--inactive-days` 范围为 1–36500；
-命令预算通过 `--timeout` 调整，取消或部分失败保留已经完成的动作。
+`--timeout` 默认 2 分钟，按 repository 独立计时；同一 repository 的多个 clone/worktree 及状态回收共用预算。
+单仓超时保留已完成动作、报告该仓失败并继续下一个仓库；用户取消或调用方 context 到期则停止整次扫描。
+Go `CleanOptions.RepositoryTimeout` 为 0 时仅受调用方 context 限制。
 
 ## 同一套 worktree 清理能力
 
