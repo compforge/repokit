@@ -15,8 +15,8 @@ import (
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
-// CheckInputDeclaration declares complete transitive inputs, independently of
-// affected-file selection. Nil Components/Paths conservatively uses the repository.
+// CheckInputDeclaration extends the owning Component inputs independently of
+// affected-file selection. Components and Paths add explicit cross-Component inputs.
 // Witnesses are caller-selected external/ignored receipt files, never their contents.
 // DisableReuse permits real checks in environments without trustworthy receipts.
 type CheckInputDeclaration struct {
@@ -87,27 +87,22 @@ func validateDeclaration(checkout string, layout project.Layout, component strin
 	return witnesses, nil
 }
 
+// +spec=Checks observe their owning Component plus explicit inputs; nested Components and shared files never imply environment dependencies.
+// +link=component://docs/validation.md
 func selectInputs(m inputManifest, layout project.Layout, component string, d CheckInputDeclaration) ([]string, string) {
-	all, selected := []string{}, []string{}
-	declared := d.Components != nil || d.Paths != nil
-	links := false
-	for path, entry := range m.Files {
-		all = append(all, path)
-		owner := layout.Owner(path)
+	selected := []string{}
+	for name := range m.Files {
+		owner := layout.Owner(name)
 		belongs := owner != nil && (owner.Root == component || slices.Contains(d.Components, owner.Root))
-		if declared && (belongs || slices.ContainsFunc(d.Paths, func(root string) bool { return root == "." || path == root || strings.HasPrefix(path, root+"/") })) {
-			selected = append(selected, path)
-			links = links || entry.Kind == "symlink"
+		if belongs || slices.ContainsFunc(d.Paths, func(root string) bool { return root == "." || name == root || strings.HasPrefix(name, root+"/") }) {
+			selected = append(selected, name)
 		}
 	}
-	reason := "declared Component and shared-path inputs"
-	if !declared || links {
-		selected = all
-		reason = "repository inputs: no complete declaration"
-		if links {
-			reason = "repository inputs: declared scope contains symlinks"
-		}
+	reason := "Component inputs"
+	if len(d.Components) > 0 || len(d.Paths) > 0 {
+		reason += "; explicit Component and shared-path inputs"
 	}
+
 	slices.Sort(selected)
 	return selected, reason
 }
@@ -180,33 +175,4 @@ func validationWitnessesMatch(plan ValidationPlan) bool {
 		}
 	}
 	return true
-}
-
-// Root fallback may cover nested Components excluded by a root-only declaration.
-// Bind it conservatively to the repository while retaining every source receipt
-// and reuse prohibition. Validate source declarations before widening the scope.
-func validationCheckInputs(captured *analysis.CapturedSnapshot, layout project.Layout, executor string, spec CheckSpec, inputs map[string]map[string]CheckInputDeclaration) (CheckInputDeclaration, error) {
-	declaration := inputs[executor][spec.Check]
-	fallback := false
-	for _, source := range spec.RequestedComponents {
-		if source == executor {
-			continue
-		}
-		fallback = true
-		sourceInputs := inputs[source][spec.Check]
-		if _, err := validateDeclaration(captured.Report.Checkout, layout, source, sourceInputs); err != nil {
-			return CheckInputDeclaration{}, fmt.Errorf("%s %s inputs: %w", source, spec.Check, err)
-		}
-		declaration.Witnesses = append(slices.Clone(declaration.Witnesses), sourceInputs.Witnesses...)
-		declaration.DisableReuse = declaration.DisableReuse || sourceInputs.DisableReuse
-	}
-	if fallback {
-		if _, err := validateDeclaration(captured.Report.Checkout, layout, executor, inputs[executor][spec.Check]); err != nil {
-			return CheckInputDeclaration{}, fmt.Errorf("%s %s inputs: %w", executor, spec.Check, err)
-		}
-		declaration.Components, declaration.Paths = nil, nil
-		slices.Sort(declaration.Witnesses)
-		declaration.Witnesses = slices.Compact(declaration.Witnesses)
-	}
-	return declaration, nil
 }

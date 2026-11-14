@@ -36,7 +36,7 @@ RepoKit 协调远端 Forge / Git remote、本地 Repository / Checkout 与 RepoK
 
 Forge、Repository、Component、Product 复用 quality-harness common 的中立身份；RepoKit 持有本次布局、
 文件归属与工具证据，不把 checkout 路径或调用方策略加入共享身份。语言、工具和目录是元数据，
-组件归属不证明依赖隔离，也不授权跳过验证。
+验证默认按 Component 自身输入与环境判定复用；项目通过显式输入声明表达跨组件依赖。
 
 Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查询起点；Testset 是独立发现的测试候选，
 只有其成员能成为测试推荐。Workset 是所选源码、测试及按需引用的辅助文件实际入图的集合；
@@ -52,7 +52,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | deadcode | 完整快照图提供引用证据；全仓或文件范围筛选候选，diff 前后节点作为入口追踪用途变化，区分本次变化和相关历史候选。分析规则与公开边界由消费者声明，结果不授权删除。 |
 | view | 捕获内容和布局，构建共享代码图；图、结构上下文和源码作为一个版本展示与刷新，不经过 impact 的候选裁剪。 |
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
-| format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
+| format / lint / test / validate | 仅匹配各 Component 本地 Makefile 的候选 target，缺失则跳过；显式 format 后重新规划检查。成功 Run 按组件及显式扩展输入复用，执行仍核对整轮一致性。 |
 | depot inspect / prepare | 按 Component 选择、按物理 Bin 聚合；只读观察或显式锁定安装，保留逐项结果和阶段耗时。validate 不触发安装。 |
 | worktree ensure | 按显式 repo、名称、分支和基线，在主 checkout 的 `.worktrees` 下创建或复用 checkout；核验身份、登记状态；显式 `--prepare` 组合依赖准备并保留逐阶段结果。 |
 | clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |

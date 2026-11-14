@@ -128,7 +128,7 @@
     ],
     "selected": [],
     "check": "test",
-    "scope": "unavailable",
+    "scope": "skipped",
     "command": []
   },
   {
@@ -177,7 +177,7 @@
     "files": [],
     "selected": [],
     "check": "test",
-    "scope": "unavailable",
+    "scope": "skipped",
     "command": []
   },
   {
@@ -186,7 +186,7 @@
     "files": [],
     "selected": [],
     "check": "test",
-    "scope": "unavailable",
+    "scope": "skipped",
     "command": []
   },
   {
@@ -199,7 +199,7 @@
       "a.py"
     ],
     "check": "test",
-    "scope": "unavailable",
+    "scope": "skipped",
     "command": []
   },
   {

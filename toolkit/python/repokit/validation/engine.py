@@ -120,7 +120,7 @@ def _environment_digest(values: tuple[tuple[str, str], ...]) -> str:
 
 
 def _files(
-    root: Path, component: str, source: str, layout: Layout, candidates: Sequence[str]
+    root: Path, component: str, layout: Layout, candidates: Sequence[str]
 ) -> tuple[str, ...]:
     files = set()
     for path in candidates:
@@ -128,7 +128,7 @@ def _files(
         if relative.is_absolute() or relative.as_posix() != path or ".." in relative.parts:
             raise ValueError("selected path is not normalized and repository-relative")
         binding = owner(layout, path)
-        if binding is None or binding.root != source:
+        if binding is None or binding.root != component:
             raise ValueError("selected path no longer belongs to Component")
         absolute = root / path
         if not absolute.is_file() or absolute.is_symlink():
@@ -165,35 +165,9 @@ def _impact_component(impact: Mapping[str, object], root: str) -> Mapping[str, o
 def _append_check(
     groups: dict[str, ComponentValidationPlan], executor: ComponentBinding, spec: CheckSpec
 ) -> None:
-    """Merge requests for one execution Component/check; full dominates focused.
-
-    +spec=Root fallback runs once, unions focused paths and preserves requesting Components.
-    +link=component://docs/validation.md
-    """
     group = groups.get(executor.root, ComponentValidationPlan(executor, ()))
-    checks = list(group.checks)
-    for index, previous in enumerate(checks):
-        if previous.check != spec.check:
-            continue
-        sources = tuple(sorted(set(previous.requested_components + spec.requested_components)))
-        merged = previous
-        if previous.scope == "skipped" or (spec.scope == "full" and previous.scope != "full"):
-            merged = spec
-        elif previous.scope == spec.scope == "focused":
-            files = tuple(sorted(set(previous.files + spec.files)))
-            command = list(previous.command)
-            variable = spec.check.upper() + "_FILES"
-            command[4 if spec.check == "lint" else 5] = variable + "=" + " ".join(files)
-            merged = replace(previous, files=files, command=tuple(command))
-        reason = merged.reason
-        if len(sources) > 1 and not reason.startswith("merged Component requests; "):
-            reason = "merged Component requests; " + reason
-        checks[index] = replace(merged, requested_components=sources, reason=reason)
-        break
-    else:
-        checks.append(spec)
     groups[executor.root] = ComponentValidationPlan(
-        executor, tuple(sorted(checks, key=lambda s: s.check))
+        executor, tuple(sorted((*group.checks, spec), key=lambda s: s.check))
     )
 
 
@@ -277,7 +251,6 @@ def plan_validation(
                 contracts[component.root] = MakeContract()
         return contracts[component.root]
 
-    root_component = next((c for c in layout.components if c.root == "."), None)
     for component in layout.components:
         if selected is not None and component.root not in selected:
             continue
@@ -314,32 +287,15 @@ def plan_validation(
                     group.get("affectedFiles" if check == "lint" else "testFiles")
                 )
                 reason = "affected Component; canonical full check"
-            executor, execution_contract = component, contract
             target = contract.target(check)
             missing_reason = f"Makefile does not declare a supported {check} target"
-            if (
-                not target
-                and component.root != "."
-                and root_component is not None
-                and not contract.problem
-            ):
-                root_contract = makefile(root_component)
-                target = root_contract.target(check)
-                if target:
-                    executor, execution_contract = root_component, root_contract
-                else:
-                    missing_reason = (
-                        f"Component and root Makefiles do not declare a supported {check} target"
-                    )
-                    if root_contract.problem:
-                        missing_reason = "root " + root_contract.problem
             if not target:
                 _append_check(
                     groups,
                     component,
                     CheckSpec(
                         check,
-                        "unavailable",
+                        "unavailable" if contract.problem else "skipped",
                         (),
                         (),
                         contract.problem or missing_reason,
@@ -352,8 +308,8 @@ def plan_validation(
             chosen: tuple[str, ...] = ()
             if candidates:
                 try:
-                    chosen = _files(root, executor.root, component.root, layout, candidates)
-                    if variable not in execution_contract.variables:
+                    chosen = _files(root, component.root, layout, candidates)
+                    if variable not in contract.variables:
                         raise ValueError(f"{variable} contract missing")
                 except ValueError as error:
                     chosen = ()
@@ -363,11 +319,9 @@ def plan_validation(
             args = ["make", "-f", "Makefile", target, "LINT_FILES=", "TEST_FILES="]
             if scope == "focused":
                 args[4 if check == "lint" else 5] = variable + "=" + " ".join(chosen)
-            if executor.root != component.root:
-                reason = "fallback to root; " + reason
             _append_check(
                 groups,
-                executor,
+                component,
                 CheckSpec(
                     check, scope, tuple(args), chosen, reason, environment_digest, (component.root,)
                 ),

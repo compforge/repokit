@@ -24,8 +24,6 @@ import (
 
 const receiptName = depotdata.ReceiptName
 
-var nodeLocks = map[string][]string{"npm": {"npm-shrinkwrap.json", "package-lock.json"}, "pnpm": {"pnpm-lock.yaml"}, "yarn": {"yarn.lock"}, "bun": {"bun.lock", "bun.lockb"}}
-
 func problem(code, message string) *errs.Error {
 	return &errs.Error{Code: "depot." + code, Message: message}
 }
@@ -214,7 +212,7 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 			return nil
 		}
 	}
-	inputs, err := project.DependencyManifests(files, bin.Root, python)
+	inputs, err := project.DependencyInputs(files, bin.Root, python)
 	if err != nil {
 		return err
 	}
@@ -229,20 +227,19 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 	for _, name := range inputs {
 		if _, exists, e := add(name); e != nil {
 			return e
-		} else if !exists {
+		} else if !exists && (path.Base(name) == "pyproject.toml" || path.Base(name) == "package.json") {
 			return problem("inputs_changed", "manifest disappeared: "+name)
 		}
 	}
 	if python {
 		bin.Manager = "uv"
-		_, exists, e := add(path.Join(bin.Root, "uv.lock"))
-		if e != nil {
-			return e
-		}
-		if exists {
+		if _, exists := contents[path.Join(bin.Root, "uv.lock")]; exists {
 			bin.Command = []string{"uv", "sync", "--locked"}
-			if len(inputs) > 1 {
-				bin.Command = append(bin.Command, "--all-packages")
+			for _, name := range inputs {
+				if path.Base(name) == "pyproject.toml" && path.Dir(name) != bin.Root {
+					bin.Command = append(bin.Command, "--all-packages")
+					break
+				}
 			}
 		}
 	} else {
@@ -255,12 +252,9 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 		bin.Manager, _, _ = strings.Cut(meta.PackageManager, "@")
 		candidates := []string{}
 		locks := map[string][]byte{}
-		for manager, names := range nodeLocks {
+		for manager, names := range project.NodeLockfiles() {
 			for _, name := range names {
-				data, exists, e := add(path.Join(bin.Root, name))
-				if e != nil {
-					return e
-				}
+				data, exists := contents[path.Join(bin.Root, name)]
 				if exists {
 					if _, ok := locks[manager]; !ok {
 						candidates = append(candidates, manager)
@@ -292,11 +286,6 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 				}
 				bin.Command = []string{"yarn", "install", flag}
 			}
-		}
-	}
-	for _, name := range []string{"pnpm-workspace.yaml", ".npmrc", ".yarnrc.yml", "bunfig.toml", "uv.toml"} {
-		if _, _, err := add(path.Join(bin.Root, name)); err != nil {
-			return err
 		}
 	}
 	absoluteRoot, err := checkedPath(checkout, bin.Root)

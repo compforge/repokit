@@ -101,7 +101,7 @@ runner 分解的部分仍包含在 check 的总耗时内，不以相减方式伪
 事件格式以 [Go test2json 契约](https://pkg.go.dev/cmd/test2json) 为准。
 
 `validate --check format,lint,test` 显式先运行 format，再重新分析和规划 lint/test。缺少可选 format 不阻止后续检查；
-format 失败或中断时不启动检查。独立 `format` 缺少目标时返回 unavailable。验证不隐式安装依赖。
+format 失败或中断时不启动检查。独立 `format` 缺少目标时也返回 skipped。验证不隐式安装依赖。
 
 ## 实现归属
 
@@ -112,7 +112,7 @@ Go 根包 `validation.go` 提供公共类型与入口，`internal/validation` �
 ## 模型与流程
 
 `ValidationPlan` 按实际执行的 Component 分组，每组包含若干 `CheckSpec`。每项 `requestedComponents`
-保存产生该请求的 Component 根路径，排序去重；`component.root` 是执行目录。每项固定检查种类、命令、文件、
+保存当前 Component 的单个根路径；`component.root` 是同一组件的执行目录。每项固定检查种类、命令、文件、
 范围、选择原因和执行环境摘要；整个计划绑定工作区内容快照。Go 计划可输出 JSON 供审阅，
 但序列化输出不包含环境值，也不能反序列化后直接执行。计划只在创建它的进程中执行。
 
@@ -125,7 +125,8 @@ Go 根包 `validation.go` 提供公共类型与入口，`internal/validation` �
 - 单个检查 passed 不等于整轮输入有效。只有 inputsConsistent 为 true 才能复用该检查。
   另一项 unavailable 或 failed 不会抹掉这个已完成检查的成功事实。
 - `preparation` 单独记录 format；format-only 报告没有检查结果，inputsConsistent 为 false，不授予验证证据。
-- 没有选中任何检查时报告空结果；它不证明整个仓库已经验证。
+- 没有选中任何检查时报告空结果；全部跳过时 CLI 明确显示 `No checks executed`。
+  skipped 表示没有执行，不作为成功 Run 或复用证据；汇总 passed 表示没有失败项，不证明已运行检查。
 
 Go 提供 `PlanValidation`、`ExecuteValidation`、`Validate`、`Format`、`Lint`、`Test`。
 Python 原生 API 为 `plan_validation`、`execute_validation`、`validate`、`lint`、`test`，
@@ -156,7 +157,7 @@ TypeScript 提供 `listValidationRuns({repository, home?, checkout?, component?,
 列表与明细均不判定当前代码已通过；input snapshot 只可用于源码比较，环境、工具链和外部输入仍由 validation 判定复用。
 Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最多 2 秒；
 无效语法和未完成解析报告 unavailable，不触发根入口回退。解析不执行 Make 或展开 includes。
-共有执行语义包括 Component 选择、根入口回退与去重、文件范围、冻结环境和结果判定：
+共有执行语义包括 Component 选择、组件内 target 候选匹配、缺失 target 跳过、文件范围、冻结环境和结果判定：
 `complete` 表示选中检查的终态已知（包括 unavailable），`inputsConsistent` / `inputs_consistent`
 独立表示输入未变；输入变化使 passed 为 false，但不抹掉已经完成的单项检查。
 `conformance/validation/cases.json` 与 `execution.json` 由 Go/Python 分别执行，配置和 home 语料由三语言共享。
@@ -172,17 +173,18 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 父组件不隐含包含嵌套组件。显式空边界与非空文件列表冲突；无法确定归属或路径不规范也在执行前报错。
 文件缺失但当前布局仍能确定归属时，只在该组件内回退全量，并在 reason 中说明缺失。
 
-`--component` 限定请求来源，不禁止为缺失入口回退到 root；即使未显式选择 root，也可在那里执行回退检查。
-Go/Python 对每个所选或受影响 Component 的 lint/test 分别选择入口：本地存在对应 target 就使用本地；
-否则直接回退到根 Component（`.`），不逐级寻找父 Component。根也没有对应 target 时记为 unavailable。
-不为不存在的根 Component 伪造执行对象。无关的 skipped 请求不触发回退；Makefile 无法安全读取或解析时
-保留错误，不把它解释为没有目标；已声明目标执行失败时不再回退。format 只使用自身入口，不参与回退。
+每个 Component 独立验证，Makefile 是唯一执行契约。按顺序选取当前组件内第一个存在的候选 target：
 
-规划器按实际执行 Component/check 去重；合并定向文件并转换成执行目录的相对路径，全量请求优先于定向请求。
-原始 ImpactReport 不改写，requestedComponents 记录来源，报告 components 按执行位置组织。
-没有文件过滤契约、安全路径无法表达或归属变化时仍使用全量检查。Makefile recipe 是不透明的；
-同时声明了父子入口就分别运行，不通过解析 recipe 推断覆盖关系。只为转发到 root 而声明的 target 可由项目移除，
-让缺失入口自然回退。Go 与 Python 原生规划共同遵循该选择与回退契约。
+| 检查 | 候选顺序 |
+|---|---|
+| format | `format` → `fmt` → `fix` |
+| lint | `lint-ci` → `lint` |
+| test | `test` → `test-ci` → `test-local` |
+
+没有候选 target（包括没有 Makefile）时记为 skipped，不回退到根组件，也不选择语言工具命令。
+未执行的检查不采集源码或依赖回执作为执行证据。
+已选 target 失败即报告失败，不再尝试其他候选。无法解析或不安全的 Makefile 仍报告错误，不视为缺失。
+跨组件检查由项目 Makefile 显式编排；repocli 不推断 recipe 覆盖关系、不补测、不增加其他组件。
 
 调用方可提供当前工作区的 `ImpactReport`。规划器核对 checkout、input 和 snapshot，拒绝把旧报告、
 index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中出现 source/test/config/manifest/lockfile
@@ -203,11 +205,11 @@ Component 相对路径并去重排序。包含空格、shell/Make 元字符或�
 复用缓存，也不传入历史报告。`lint` / `test` 使用同一验证入口；format 不提供可复用检查证据。
 
 Check 表达本次任务；Run 表达真实执行；Reuse 表达本次请求采用某个成功 Run。每轮捕获一份完整输入清单，
-每个文件只计算一次内容摘要，各 Check 记录自己的输入路径集合。没有完整输入声明时采用整仓输入。
+每个文件只计算一次内容摘要，各 Check 默认记录自身 Component 的输入路径集合，独立嵌套组件的文件不纳入。
 不再生成每个 Check 的总 fingerprint；原 Previous API、fingerprint 字段和 `--reuse` 参数移除，旧报告不能
 提供复用证据。完整 snapshot 仍用于规划和执行前后的一致性核对。
 
-复用只忽略 CodeGraph 分类为 VersionTag 的 Document，包括显式声明和 root 回退输入，不提供例外配置。
+复用只忽略 CodeGraph 分类为 VersionTag 的 Document，包括显式声明的输入，不提供例外配置。
 新增、删除和内容变化均按两轮路径集合比较；执行范围仍由 affected 规则决定，未命中历史不会扩大 scope。
 版本文件在规划后或执行期间变化仍使本轮输入一致性失效。
 
@@ -217,14 +219,23 @@ Check 表达本次任务；Run 表达真实执行；Reuse 表达本次请求采�
 {"apps/api":{"test":{"components":["packages/core"],"paths":["fixtures"],"witnesses":[".venv/.repokit-dependencies.json"]}}}
 ```
 
-components/paths 声明完整传递输入，自身 Component 自动纳入，嵌套 Component 按最具体归属划分。
-paths 是仓库相对的字面文件或目录，不展开 glob；非法声明报错。缺少声明或选中符号链接时使用整仓身份，
-原因在 inputReason 中显示。回退到 root 的检查保守使用整仓输入，不套用 root 的局部输入声明；
-相关 Component 的声明仍被校验，依赖回执取并集，任一 disableReuse 均生效。witnesses 是显式给出的依赖回执文件，
-报告只保存路径和摘要；规划和执行边界均核对。
-没有可信依赖凭据的调用方可设置 disableReuse，真实检查仍执行。声明不自动证明依赖闭包，外部服务结果不在摘要中。
+components/paths 在自身 Component 之外添加项目显式声明的输入，嵌套 Component 按最具体归属划分。
+components 同时纳入该组件源码及其依赖 Bin；paths 仅添加仓库相对的字面文件或目录，不展开 glob，
+也不因文件归属额外引入该组件的环境。非法声明报错。未声明额外输入时以当前 Component 为边界；
+跨组件源码、共享 fixture、配置和脚本由项目负责声明，不根据测试覆盖或 recipe 猜测依赖。
 
-验证器先匹配同一 checkout、Component/check、命令、scope、文件集合、输入声明、逐文件内容、
+依赖环境只来自当前组件和显式声明的 components，复用既有 workspace/Bin 识别。
+共享 Bin 纳入安装根的 manifests、lockfile 和安装配置；不会因此纳入安装根下全部成员源码。
+输出和缓存不参与输入，缺失或无回执的相关依赖 Bin 仍阻止历史复用。inputReason 解释输入来源。
+
+witnesses 是显式给出的依赖回执文件，报告只保存路径和摘要；规划和执行边界均核对。
+没有可信依赖凭据的调用方可设置 disableReuse，真实检查仍执行。选中符号链接不会扩大到全仓输入；
+因目标内容未捕获而不复用历史，并在 reuseReason 中说明。声明不自动证明依赖闭包，外部服务结果不在摘要中。
+
+CheckSpec 的 inputVersion 标识输入契约，当前为 2；不同契约的历史检查不参与复用。
+完整 snapshot 继续用于整轮执行前后的一致性核对，Component 复用范围不改变这项约束。
+
+验证器先匹配同一输入契约版本、checkout、Component/check、命令、scope、文件集合、输入声明、逐文件内容、
 实际执行环境和依赖凭据，再取最近完成的相同 Run；先后以 finished 事件的写入顺序为准，复用事件不改变顺序。
 该 Run 成功且输入一致才可复用，否则重新执行，不跳过同一输入下的新失败去找旧成功。
 不相同的 Run 不影响彼此的复用资格，例如 A 成功、B 失败之后，检查 A 仍可复用，检查 B 必须执行。
@@ -234,7 +245,7 @@ paths 是仓库相对的字面文件或目录，不展开 glob；非法声明报
 复用结果保留原 `runID`、`checkedAt`、输出和 `durationSeconds`；`requestedAt` 与 `lookupSeconds` 描述本次请求。
 `inputID` 关联本轮输入清单，`reuseReason` 解释复用或执行原因。报告的完整 snapshot 始终属于本轮。
 没有精确匹配时，`reuseReason` 报告同一 checkout、Component/check 最近完成候选的首个差异：
-命令/scope/文件集合、输入声明、依赖凭据、执行环境或输入内容。它不是全部差异清单；
+输入契约版本、命令/scope/文件集合、输入声明、依赖凭据、执行环境或输入内容。它不是全部差异清单；
 较新候选不匹配时仍继续查找更早的精确匹配，不改变最近匹配 Run 的成功/失败判定。
 
 ### 执行历史
@@ -432,10 +443,9 @@ reuse 只计算本次查询成本，不重复计算历史执行时长；并发�
 Go/Python 共用 `conformance/validation/cases.json`，并分别通过真实 Make 进程验证内容变动、
 环境冻结、失败、超时和子进程清理。CLI 测试通过公共 API 验证入口组合与退出码。
 
-## format 命名迁移
+## format API 与 target
 
-自 0.46.0 起，原 Go `Fix` API、CLI `fix` / `--check fix` 和 Makefile `fix` target
-统一改为 `Format` / `format`；调用方与项目 Makefile 需同步更新，不自动调用旧 `fix` target。
+Go API 与 CLI 使用 `Format` / `format`；`fmt` 和 `fix` 仅作为 Makefile target 的候选别名。
 format 使用既有 `LINT_FILES` 文件选择契约；完成后重新规划 lint/test，二者可并行执行。
 Python 原生验证 API 仍只提供 lint/test。
 
@@ -445,7 +455,7 @@ Python 原生验证 API 仍只提供 lint/test。
 `decode_validation_report(payload, checkout=..., checks=("lint", "test"))` 解码并核对 Go CLI 的
 ValidationReport wire schema；传入 CLI stdout 或导出文件中结果对象的 `data`。
 协议版本、checkout、Component 路径、结果字段与 requestedComponents
-覆盖均由工具包验证；允许真实失败结果与 root fallback 分组，拒绝重复、缺失 check、空 Component 分组
+覆盖均由工具包验证；保留真实失败结果，拒绝重复、缺失 check、空 Component 分组
 以及与结果矛盾的汇总状态。无选中任务时允许空 components；执行前输入变化导致的空结果保留为未完成报告，
 format 提前终止的报告不冒充 lint/test 证据。
 覆盖校验基于报告声明的 requestedComponents，不自行重新推断调用方的任务选择。

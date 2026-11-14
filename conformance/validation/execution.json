@@ -50,7 +50,7 @@
     }
   },
   {
-    "name": "unavailable is terminal",
+    "name": "absent target skips",
     "makefile": "other:\n\t@true\n",
     "checks": [
       "test"
@@ -58,21 +58,24 @@
     "files": {},
     "expected": {
       "complete": true,
-      "passed": false,
+      "passed": true,
       "inputsConsistent": true,
       "checks": [
         {
           "component": ".",
           "check": "test",
-          "scope": "unavailable",
-          "status": "unavailable",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
             "."
           ],
           "files": []
         }
       ]
-    }
+    },
+    "absent": [
+      "runs.out"
+    ]
   },
   {
     "name": "content changed during execution",
@@ -129,7 +132,7 @@
     "components": []
   },
   {
-    "name": "root fallback deduplicates",
+    "name": "missing local targets never run root",
     "makefile": "test:\n\t@echo run >> runs.out\n",
     "checks": [
       "test"
@@ -144,12 +147,21 @@
       "inputsConsistent": true,
       "checks": [
         {
-          "component": ".",
+          "component": "a",
           "check": "test",
-          "scope": "full",
-          "status": "passed",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
-            "a",
+            "a"
+          ],
+          "files": []
+        },
+        {
+          "component": "b",
+          "check": "test",
+          "scope": "skipped",
+          "status": "skipped",
+          "requestedComponents": [
             "b"
           ],
           "files": []
@@ -159,10 +171,13 @@
     "components": [
       "b",
       "a"
+    ],
+    "absent": [
+      "runs.out"
     ]
   },
   {
-    "name": "inferred file owner falls back to root",
+    "name": "inferred file owner skips missing target",
     "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
     "checks": [
       "test"
@@ -177,25 +192,26 @@
       "inputsConsistent": true,
       "checks": [
         {
-          "component": ".",
+          "component": "a",
           "check": "test",
-          "scope": "focused",
-          "status": "passed",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
             "a"
           ],
-          "files": [
-            "a/code.py"
-          ]
+          "files": []
         }
       ]
     },
     "selected": [
       "a/code.py"
+    ],
+    "absent": [
+      "runs.out"
     ]
   },
   {
-    "name": "focused fallback keeps root relative paths",
+    "name": "explicit file owner skips missing target",
     "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
     "checks": [
       "test"
@@ -210,16 +226,14 @@
       "inputsConsistent": true,
       "checks": [
         {
-          "component": ".",
+          "component": "a",
           "check": "test",
-          "scope": "focused",
-          "status": "passed",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
             "a"
           ],
-          "files": [
-            "a/code.py"
-          ]
+          "files": []
         }
       ]
     },
@@ -228,6 +242,9 @@
     ],
     "selected": [
       "a/code.py"
+    ],
+    "absent": [
+      "runs.out"
     ]
   },
   {
@@ -293,7 +310,7 @@
     }
   },
   {
-    "name": "invalid root fallback preserves diagnostic",
+    "name": "unselected invalid root does not affect child",
     "makefile": "test:\n broken syntax\n",
     "checks": [
       "test"
@@ -304,24 +321,26 @@
     "files": {
       "a/pyproject.toml": "[project]\nname='a'\nversion='0.1.0'\n"
     },
-    "reason": "root Makefile contains unsupported or invalid syntax",
     "expected": {
       "complete": true,
-      "passed": false,
+      "passed": true,
       "inputsConsistent": true,
       "checks": [
         {
           "component": "a",
           "check": "test",
-          "scope": "unavailable",
-          "status": "unavailable",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
             "a"
           ],
           "files": []
         }
       ]
-    }
+    },
+    "absent": [
+      "runs.out"
+    ]
   },
   {
     "name": "explicit root files exclude children",
@@ -530,7 +549,7 @@
     }
   },
   {
-    "name": "file owner fallback merges at root",
+    "name": "file owners remain independent without targets",
     "makefile": "test:\n\t@echo $(TEST_FILES) >> runs.out\n",
     "checks": [
       "test"
@@ -552,21 +571,30 @@
       "inputsConsistent": true,
       "checks": [
         {
-          "component": ".",
+          "component": "a",
           "check": "test",
-          "scope": "focused",
-          "status": "passed",
+          "scope": "skipped",
+          "status": "skipped",
           "requestedComponents": [
-            "a",
+            "a"
+          ],
+          "files": []
+        },
+        {
+          "component": "b",
+          "check": "test",
+          "scope": "skipped",
+          "status": "skipped",
+          "requestedComponents": [
             "b"
           ],
-          "files": [
-            "a/test.py",
-            "b/test.py"
-          ]
+          "files": []
         }
       ]
-    }
+    },
+    "absent": [
+      "runs.out"
+    ]
   },
   {
     "name": "file outside explicit boundary",
@@ -675,5 +703,201 @@
       "a/../root_test.py"
     ],
     "error": "normalized and repository-relative"
+  },
+  {
+    "name": "test candidate test",
+    "makefile": "test-local:\n\t@echo test-local >> runs.out\ntest-ci:\n\t@echo test-ci >> runs.out\ntest:\n\t@echo test >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "outputs": {
+      "runs.out": "test\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "test candidate test-ci",
+    "makefile": "test-local:\n\t@echo test-local >> runs.out\ntest-ci:\n\t@echo test-ci >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "outputs": {
+      "runs.out": "test-ci\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "test candidate test-local",
+    "makefile": "test-local:\n\t@echo test-local >> runs.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "outputs": {
+      "runs.out": "test-local\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "failed test never tries another candidate",
+    "makefile": "test:\n\t@false\ntest-ci:\n\t@touch unexpected.out\ntest-local:\n\t@touch unexpected.out\n",
+    "checks": [
+      "test"
+    ],
+    "files": {},
+    "absent": [
+      "unexpected.out"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "test",
+          "scope": "full",
+          "status": "failed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "lint candidate lint-ci",
+    "makefile": "lint:\n\t@echo lint >> runs.out\nlint-ci:\n\t@echo lint-ci >> runs.out\n",
+    "checks": [
+      "lint"
+    ],
+    "files": {},
+    "outputs": {
+      "runs.out": "lint-ci\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "lint",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "lint candidate lint",
+    "makefile": "lint:\n\t@echo lint >> runs.out\n",
+    "checks": [
+      "lint"
+    ],
+    "files": {},
+    "outputs": {
+      "runs.out": "lint\n"
+    },
+    "expected": {
+      "complete": true,
+      "passed": true,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "lint",
+          "scope": "full",
+          "status": "passed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "failed lint never tries another candidate",
+    "makefile": "lint-ci:\n\t@false\nlint:\n\t@touch unexpected.out\n",
+    "checks": [
+      "lint"
+    ],
+    "files": {},
+    "absent": [
+      "unexpected.out"
+    ],
+    "expected": {
+      "complete": true,
+      "passed": false,
+      "inputsConsistent": true,
+      "checks": [
+        {
+          "component": ".",
+          "check": "lint",
+          "scope": "full",
+          "status": "failed",
+          "requestedComponents": [
+            "."
+          ],
+          "files": []
+        }
+      ]
+    }
   }
 ]

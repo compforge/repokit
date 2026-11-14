@@ -141,7 +141,7 @@ func TestValidationCLIFormatCompositionAndReuseReport(t *testing.T) {
 	}
 }
 
-func TestValidationCLIRootFallbackDeduplicatesExplicitComponents(t *testing.T) {
+func TestValidationCLIMissingTargetsSkipExplicitComponents(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
 	if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
@@ -162,16 +162,16 @@ func TestValidationCLIRootFallbackDeduplicatesExplicitComponents(t *testing.T) {
 	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
 		t.Fatal(err)
 	}
-	if !report.Passed || len(report.Components) != 1 || report.Components[0].Component.Root != "." || len(report.Components[0].Checks) != 1 {
+	if !report.Passed || len(report.Components) != 2 || !strings.Contains(out.String(), "No checks executed; 2 skipped") {
 		t.Fatalf("%s", &out)
 	}
-	sources := report.Components[0].Checks[0].RequestedComponents
-	if len(sources) != 2 || sources[0] != "a" || sources[1] != "b" {
-		t.Fatalf("%v", sources)
+	for _, group := range report.Components {
+		if group.Component.Root == "." || len(group.Checks) != 1 || group.Checks[0].Status != "skipped" || group.Checks[0].Witnesses == nil {
+			t.Fatal(group)
+		}
 	}
-	runs, err := os.ReadFile(filepath.Join(root, "runs.out"))
-	if err != nil || string(runs) != "run\n" {
-		t.Fatalf("runs=%q %v", runs, err)
+	if _, err := os.Stat(filepath.Join(root, "runs.out")); !os.IsNotExist(err) {
+		t.Fatal("root executed", err)
 	}
 }
 

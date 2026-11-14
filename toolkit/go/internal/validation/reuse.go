@@ -94,6 +94,8 @@ func (s *historySession) candidate(root string, spec CheckSpec) (*history.Run, *
 		}
 		var mismatch string
 		switch {
+		case result.InputVersion != spec.InputVersion:
+			mismatch = "check input contract changed"
 		case result.Scope != spec.Scope || !slices.Equal(result.Command, spec.Command) || !slices.Equal(result.Files, spec.Files):
 			mismatch = "check command, scope or files changed"
 		case !slices.Equal(result.Inputs.Components, spec.Inputs.Components) || !slices.Equal(result.Inputs.Paths, spec.Inputs.Paths):
@@ -139,6 +141,11 @@ func (s *historySession) reuse(ctx context.Context, root string, spec CheckSpec)
 	}
 	if !depotReusable(spec.DepotWitnesses) {
 		return nil, "dependency Bin evidence unavailable"
+	}
+	for _, name := range spec.InputFiles {
+		if entry := s.manifest.Files[name]; entry.Kind == "symlink" {
+			return nil, "symlink input content is not captured"
+		}
 	}
 	if spec.Inputs.DisableReuse {
 		return nil, "reuse disabled by caller"

@@ -140,7 +140,7 @@ func TestValidationFailureAndMissingTarget(t *testing.T) {
 		t.Fatalf("%+v %v", report, err)
 	}
 	checks := report.Components[0].Checks
-	if checks[0].Status != "failed" || !strings.Contains(checks[0].Stderr, "failure") || checks[1].Status != "unavailable" {
+	if checks[0].Status != "failed" || !strings.Contains(checks[0].Stderr, "failure") || checks[1].Status != "skipped" {
 		t.Fatalf("%+v", checks)
 	}
 }

@@ -65,6 +65,9 @@ func Describe(v repokit.ValidationReport) Presentation {
 		}
 	}
 	r.Summary = fmt.Sprintf("Validation passed=%t complete=%t inputsConsistent=%t; %d executed, %d reused, %d skipped, %d unsuccessful", v.Passed, v.Complete, v.InputsConsistent, executed, reused, skipped, failed)
+	if executed == 0 && reused == 0 && failed == 0 {
+		r.Summary = fmt.Sprintf("No checks executed; %d skipped", skipped)
+	}
 	if !v.Passed || !v.Complete || (!v.InputsConsistent && len(v.Components) > 0) {
 		r.Outcome = "failed"
 		if passed > 0 {

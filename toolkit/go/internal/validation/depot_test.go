@@ -70,16 +70,30 @@ func TestValidationSharedDepotAndFrozenPlan(t *testing.T) {
 	writeValidationFile(t, root, ".gitignore", "node_modules/\n*.out\n")
 	writeValidationFile(t, root, "packages/app/package.json", `{}`)
 	writeValidationFile(t, root, "packages/app/Makefile", "test:\n\t@echo run >> runs.out\n")
+	writeValidationFile(t, root, "packages/other/package.json", `{}`)
+	writeValidationFile(t, root, "packages/other/code.js", "original")
 	writeValidationFile(t, root, "node_modules/.repokit-dependencies.json", `{"manager":"npm","fingerprint":"fixture"}`)
-	req := repokit.ValidationRequest{Repository: root, Components: []string{"packages/app"}, Checks: []string{"test"}, HistoryDir: t.TempDir(), Inputs: map[string]map[string]repokit.CheckInputDeclaration{"packages/app": {"test": {Components: []string{"packages/app"}}}}}
+	req := repokit.ValidationRequest{Repository: root, Components: []string{"packages/app"}, Checks: []string{"test"}, HistoryDir: t.TempDir()}
 	for i := 0; i < 2; i++ {
 		report, err := repokit.Validate(context.Background(), req)
 		if err != nil || !report.Passed || report.Components[0].Checks[0].Reused != (i == 1) {
 			t.Fatalf("%+v %v", report, err)
 		}
 	}
-	writeValidationFile(t, root, "package-lock.json", "two")
+	writeValidationFile(t, root, "packages/other/code.js", "unrelated source changed")
 	report, err := repokit.Validate(context.Background(), req)
+	if err != nil || !report.Passed || !report.Components[0].Checks[0].Reused {
+		t.Fatalf("shared Bin included unrelated source: %+v %v", report, err)
+	}
+	for _, name := range []string{"packages/other/package.json", ".npmrc"} {
+		writeValidationFile(t, root, name, `{"name":"changed"}`)
+		report, err = repokit.Validate(context.Background(), req)
+		if err != nil || !report.Passed || report.Components[0].Checks[0].Reused {
+			t.Fatalf("installation input %s did not invalidate: %+v %v", name, report, err)
+		}
+	}
+	writeValidationFile(t, root, "package-lock.json", "two")
+	report, err = repokit.Validate(context.Background(), req)
 	if err != nil || !report.Passed || report.Components[0].Checks[0].Reused {
 		t.Fatalf("shared lock edit reused: %+v %v", report, err)
 	}

@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
-	"strings"
 	"testing"
 
 	repokit "github.com/compforge/repokit/toolkit/go"
@@ -13,31 +12,19 @@ import (
 
 // +case:id=version_independent_check_reuse,desc=`Version Documents change between validation rounds`,expect=`Checks reuse without execution; full snapshots change and selected files remain identical`
 func TestValidationVersionDocumentsDoNotInvalidateChecks(t *testing.T) {
-	for _, mode := range []string{"repository", "declared", "root-fallback", "symlink-fallback"} {
+	for _, mode := range []string{"component", "declared"} {
 		t.Run(mode, func(t *testing.T) {
 			root := validationRepo(t, "lint test:\n\t@echo '$(LINT_FILES) $(TEST_FILES)' >> runs.out\n")
 			writeValidationFile(t, root, "code.py", "pass\n")
 			writeValidationFile(t, root, "VERSION", "1.0.0\n")
 			req := repokit.ValidationRequest{HistoryDir: t.TempDir(), Repository: root, Files: []string{"code.py"}}
-			if mode != "repository" {
+			if mode != "component" {
 				declaration := repokit.CheckInputDeclaration{Paths: []string{"VERSION"}}
 				req.Inputs = map[string]map[string]repokit.CheckInputDeclaration{".": {"lint": declaration, "test": declaration}}
-			}
-			if mode == "root-fallback" {
-				fallbackChild(t, root, "child", "")
-				req.Components, req.Files = []string{"child"}, []string{"child/code.py"}
-			}
-			if mode == "symlink-fallback" {
-				if err := os.Symlink("code.py", filepath.Join(root, "linked.py")); err != nil {
-					t.Fatal(err)
-				}
 			}
 			first, err := repokit.Validate(context.Background(), req)
 			if err != nil || !first.Passed {
 				t.Fatalf("%+v %v", first, err)
-			}
-			if mode == "symlink-fallback" && !strings.Contains(first.Components[0].Checks[0].InputReason, "symlinks") {
-				t.Fatal("fixture did not exercise symlink fallback")
 			}
 			runs, err := os.ReadFile(filepath.Join(root, "runs.out"))
 			if err != nil {

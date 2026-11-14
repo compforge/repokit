@@ -17,17 +17,14 @@ import (
 
 // +spec=Validation observes dependency Bins automatically; outputs and caches are not inputs.
 // +spec=Missing or unmanaged Bins permit real execution but never historical reuse.
+// +spec=Only owning and explicitly declared Components contribute Bins; shared installations add metadata, not member source trees.
 // +link=component://docs/depot.md
-func attachDepotInputs(checkout string, layout project.Layout, executor string, spec *CheckSpec, manifest inputManifest) error {
+func attachDepotInputs(checkout string, layout project.Layout, executor string, spec *CheckSpec, contents map[string][]byte) error {
 	selected := map[string]bool{executor: true}
-	for _, root := range spec.RequestedComponents {
+	for _, root := range spec.Inputs.Components {
 		selected[root] = true
 	}
-	for _, name := range spec.InputFiles {
-		if owner := layout.Owner(name); owner != nil {
-			selected[owner.Root] = true
-		}
-	}
+
 	spec.DepotWitnesses = nil
 	for _, component := range layout.Components {
 		if !selected[component.Root] || component.Depot == nil {
@@ -48,11 +45,12 @@ func attachDepotInputs(checkout string, layout project.Layout, executor string, 
 				spec.DepotWitnesses = map[string]string{}
 			}
 			spec.DepotWitnesses[bin.Path] = value
-			// A member's explicit source declaration cannot omit the shared install root's
-			// manifests and workspace members. Conservatively include that source subtree.
-			root := path.Dir(bin.Path)
-			for name := range manifest.Files {
-				if root == "." || strings.HasPrefix(name, root+"/") {
+			inputs, err := project.DependencyInputs(contents, path.Dir(bin.Path), path.Base(bin.Path) == ".venv")
+			if err != nil {
+				return fmt.Errorf("dependency Bin %q inputs: %w", bin.Path, err)
+			}
+			for _, name := range inputs {
+				if _, exists := contents[name]; exists {
 					spec.InputFiles = append(spec.InputFiles, name)
 				}
 			}
@@ -61,7 +59,7 @@ func attachDepotInputs(checkout string, layout project.Layout, executor string, 
 	slices.Sort(spec.InputFiles)
 	spec.InputFiles = slices.Compact(spec.InputFiles)
 	if len(spec.DepotWitnesses) > 0 {
-		spec.InputReason += "; dependency Bin receipts and installation-root sources"
+		spec.InputReason += "; dependency Bin receipts and installation inputs"
 	}
 	return nil
 }
