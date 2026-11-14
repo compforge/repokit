@@ -54,7 +54,7 @@ Go 公共入口为 `depot.Inspect` / `depot.Prepare`。Python 原生依赖 API �
 
 支持 npm ci、pnpm/Bun frozen install、Yarn classic frozen / modern immutable 和 uv sync --locked。
 uv workspace 一次同步全部成员；不生成或更新锁文件。输入指纹绑定绝对安装根、lockfile、workspace 成员
-manifest 与本地安装配置。uv 清除继承的环境路径覆盖。symlink、嵌套 checkout 与含 tracked 文件的 Bin
+manifest 与本地安装配置。验证复用共享相同的安装输入路径规则；共享 Bin 不扩大为安装根下全部源码。uv 清除继承的环境路径覆盖。symlink、嵌套 checkout 与含 tracked 文件的 Bin
 不会作为安装目标。已有无回执目录不会被接管，`present` 不表示经过验证，也可能是先前失败留下的目录。
 
 准备与 worktree cleanup、Python 准备共用 repository 级跨进程 lease；锁等待受调用方 context 约束，

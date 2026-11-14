@@ -23,7 +23,8 @@ func TestSharedExecutionContract(t *testing.T) {
 		Reason, Error                string
 		WithoutRoot                  bool
 		Checks, Components, Selected []string
-		Files                        map[string]string
+		Files, Outputs               map[string]string
+		Absent                       []string
 		Expected                     map[string]any
 	}
 	if err := json.Unmarshal(data, &rows); err != nil {
@@ -71,6 +72,17 @@ func TestSharedExecutionContract(t *testing.T) {
 			}
 			if !reflect.DeepEqual(actual, row.Expected) {
 				t.Fatalf("got %s want %+v", encoded, row.Expected)
+			}
+			for _, name := range row.Absent {
+				if _, err := os.Stat(filepath.Join(root, name)); !os.IsNotExist(err) {
+					t.Fatalf("unexpected execution output %s: %v", name, err)
+				}
+			}
+			for name, expected := range row.Outputs {
+				actual, err := os.ReadFile(filepath.Join(root, name))
+				if err != nil || string(actual) != expected {
+					t.Fatalf("%s = %q, want %q: %v", name, actual, expected, err)
+				}
 			}
 			if output, err := os.ReadFile(filepath.Join(root, "runs.out")); err == nil && strings.Count(string(output), "\n") != 1 {
 				t.Fatalf("duplicate execution: %s", output)

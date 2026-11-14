@@ -29,7 +29,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 		Use:         name,
 		Annotations: map[string]string{"result-json-flags": "plan,history"},
 		Short:       "Run Makefile-defined Component " + name + " checks",
-		Long:        "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Missing lint/test targets fall back to the root Component; if absent there too, checks are unavailable.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
+		Long:        "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
 		Args:        cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {

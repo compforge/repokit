@@ -224,9 +224,11 @@ repocli validate --base HEAD --plan
 `format`, `lint` and `test` run independently; `validate --check format,lint,test` formats first,
 then replans and runs bounded checks through the Go toolkit. Planning is read-only;
 execution uses the frozen commands, scopes and environment, then verifies that inputs
-stayed unchanged. Missing lint/test targets fall back to the root Component; requests
-for the same execution Component/check are merged. If root also lacks the target, it
-is unavailable. Unsupported file filtering falls back to a full Component check. See the [Makefile contract and validation API](docs/validation.md).
+stayed unchanged. Each Component selects the first supported target candidate in its own
+Makefile. Missing targets are skipped; failures never select another candidate or a root
+fallback. Unsupported file filtering falls back to a full Component check. Reuse inputs
+default to the owning Component and its dependency environment; explicit input declarations
+add cross-Component dependencies and shared files. See the [Makefile contract and validation API](docs/validation.md).
 
 ## Repository toolkit
 

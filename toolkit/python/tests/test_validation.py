@@ -76,7 +76,7 @@ def test_failure_and_missing_target(tmp_path: Path) -> None:
     assert not report.passed and report.complete and report.inputs_consistent
     lint, test = report.components[0].checks
     assert lint.status == "failed" and "failure" in lint.stderr
-    assert test.status == "unavailable"
+    assert test.status == "skipped"
 
 
 def test_timeout_kills_descendants(tmp_path: Path) -> None:
@@ -255,6 +255,10 @@ def test_shared_execution_contract(tmp_path, case):
     assert actual == case["expected"]
     if "reason" in case:
         assert report.components[0].checks[0].spec.reason == case["reason"]
+    for name in case.get("absent", ()):
+        assert not (root / name).exists()
+    for name, expected in case.get("outputs", {}).items():
+        assert (root / name).read_text() == expected
     output = root / "runs.out"
     if output.exists():
         assert len(output.read_text().splitlines()) == 1

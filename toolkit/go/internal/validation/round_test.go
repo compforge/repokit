@@ -111,7 +111,7 @@ func TestValidationMissingTargetDoesNotInvalidateSuccessfulCheck(t *testing.T) {
 	root := validationRepo(t, "lint:\n\t@true\n")
 	history := t.TempDir()
 	report, err := repokit.Validate(context.Background(), repokit.ValidationRequest{Repository: root, HistoryDir: history})
-	if err != nil || !report.InputsConsistent || !report.Complete || report.Passed || report.Components[0].Checks[0].Status != "passed" {
+	if err != nil || !report.InputsConsistent || !report.Complete || !report.Passed || report.Components[0].Checks[0].Status != "passed" {
 		t.Fatalf("%+v %v", report, err)
 	}
 	req := repokit.ValidationRequest{HistoryDir: history, Repository: root, Checks: []string{"lint"}}

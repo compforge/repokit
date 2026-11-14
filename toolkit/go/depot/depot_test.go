@@ -108,7 +108,7 @@ func TestFailedInstallation(t *testing.T) {
 		{"exit", "mkdir -p node_modules; echo broken >&2; exit 3", "failed", 0},
 		{"input changed", install + "\necho changed >> package-lock.json", "failed", 0},
 		{"missing output", "true", "failed", 0},
-		{"cancel", "mkdir -p node_modules; touch started; sleep 5", "uncertain", 500 * time.Millisecond},
+		{"cancel", "mkdir -p node_modules; touch started; sleep 30", "uncertain", 10 * time.Second},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			root := fixture(t, tc.script)
@@ -117,9 +117,25 @@ func TestFailedInstallation(t *testing.T) {
 				var cancel context.CancelFunc
 				ctx, cancel = context.WithTimeout(ctx, tc.timeout)
 				defer cancel()
+				// Cancel after installation starts, independent of Git inspection latency.
+				go func() {
+					ticker := time.NewTicker(10 * time.Millisecond)
+					defer ticker.Stop()
+					for {
+						select {
+						case <-ctx.Done():
+							return
+						case <-ticker.C:
+							if _, err := os.Stat(filepath.Join(root, "started")); err == nil {
+								cancel()
+								return
+							}
+						}
+					}
+				}()
 			}
 			report, err := depot.Prepare(ctx, root, depot.Options{})
-			if err == nil || report.Bins[0].Action != tc.action || report.Bins[0].Status == "ready" {
+			if err == nil || len(report.Bins) != 1 || report.Bins[0].Action != tc.action || report.Bins[0].Status == "ready" {
 				t.Fatal(report, err)
 			}
 			if _, e := os.Stat(filepath.Join(root, "node_modules/.repokit-dependencies.json")); !os.IsNotExist(e) {
@@ -169,8 +185,14 @@ func TestLeaseAndConcurrentPreparation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	r, err := depot.Prepare(ctx, root, depot.Options{})
-	if err == nil || r.Bins[0].Executed {
+	if err == nil || ctx.Err() != context.DeadlineExceeded {
 		t.Fatal(r, err)
+	}
+	// The caller's deadline may expire during initial inspection, before Bins exist.
+	for _, bin := range r.Bins {
+		if bin.Executed {
+			t.Fatal("installation ran while the lease was held", r)
+		}
 	}
 	close(release)
 	if err = <-done; err != nil {
