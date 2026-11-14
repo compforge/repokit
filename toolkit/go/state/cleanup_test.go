@@ -4,10 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -149,13 +151,13 @@ func TestGlobalCleanupReusesWorktreePolicyAndProtection(t *testing.T) {
 	if _, err = os.Stat(old); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("idle checkout remains", err)
 	}
-	for _, path := range []string{root, filepath.Join(dirty, "notes"), locked, recent, current} {
+	for _, path := range []string{root, locked, recent, current} {
 		if _, err = os.Stat(path); err != nil {
 			t.Fatal("protected source removed", path, err)
 		}
 	}
-	if _, err = os.Stat(filepath.Join(dirty, "node_modules")); !errors.Is(err, os.ErrNotExist) {
-		t.Fatal("owned idle environment retained", err)
+	if _, err = os.Stat(dirty); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("dirty checkout retained", err)
 	}
 	if _, err = os.Stat(filepath.Join(locked, "node_modules")); err != nil {
 		t.Fatal("pinned environment removed", err)
@@ -450,7 +452,7 @@ func TestGlobalAndDirectWorktreeRetentionAgree(t *testing.T) {
 
 type cleanupMergedPR struct{ calls int }
 
-func (p *cleanupMergedPR) MergedPullRequest(context.Context, string, string) (int, error) {
+func (p *cleanupMergedPR) MergedPullRequest(context.Context, string) (int, error) {
 	p.calls++
 	return 7, nil
 }
@@ -583,7 +585,7 @@ func TestCleanupRechecksRecordWriterAfterRemoteQuery(t *testing.T) {
 
 // +case=Expired caches can be reclaimed while a worktree is protected; a later global clean rediscovers and removes it without any foreground access, including topology-only registrations.
 func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
-	for _, scenario := range []string{"dirty", "pr_unavailable", "topology_only"} {
+	for _, scenario := range []string{"locked", "pr_unavailable", "topology_only"} {
 		t.Run(scenario, func(t *testing.T) {
 			ctx := context.Background()
 			home := t.TempDir()
@@ -605,9 +607,13 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 			if err := Write(filepath.Join(directory, "history", "run.json"), map[string]string{"result": "expired"}, func() error { return nil }); err != nil {
 				t.Fatal(err)
 			}
-			note := filepath.Join(linked, "unsaved")
+			linkedInfo, err := Checkout(ctx, linked)
+			if err != nil {
+				t.Fatal(err)
+			}
+			note := filepath.Join(linkedInfo.GitDir, "locked")
 			if scenario != "pr_unavailable" {
-				if err := os.WriteFile(note, []byte("keep until saved"), 0600); err != nil {
+				if err := os.WriteFile(note, []byte("pinned"), 0600); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -705,14 +711,14 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 
 type cleanupUnavailablePR struct{}
 
-func (cleanupUnavailablePR) MergedPullRequest(context.Context, string, string) (int, error) {
+func (cleanupUnavailablePR) MergedPullRequest(context.Context, string) (int, error) {
 	return 0, errors.New("PR temporarily unavailable")
 }
 
-type cleanupPRFunc func(context.Context, string, string) (int, error)
+type cleanupPRFunc func(context.Context, string) (int, error)
 
-func (f cleanupPRFunc) MergedPullRequest(ctx context.Context, branch, sha string) (int, error) {
-	return f(ctx, branch, sha)
+func (f cleanupPRFunc) MergedPullRequest(ctx context.Context, branch string) (int, error) {
+	return f(ctx, branch)
 }
 
 // +case=Cancellation during a PR lookup preserves earlier actions and does not query remaining worktrees.
@@ -728,7 +734,7 @@ func TestCleanWorktreesStopsOnCancellation(t *testing.T) {
 	calls := 0
 	report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{
 		Home: home, DryRun: true, ProtectedPaths: []string{protected},
-		PullRequests: cleanupPRFunc(func(context.Context, string, string) (int, error) {
+		PullRequests: cleanupPRFunc(func(context.Context, string) (int, error) {
 			calls++
 			cancel()
 			return 0, ctx.Err()
@@ -755,7 +761,7 @@ func TestCleanCallerCancellationStopsSweep(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, DryRun: true, RepositoryTimeout: time.Minute,
+	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, DryRun: true, WorktreeTimeout: time.Minute,
 		PullRequests: func(context.Context, string) (WorktreePullRequests, error) { cancel(); return nil, ctx.Err() },
 	})
 	if !errors.Is(err, context.Canceled) || len(report.Errors) != 1 {
@@ -779,7 +785,7 @@ func TestCleanWorktreesPreservesCompletedRemovalOnCancellation(t *testing.T) {
 	defer cancel()
 	calls := 0
 	report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{Home: home,
-		PullRequests: cleanupPRFunc(func(context.Context, string, string) (int, error) {
+		PullRequests: cleanupPRFunc(func(context.Context, string) (int, error) {
 			calls++
 			if calls <= 2 {
 				return 1, nil
@@ -799,5 +805,91 @@ func TestCleanWorktreesPreservesCompletedRemovalOnCancellation(t *testing.T) {
 	}
 	if _, err := os.Stat(retained); err != nil {
 		t.Fatal("later worktree changed", err)
+	}
+}
+
+// +case=One worktree can exhaust its budget during PR verification without preventing another checkout in the same repository from being reclaimed.
+func TestWorktreeTimeoutContinuesWithinRepository(t *testing.T) {
+	for _, global := range []bool{false, true} {
+		t.Run(fmt.Sprintf("global=%t", global), func(t *testing.T) {
+			home := t.TempDir()
+			t.Setenv("REPOKIT_HOME", home)
+			root, create := retentionFixture(t)
+			slow := create("a-slow", false)
+			fast := create("z-fast", false)
+			policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
+			setCleanupPolicy(t, root, policy)
+			calls := 0
+			lookup := cleanupPRFunc(func(ctx context.Context, branch string) (int, error) {
+				if branch != "a-slow" {
+					return 1, nil
+				}
+				calls++
+				// Both reads share one worktree budget; the second read must expire.
+				select {
+				case <-ctx.Done():
+					return 0, ctx.Err()
+				case <-time.After(700 * time.Millisecond):
+					return 1, nil
+				}
+			})
+			var issues []string
+			if global {
+				if err := RecordAccess(context.Background(), root, home); err != nil {
+					t.Fatal(err)
+				}
+				report, err := Clean(context.Background(), CleanOptions{Home: home, InactiveDays: 30, WorktreeTimeout: time.Second,
+					PullRequests: func(context.Context, string) (WorktreePullRequests, error) { return lookup, nil },
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+				issues = report.Errors
+			} else {
+				report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Home: home, Policy: &policy, Timeout: time.Second, PullRequests: lookup})
+				if err != nil {
+					t.Fatal(err)
+				}
+				issues = report.Errors
+			}
+			if calls != 2 || len(issues) != 1 || !strings.Contains(issues[0], slow) || !strings.Contains(issues[0], "context deadline exceeded") {
+				t.Fatal(calls, issues)
+			}
+			if _, err := os.Stat(slow); err != nil {
+				t.Fatal("timed-out checkout removed", err)
+			}
+			if _, err := os.Stat(fast); !os.IsNotExist(err) {
+				t.Fatal("later checkout was not removed", err)
+			}
+		})
+	}
+}
+
+// +case=Time spent on other worktrees does not consume a checkout's budget between PR inspection and count-based removal.
+func TestWorktreeBudgetExcludesOtherCheckouts(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	var paths []string
+	for _, name := range []string{"a", "b", "c"} {
+		paths = append(paths, create(name, false))
+	}
+	policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
+	lookup := cleanupPRFunc(func(ctx context.Context, _ string) (int, error) {
+		select {
+		case <-ctx.Done():
+			return 0, ctx.Err()
+		case <-time.After(400 * time.Millisecond):
+			return 0, nil
+		}
+	})
+	report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Home: home, Policy: &policy, Timeout: time.Second, PullRequests: lookup})
+	if err != nil || len(report.Errors) != 0 || report.RemainingCount != 0 {
+		t.Fatal(report, err)
+	}
+	for _, path := range paths {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatal("queueing consumed worktree budget", path, err)
+		}
 	}
 }

@@ -17,7 +17,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 	var dry bool
 	var connection forgeaccess.Options
 	command := &cobra.Command{Use: "clean", Short: "Apply worktree retention and reclaim inactive repository state",
-		Long: "Apply worktree retention and reclaim inactive repository state. Without --repo, scan all recorded repositories in the selected home. Worktrees use the repository retention policy. Missing repository access times count as oldest; source and Git protections still apply.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		Long: "Apply worktree retention and reclaim inactive repository state. Without --repo, scan all recorded repositories in the selected home. Worktrees use the repository retention policy. Eligible worktrees are removed with all local contents, including uncommitted and ignored files; branch refs remain. Primary/current checkouts and Git locks remain protected. Missing repository access times count as oldest.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			if days < 1 || days > 36500 {
 				return errors.New("--inactive-days must be between 1 and 36500")
 			}
@@ -33,7 +33,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				selected = opts.Repository
 			}
-			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, RepositoryTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
+			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, WorktreeTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
 				return connection.WorktreePullRequests(ctx, repo, opts.Home)
 			}})
 			if opts.JSON {
@@ -57,7 +57,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 			return nil
 		}}
-	command.Flags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "cleanup deadline per repository (shared by its clones and worktrees)")
+	command.Flags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "cumulative cleanup time budget per worktree; repository caches have no time limit")
 	command.Flags().BoolVar(&dry, "dry-run", false, "preview decisions without deleting resources")
 	command.Flags().IntVar(&days, "inactive-days", state.DefaultInactiveDays, "minimum days since repository state was accessed")
 	connection.Flags(command)

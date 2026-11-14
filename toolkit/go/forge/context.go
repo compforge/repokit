@@ -62,8 +62,8 @@ func (c *Context) verifyOrigin(ctx context.Context) error {
 }
 
 // MergedPullRequest reuses the same PR query and exact source identity checks as creation.
-// +spec=`Closed is not terminal. Ambiguous associations or a different head never permit merged cleanup.`
-func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (number int, err error) {
+// +spec=`Closed is not terminal. A unique merged source-branch association permits cleanup even after local commits; open or ambiguous associations do not.`
+func (c *Context) MergedPullRequest(ctx context.Context, branch string) (number int, err error) {
 	defer func() { err = errs.Wrap(err, "forge.merged_lookup_failed", "forge.merged_lookup", branch) }()
 	if err := c.verifyOrigin(ctx); err != nil {
 		return 0, err
@@ -77,9 +77,6 @@ func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (nu
 		for _, row := range rows {
 			if row.State == "open" {
 				return 0, nil
-			}
-			if row.SHA != sha {
-				continue
 			}
 			if selected != nil {
 				return 0, nil
@@ -96,7 +93,7 @@ func (c *Context) MergedPullRequest(ctx context.Context, branch, sha string) (nu
 	if err != nil {
 		return 0, err
 	}
-	if pr.State != "merged" || pr.SHA != sha || pr.SourceBranch != branch || pr.SourceRepository != c.Source {
+	if pr.State != "merged" || pr.SHA != selected.SHA || pr.SourceBranch != branch || pr.SourceRepository != c.Source {
 		return 0, errors.New("merged PR identity changed")
 	}
 	return pr.Key.Number, nil
