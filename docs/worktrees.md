@@ -12,13 +12,17 @@ See [repository cleanup](cleanup.md).
 ## 创建与复用
 
 ```sh
-repocli worktree ensure .worktrees/topic --branch topic --base main --remote origin --repo . --json
+repocli worktree ensure topic --branch topic --base main --remote origin --repo . --json
 repocli depot prepare --repo .worktrees/topic --timeout 10m --json
 ```
 
-`worktree ensure` 对应 Go `state.EnsureWorktree`：显式指定路径、branch 和创建基线 Base。
-相对路径以 `--repo` 对应 checkout 根为基准。`--remote` 指定已配置的 remote 名称，此时 Base 是该 remote
-上的分支名；省略 remote 时 Base 是本地 revision。库不选择默认分支、不规定命名或工作目录布局。
+`worktree ensure <name>` 对应 Go `worktree.Ensure`：必须显式提供 `--repo`、branch 和创建基线 Base。
+name 是单个目录名，与 Git branch 独立；拒绝空名称、`.`、`..`、绝对路径和路径分隔符。
+RepoKit 解析 repository 的主 checkout，统一创建在 `<primary>/.worktrees/<name>`；从软链接、子目录或
+linked worktree 调用仍定位到同一个主 checkout。无法定位主 checkout 时报告错误，调用方需通过
+`--repo` 指定主 checkout。位置参数不接受路径，也没有 `--path` 覆盖。
+`--remote` 指定已配置的 remote，此时 Base 是远端分支名；省略 remote 时 Base 是本地 revision。
+底层 `state.EnsureWorktree` 接收解析后的路径，负责创建、复用和登记。
 
 | action | 行为 |
 |---|---|
@@ -32,7 +36,7 @@ repocli depot prepare --repo .worktrees/topic --timeout 10m --json
 预算来自调用方 context / CLI `--timeout`；Git 只读查询最多 5 秒，fetch/add 单步最多 2 分钟。
 锁等待没有额外 30 秒截断。跨进程非协作 Git 操作不受 lease 管理，执行后的核验仍需保留。
 
-结果返回 checkout、branch、headSha、action、confirmed、writeAttempted 和新分支的 baseCommit。
+结果返回 name、checkout、branch、headSha、action、confirmed、writeAttempted 和新分支的 baseCommit。
 `writeAttempted` 表示尝试执行 worktree add；fetch 的本地 tracking ref 更新单独计入 base 阶段。
 创建后的核验失败为 unknown，不能据此盲目重试；失败不会删除已经创建的目录或分支。
 confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不撤销已确认成功。
@@ -132,7 +136,7 @@ protected; recovery never authorizes deleting a replacement directory.
 
 ## Checkout with dependency preparation
 
-`repocli worktree ensure <path> --branch <name> --base <ref> --prepare --json` composes
+`repocli worktree ensure <name> --repo <repository> --branch <branch> --base <ref> --prepare --json` composes
 checkout confirmation and Depot preparation in `toolkit/go/worktree.Ensure`. State owns checkout
 lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepare`, ensure only
 confirms the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed

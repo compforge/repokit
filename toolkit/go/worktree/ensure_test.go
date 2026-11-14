@@ -36,20 +36,20 @@ func TestEnsurePreparationAndRecovery(t *testing.T) {
 	if e := os.WriteFile(installer, []byte("#!/bin/sh\nexit 3\n"), 0700); e != nil {
 		t.Fatal(e)
 	}
-	target := filepath.Join(t.TempDir(), "checkout")
+
 	opts := EnsureOptions{EnsureWorktreeOptions: state.EnsureWorktreeOptions{Branch: "topic", Base: "HEAD"}, Prepare: true}
-	r, e := Ensure(context.Background(), root, target, opts)
+	r, e := Ensure(context.Background(), root, "topic", opts)
 	if e == nil || !r.Confirmed || r.Ready || r.Preparation == nil {
 		t.Fatal(r, e)
 	}
 	if e = os.WriteFile(installer, []byte("#!/bin/sh\nmkdir -p node_modules\n"), 0700); e != nil {
 		t.Fatal(e)
 	}
-	r, e = Ensure(context.Background(), root, target, opts)
+	r, e = Ensure(context.Background(), root, "topic", opts)
 	if e != nil || !r.Ready || r.Action != "reused" {
 		t.Fatal(r, e)
 	}
-	r, e = Ensure(context.Background(), root, target, opts)
+	r, e = Ensure(context.Background(), root, "topic", opts)
 	if e != nil || !r.Ready || r.Preparation.Bins[0].Action != "reused" {
 		t.Fatal(r, e)
 	}

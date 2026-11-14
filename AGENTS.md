@@ -54,7 +54,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 按 Component 生成计划；显式 format 后重新规划检查；执行返回单项结果、整轮完整性及输入一致性。成功 Run 按输入证据复用。 |
 | depot inspect / prepare | 按 Component 选择、按物理 Bin 聚合；只读观察或显式锁定安装，保留逐项结果和阶段耗时。validate 不触发安装。 |
-| worktree ensure | 按显式路径、分支和基线创建或复用 checkout；核验身份、登记状态；显式 `--prepare` 组合依赖准备并保留逐阶段结果。 |
+| worktree ensure | 按显式 repo、名称、分支和基线，在主 checkout 的 `.worktrees` 下创建或复用 checkout；核验身份、登记状态；显式 `--prepare` 组合依赖准备并保留逐阶段结果。 |
 | clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |
 | stats / upgrade | stats 只读汇总保留历史、日志与容量并报告读取缺口；upgrade 由 CLI 显式查询和安装 Release，不访问目标仓库。 |
 
