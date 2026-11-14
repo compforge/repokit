@@ -14,7 +14,10 @@ import (
 func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 	var branch, base, remote string
 	var prepare bool
-	cmd := &cobra.Command{Use: "ensure <path>", Short: "Create or reuse an exact checkout and branch without resetting work", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "ensure <name>", Short: "Create or reuse a named worktree under the primary checkout", Long: "Create or reuse <primary-checkout>/.worktrees/<name>. --repo is required and resolves the owning repository even from a linked checkout or symlink. The name is a single directory name, independent of --branch; paths are not accepted.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flag("repo").Changed || opts.Repository == "" {
+			return errors.New("--repo is required")
+		}
 		if opts.Timeout <= 0 || branch == "" || base == "" {
 			return errors.New("--branch, --base and a positive --timeout are required")
 		}
