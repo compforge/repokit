@@ -3,7 +3,7 @@ package rebase
 import (
 	"encoding/json"
 	"errors"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
 	"os"
 	"path/filepath"
 )
@@ -44,7 +44,7 @@ func readRecord(dir string) (*record, error) {
 	return &r, nil
 }
 func writeRecord(dir string, r *record) error {
-	return gitworktree.WriteRecord(filepath.Join(dir, recordName), r)
+	return repogit.WriteRecord(filepath.Join(dir, recordName), r)
 }
 
 func terminal(phase string) bool {

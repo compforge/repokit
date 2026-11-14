@@ -3,12 +3,14 @@ package branch
 
 import (
 	"context"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"path/filepath"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 type Options struct {
@@ -41,11 +43,11 @@ type Report struct {
 	Diagnostics     []Diagnostic `json:"diagnostics"`
 	Phases          []Phase      `json:"phases"`
 }
-type runner func(context.Context, string, time.Duration, ...string) gitworktree.GitResult
+type runner func(context.Context, string, time.Duration, ...string) command.Result
 type operation struct {
 	ctx    context.Context
 	repo   string
-	info   gitworktree.CheckoutInfo
+	info   worktree.CheckoutInfo
 	run    runner
 	record *record
 	report Report
@@ -55,12 +57,12 @@ type operation struct {
 // +spec=Never reset an existing branch, pop a positional stash, or repeat an unconfirmed stash apply. A created branch and restored changes are separate facts.
 // +link=component://docs/git-branch.md
 func Create(ctx context.Context, repo string, opts Options) (Report, error) {
-	return execute(ctx, repo, opts, false, gitworktree.Run)
+	return execute(ctx, repo, opts, false, command.Run)
 }
 
 // Status observes recovery evidence and live Git identity without replaying writes.
 func Status(ctx context.Context, repo, name string) (Report, error) {
-	return execute(ctx, repo, Options{Name: name}, true, gitworktree.Run)
+	return execute(ctx, repo, Options{Name: name}, true, command.Run)
 }
 func execute(ctx context.Context, repo string, opts Options, observe bool, run runner) (report Report, err error) {
 	o := &operation{ctx: ctx, repo: repo, run: run, report: Report{Checkout: repo, Branch: opts.Name, Phase: "unknown", Conflicts: []string{}, Diagnostics: []Diagnostic{}, Phases: []Phase{}}}
@@ -75,10 +77,10 @@ func execute(ctx context.Context, repo string, opts Options, observe bool, run r
 			slog.InfoContext(ctx, "Branch operation", "checkout", report.Checkout, "branch", opts.Name, "phase", report.Phase, "branch_confirmed", report.BranchConfirmed, "changes_restored", report.ChangesRestored, "write_attempted", report.WriteAttempted, "failed", err != nil)
 		}
 	}()
-	if e := gitworktree.ValidateBranch(ctx, repo, opts.Name); e != nil {
+	if e := repogit.ValidateBranch(ctx, repo, opts.Name); e != nil {
 		return report, failure("invalid_argument", "explicit valid branch name is required", e)
 	}
-	o.info, err = gitworktree.Local(ctx, repo)
+	o.info, err = worktree.Local(ctx, repo)
 	if err != nil {
 		return report, err
 	}
@@ -87,7 +89,7 @@ func execute(ctx context.Context, repo string, opts Options, observe bool, run r
 	var unlock func()
 	err = o.measure("lock_wait", func() error {
 		var e error
-		unlock, e = gitworktree.AcquireLease(ctx, filepath.Join(o.info.CommonDir, "repokit-worktrees.lock"))
+		unlock, e = repogit.AcquireLease(ctx, filepath.Join(o.info.CommonDir, "repokit-worktrees.lock"))
 		return e
 	})
 	if err != nil {
@@ -128,7 +130,7 @@ func (o *operation) save(phase string) error {
 	o.record.Phase = phase
 	o.report.Phase = phase
 	o.report.StashOID = o.record.StashOID
-	return gitworktree.WriteRecord(o.report.RecoveryPath, o.record)
+	return repogit.WriteRecord(o.report.RecoveryPath, o.record)
 }
 func (o *operation) complete(phase string) {
 	if e := o.save(phase); e != nil {

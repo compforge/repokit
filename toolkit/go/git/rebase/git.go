@@ -2,7 +2,7 @@ package rebase
 
 import (
 	"errors"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,7 +139,7 @@ func (o *operation) observe() error {
 	return nil
 }
 func (o *operation) destination(remote string) (string, error) {
-	return gitworktree.PushDestination(o.repo, remote, o.queryFor)
+	return repogit.PushDestination(o.repo, remote, o.queryFor)
 }
 func (o *operation) remoteTip() (string, error) {
 	ref := "refs/heads/" + o.record.Branch
@@ -147,6 +147,6 @@ func (o *operation) remoteTip() (string, error) {
 	if e != nil {
 		return "", e
 	}
-	return gitworktree.BranchTip(raw, ref)
+	return repogit.BranchTip(raw, ref)
 }
-func (o *operation) budget() time.Duration { return gitworktree.PushBudget(o.ctx) }
+func (o *operation) budget() time.Duration { return repogit.PushBudget(o.ctx) }

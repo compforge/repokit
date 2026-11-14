@@ -1,6 +1,6 @@
 //go:build linux || darwin
 
-package gitworktree
+package git
 
 import (
 	"context"

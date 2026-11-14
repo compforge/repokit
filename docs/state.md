@@ -15,7 +15,7 @@ state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI �
 
 | 实现 | 目录与入口 |
 |---|---|
-| Go | `toolkit/go/state`：`LoadBranch`、`Observe`、`AddWorktree`、`RemoveWorktree`、`CleanWorktrees`；Git checkout 适配在 `internal/gitworktree` |
+| Go | `toolkit/go/state`：`LoadBranch`、`Observe`、`AddWorktree`、`RemoveWorktree`、`CleanWorktrees`；Git checkout 适配在 `internal/git/worktree` |
 | Python | `toolkit/python/repokit/state`：`RepositoryState`、`default_branch`、`add_worktree`、`remove_worktree`、`clean_worktrees`；Git 适配在 `repokit/git` |
 | TypeScript | `toolkit/typescript/src/state`：`RepositoryState`；Git 适配在 `src/git` |
 

@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // EnsureWorktreeOptions identifies a branch and its explicit creation baseline.
@@ -64,12 +65,12 @@ func EnsureWorktree(ctx context.Context, repo, path string, options EnsureWorktr
 		return report, &errs.Error{Code: "state.invalid_worktree", Message: "path, branch and base are required"}
 	}
 	start := time.Now()
-	info, err := gitworktree.Local(ctx, repo)
+	info, err := worktree.Local(ctx, repo)
 	if err != nil {
 		report.measure("inspect", start)
 		return report, err
 	}
-	if err = gitworktree.ValidateBranch(ctx, info.Root, options.Branch); err != nil {
+	if err = repogit.ValidateBranch(ctx, info.Root, options.Branch); err != nil {
 		report.measure("inspect", start)
 		return report, err
 	}
@@ -107,7 +108,7 @@ func EnsureWorktree(ctx context.Context, repo, path string, options EnsureWorktr
 
 func ensureWorktreeLocked(ctx context.Context, info CheckoutInfo, options EnsureWorktreeOptions, report *EnsureWorktreeReport) error {
 	start := time.Now()
-	entries, err := gitworktree.ListWorktrees(ctx, info.Root)
+	entries, err := worktree.ListWorktrees(ctx, info.Root)
 	report.measure("inventory", start)
 	if err != nil {
 		return err
@@ -140,7 +141,7 @@ func ensureWorktreeLocked(ctx context.Context, info CheckoutInfo, options Ensure
 		return err
 	}
 	start = time.Now()
-	sha, exists, err := gitworktree.BranchCommit(ctx, info.Root, options.Branch)
+	sha, exists, err := repogit.BranchCommit(ctx, info.Root, options.Branch)
 	report.measure("branch", start)
 	if err != nil {
 		return err
@@ -151,9 +152,9 @@ func ensureWorktreeLocked(ctx context.Context, info CheckoutInfo, options Ensure
 	if !exists {
 		start = time.Now()
 		if options.Remote != "" {
-			sha, err = gitworktree.RefreshBranch(ctx, info.Root, options.Remote, options.Base)
+			sha, err = repogit.RefreshBranch(ctx, info.Root, options.Remote, options.Base)
 		} else {
-			sha, err = gitworktree.ResolveCommit(ctx, info.Root, options.Base)
+			sha, err = repogit.ResolveCommit(ctx, info.Root, options.Base)
 		}
 		report.measure("base", start)
 		if err != nil {
@@ -167,7 +168,7 @@ func ensureWorktreeLocked(ctx context.Context, info CheckoutInfo, options Ensure
 	}
 	start = time.Now()
 	report.WriteAttempted = true
-	result := gitworktree.Add(ctx, info.Root, report.Checkout, ref, branch, false)
+	result := worktree.Add(ctx, info.Root, report.Checkout, ref, branch, false)
 	report.measure("create", start)
 	if result.Err != nil {
 		return checkoutError(result, "state.ensure_worktree", report.Checkout).Err
@@ -195,21 +196,21 @@ func confirmWorktree(ctx context.Context, source CheckoutInfo, report *EnsureWor
 	if !info.IsDir() {
 		return ensureConflict("requested checkout is not a directory")
 	}
-	actual, err := gitworktree.Local(ctx, report.Checkout)
+	actual, err := worktree.Local(ctx, report.Checkout)
 	if err != nil {
 		return err
 	}
 	if actual.Root != report.Checkout || actual.CommonDir != source.CommonDir {
 		return ensureConflict("requested checkout belongs to a different repository or path")
 	}
-	branch, err := gitworktree.CurrentBranch(ctx, report.Checkout)
+	branch, err := repogit.CurrentBranch(ctx, report.Checkout)
 	if err != nil {
 		return err
 	}
 	if branch != report.Branch {
 		return ensureConflict("checkout branch changed during ensure")
 	}
-	report.HeadSHA, err = gitworktree.ResolveCommit(ctx, report.Checkout, "HEAD")
+	report.HeadSHA, err = repogit.ResolveCommit(ctx, report.Checkout, "HEAD")
 	return err
 }
 

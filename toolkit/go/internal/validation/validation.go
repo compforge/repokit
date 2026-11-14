@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
+	gitenv "github.com/compforge/repokit/toolkit/go/internal/git/env"
 	"log/slog"
 	"os"
 	"path/filepath"

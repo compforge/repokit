@@ -81,8 +81,10 @@ repokit/
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
 │   │       │   └── deadcode/ # deadcode 编排、候选规则与前后图比较
-│   │       ├── git/          # Git 材料与内容读取
-│   │       ├── gitworktree/  # checkout 查询与 Git 命令执行适配
+│   │       ├── git/          # Git 底层适配：材料读取、refs、push、互斥与恢复记录
+│   │       │   ├── env/      # checkout 环境隔离
+│   │       │   ├── command/  # 命令执行、取消与不确定结果
+│   │       │   └── worktree/ # checkout 拓扑与 worktree 操作
 │   │       ├── project/      # 结构识别、组件归属与工具证据
 │   │       ├── diff/         # patch 与变更行
 │   │       ├── units/        # Fragment / Unit 形成与聚合

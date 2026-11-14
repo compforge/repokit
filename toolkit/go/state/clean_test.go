@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"os"
 	"path/filepath"
 	"testing"
@@ -78,7 +78,7 @@ func TestRetentionProjectsBothLimitsAndMissingDatesOldest(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(middle, "node_modules")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("environment retained", err)
 	}
-	result := gitworktree.Run(context.Background(), root, time.Second, "rev-parse", "old")
+	result := command.Run(context.Background(), root, time.Second, "rev-parse", "old")
 	if result.Err != nil {
 		t.Fatal("branch deleted", result.Err)
 	}
@@ -90,7 +90,7 @@ func TestDirtyCurrentAndLockedRetention(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dirty, "notes"), []byte("preserve"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if result := gitworktree.Run(context.Background(), root, time.Second, "worktree", "lock", locked); result.Err != nil {
+	if result := command.Run(context.Background(), root, time.Second, "worktree", "lock", locked); result.Err != nil {
 		t.Fatal(result.Err)
 	}
 	policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
@@ -224,7 +224,7 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 			root, create := retentionFixture(t)
 			run := func(path string, args ...string) string {
 				t.Helper()
-				result := gitworktree.Run(ctx, path, 10*time.Second, args...)
+				result := command.Run(ctx, path, 10*time.Second, args...)
 				if result.Err != nil {
 					t.Fatal(result.Err)
 				}

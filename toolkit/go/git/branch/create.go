@@ -1,10 +1,10 @@
 package branch
 
 import (
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"strings"
 	"time"
-
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 func (o *operation) create(opts Options) error {
@@ -27,7 +27,7 @@ func (o *operation) create(opts Options) error {
 		o.report.ChangesRestored = true
 		return nil
 	}
-	if _, exists, e := gitworktree.BranchCommit(o.ctx, o.repo, opts.Name); e != nil {
+	if _, exists, e := repogit.BranchCommit(o.ctx, o.repo, opts.Name); e != nil {
 		return e
 	} else if exists {
 		return failure("exists", "branch already exists; select it explicitly instead of recreating it", nil)
@@ -43,9 +43,9 @@ func (o *operation) create(opts Options) error {
 	e = o.measure("resolve_base", func() error {
 		var err error
 		if opts.Remote != "" {
-			base, err = gitworktree.RefreshBranch(o.ctx, o.repo, opts.Remote, opts.Base)
+			base, err = repogit.RefreshBranch(o.ctx, o.repo, opts.Remote, opts.Base)
 		} else {
-			base, err = gitworktree.ResolveCommit(o.ctx, o.repo, opts.Base)
+			base, err = repogit.ResolveCommit(o.ctx, o.repo, opts.Base)
 		}
 		return err
 	})
@@ -80,7 +80,7 @@ func (o *operation) create(opts Options) error {
 		return e
 	}
 	o.report.WriteAttempted = true
-	var checkout gitworktree.GitResult
+	var checkout command.Result
 	_ = o.measure("create_branch", func() error {
 		checkout = o.run(o.ctx, o.repo, 2*time.Minute, "checkout", "--no-overwrite-ignore", "-b", opts.Name, base, "--")
 		return nil

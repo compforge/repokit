@@ -5,16 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // GitResult retains the adapter's actual outcome, including uncertain writes.
-type GitResult = gitworktree.GitResult
+type GitResult = command.Result
 
 // AddWorktreeOptions chooses a new branch or a detached checkout. Both empty
 // leaves Git's normal branch selection intact. Naming and ownership are caller policy.
@@ -48,7 +49,7 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			unlock()
 		}
 	}()
-	result := gitworktree.Add(ctx, repo, path, ref, options.Branch, options.Detach)
+	result := worktree.Add(ctx, repo, path, ref, options.Branch, options.Detach)
 	if result.Err == nil {
 		if err := recordCheckoutCreation(ctx, createdPathFor(repo, path)); err != nil {
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)
@@ -80,7 +81,7 @@ func RemoveWorktree(ctx context.Context, repo, path string, options RemoveWorktr
 	if options.Force {
 		args = append(args, "--force")
 	}
-	result := gitworktree.Run(ctx, repo, 30*time.Second, append(args, "--", path)...)
+	result := command.Run(ctx, repo, 30*time.Second, append(args, "--", path)...)
 	if result.Err == nil {
 		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			result.Stderr += fmt.Sprintf("\ncheckout removed; metadata unavailable: %v", err)
@@ -105,7 +106,7 @@ func createdPathFor(repo, path string) string {
 }
 
 func recordCheckoutCreation(ctx context.Context, path string) error {
-	info, err := gitworktree.Local(ctx, path)
+	info, err := worktree.Local(ctx, path)
 	if err != nil {
 		return err
 	}

@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -14,7 +15,6 @@ import (
 
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
@@ -57,7 +57,7 @@ func stateLocation(ctx context.Context, repo, home string) (string, CheckoutInfo
 		return "", CheckoutInfo{}, nil, err
 	}
 	home = resolved
-	info, err := gitworktree.Local(ctx, repo)
+	info, err := worktree.Local(ctx, repo)
 	if err != nil {
 		return "", info, nil, err
 	}

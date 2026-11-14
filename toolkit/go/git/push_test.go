@@ -3,7 +3,7 @@ package git
 import (
 	"context"
 	"errors"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,7 +16,7 @@ func pushFixture(t *testing.T) (string, string, PushOptions) {
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	repo, remote, sha := tagFixture(t)
-	command(t, repo, "branch", "-M", "topic")
+	runGit(t, repo, "branch", "-M", "topic")
 	return repo, remote, PushOptions{Branch: "topic", Commit: sha, Remote: "origin"}
 }
 
@@ -24,25 +24,25 @@ func pushFixture(t *testing.T) (string, string, PushOptions) {
 func TestPushDestinationAndIdempotence(t *testing.T) {
 	repo, remote, opts := pushFixture(t)
 	fetch := filepath.Join(t.TempDir(), "fetch.git")
-	command(t, repo, "init", "--bare", "-q", fetch)
-	command(t, repo, "remote", "set-url", "origin", fetch)
-	command(t, repo, "remote", "set-url", "--push", "origin", remote)
-	command(t, repo, "tag", "-a", "unrequested", "-m", "tag")
-	command(t, repo, "config", "push.followTags", "true")
+	runGit(t, repo, "init", "--bare", "-q", fetch)
+	runGit(t, repo, "remote", "set-url", "origin", fetch)
+	runGit(t, repo, "remote", "set-url", "--push", "origin", remote)
+	runGit(t, repo, "tag", "-a", "unrequested", "-m", "tag")
+	runGit(t, repo, "config", "push.followTags", "true")
 	if e := os.WriteFile(filepath.Join(repo, "dirty"), []byte("keep"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	before := command(t, repo, "status", "--porcelain")
+	before := runGit(t, repo, "status", "--porcelain")
 	opts.Target = "published/topic"
 	opts.SetUpstream = true
 	r, e := Push(context.Background(), repo, opts)
 	if e != nil || !r.Confirmed || !r.PushAttempted || r.UpstreamConfirmed || len(r.Diagnostics) != 1 || r.RemoteCommit != opts.Commit {
 		t.Fatal(r, e)
 	}
-	if command(t, remote, "rev-parse", "refs/heads/published/topic") != opts.Commit || command(t, fetch, "for-each-ref", "--format=%(refname)") != "" || command(t, remote, "tag", "--list") != "" {
+	if runGit(t, remote, "rev-parse", "refs/heads/published/topic") != opts.Commit || runGit(t, fetch, "for-each-ref", "--format=%(refname)") != "" || runGit(t, remote, "tag", "--list") != "" {
 		t.Fatal("wrong publication scope")
 	}
-	if command(t, repo, "status", "--porcelain") != before || command(t, repo, "config", "branch.topic.remote") != "origin" || command(t, repo, "config", "branch.topic.merge") != "refs/heads/published/topic" {
+	if runGit(t, repo, "status", "--porcelain") != before || runGit(t, repo, "config", "branch.topic.remote") != "origin" || runGit(t, repo, "config", "branch.topic.merge") != "refs/heads/published/topic" {
 		t.Fatal(r)
 	}
 	again, e := Push(context.Background(), repo, opts)
@@ -56,18 +56,18 @@ func TestPushFastForwardAndRejectRewrite(t *testing.T) {
 		t.Fatal(e)
 	}
 	first := opts.Commit
-	command(t, repo, "commit", "--allow-empty", "-qm", "second")
-	opts.Commit = command(t, repo, "rev-parse", "HEAD")
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "second")
+	opts.Commit = runGit(t, repo, "rev-parse", "HEAD")
 	r, e := Push(context.Background(), repo, opts)
 	if e != nil || !r.Confirmed {
 		t.Fatal(r, e)
 	}
 	second := opts.Commit
-	command(t, repo, "reset", "--hard", first)
+	runGit(t, repo, "reset", "--hard", first)
 	opts.Commit = first
 	r, e = Push(context.Background(), repo, opts)
 	requireProblem(t, e, "git.push_rejected", false)
-	if r.Confirmed || r.RemoteCommit != second || command(t, remote, "rev-parse", "refs/heads/topic") != second {
+	if r.Confirmed || r.RemoteCommit != second || runGit(t, remote, "rev-parse", "refs/heads/topic") != second {
 		t.Fatal(r)
 	}
 }
@@ -84,7 +84,7 @@ func TestPushCheckAndSourceIdentity(t *testing.T) {
 	if _, e = Push(context.Background(), repo, opts); e != nil {
 		t.Fatal(e)
 	}
-	command(t, repo, "commit", "--allow-empty", "-qm", "new local commit")
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "new local commit")
 	r, e = Push(context.Background(), repo, opts)
 	requireProblem(t, e, "git.push_source_changed", false)
 	if r.PushAttempted {
@@ -92,7 +92,7 @@ func TestPushCheckAndSourceIdentity(t *testing.T) {
 	}
 	opts.Check = true
 	r, e = Push(context.Background(), repo, opts)
-	if e != nil || !r.Confirmed || r.PushAttempted || command(t, remote, "rev-parse", "refs/heads/topic") != opts.Commit {
+	if e != nil || !r.Confirmed || r.PushAttempted || runGit(t, remote, "rev-parse", "refs/heads/topic") != opts.Commit {
 		t.Fatal(r, e)
 	}
 	opts.SetUpstream = true
@@ -109,8 +109,8 @@ func TestPushInvalidInputsAndAmbiguousRemote(t *testing.T) {
 		}
 	}
 	repo, remote, opts := pushFixture(t)
-	command(t, repo, "remote", "set-url", "--add", "--push", "origin", remote)
-	command(t, repo, "remote", "set-url", "--add", "--push", "origin", remote+"-other")
+	runGit(t, repo, "remote", "set-url", "--add", "--push", "origin", remote)
+	runGit(t, repo, "remote", "set-url", "--add", "--push", "origin", remote+"-other")
 	r, e := Push(context.Background(), repo, opts)
 	requireProblem(t, e, "git.ambiguous_remote", false)
 	if r.PushAttempted {
@@ -125,26 +125,26 @@ func TestPushUnknownAndReconciliation(t *testing.T) {
 			repo, _, opts := pushFixture(t)
 			pushed := false
 			count := 0
-			run := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+			run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 				if args[0] == "push" {
 					pushed = true
 					count++
 					if scenario == "unacknowledged" {
-						return gitworktree.GitResult{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
+						return command.Result{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
 					}
-					r := gitworktree.Run(ctx, repo, budget, args...)
+					r := command.Run(ctx, repo, budget, args...)
 					if r.Err != nil {
 						t.Fatal(r.Err)
 					}
 					if scenario == "response_lost" {
-						return gitworktree.GitResult{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
+						return command.Result{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
 					}
 					return r
 				}
 				if args[0] == "ls-remote" && pushed && scenario == "verify_failed" {
-					return gitworktree.GitResult{ExitCode: 1, Err: errors.New("offline")}
+					return command.Result{ExitCode: 1, Err: errors.New("offline")}
 				}
-				return gitworktree.Run(ctx, repo, budget, args...)
+				return command.Run(ctx, repo, budget, args...)
 			}
 			r, e := push(context.Background(), repo, opts, run)
 			if count != 1 {
@@ -170,10 +170,10 @@ func TestPushUnknownAndReconciliation(t *testing.T) {
 }
 func TestPushRejectsSourceChangeDuringPreflight(t *testing.T) {
 	repo, _, opts := pushFixture(t)
-	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
-		r := gitworktree.Run(ctx, repo, budget, args...)
+	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
+		r := command.Run(ctx, repo, budget, args...)
 		if args[0] == "ls-remote" {
-			command(t, repo, "commit", "--allow-empty", "-qm", "concurrent")
+			runGit(t, repo, "commit", "--allow-empty", "-qm", "concurrent")
 		}
 		return r
 	}
@@ -185,25 +185,25 @@ func TestPushRejectsSourceChangeDuringPreflight(t *testing.T) {
 }
 func TestPushKeepsFrozenCommitDuringWrite(t *testing.T) {
 	repo, remote, opts := pushFixture(t)
-	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 		if args[0] == "push" {
-			command(t, repo, "commit", "--allow-empty", "-qm", "concurrent after preflight")
+			runGit(t, repo, "commit", "--allow-empty", "-qm", "concurrent after preflight")
 		}
-		return gitworktree.Run(ctx, repo, budget, args...)
+		return command.Run(ctx, repo, budget, args...)
 	}
 	r, e := push(context.Background(), repo, opts, run)
-	if e != nil || !r.Confirmed || command(t, remote, "rev-parse", "refs/heads/topic") != opts.Commit || command(t, repo, "rev-parse", "HEAD") == opts.Commit {
+	if e != nil || !r.Confirmed || runGit(t, remote, "rev-parse", "refs/heads/topic") != opts.Commit || runGit(t, repo, "rev-parse", "HEAD") == opts.Commit {
 		t.Fatal(r, e)
 	}
 }
 func TestPushUpstreamFailureRetainsRemoteSuccess(t *testing.T) {
 	repo, _, opts := pushFixture(t)
 	opts.SetUpstream = true
-	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+	run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 		if args[0] == "config" && args[1] == "--local" && args[2] == "--replace-all" {
-			return gitworktree.GitResult{ExitCode: 1, Err: errors.New("config locked")}
+			return command.Result{ExitCode: 1, Err: errors.New("config locked")}
 		}
-		return gitworktree.Run(ctx, repo, budget, args...)
+		return command.Run(ctx, repo, budget, args...)
 	}
 	r, e := push(context.Background(), repo, opts, run)
 	if e != nil || !r.Confirmed || r.UpstreamConfirmed || len(r.Diagnostics) != 1 {
@@ -213,11 +213,11 @@ func TestPushUpstreamFailureRetainsRemoteSuccess(t *testing.T) {
 func TestPushRemoteFailureBeforeWrite(t *testing.T) {
 	repo, _, opts := pushFixture(t)
 	for _, raw := range []string{"not a ref", opts.Commit + "\trefs/heads/wrong", opts.Commit + "\trefs/heads/topic\n" + opts.Commit + "\trefs/heads/topic"} {
-		run := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+		run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 			if args[0] == "ls-remote" {
-				return gitworktree.GitResult{Stdout: raw}
+				return command.Result{Stdout: raw}
 			}
-			return gitworktree.Run(ctx, repo, budget, args...)
+			return command.Run(ctx, repo, budget, args...)
 		}
 		r, e := push(context.Background(), repo, opts, run)
 		requireProblem(t, e, "git.invalid_response", false)

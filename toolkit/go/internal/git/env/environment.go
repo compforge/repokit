@@ -1,5 +1,5 @@
-// Package gitenv binds child Git operations to their explicit checkout.
-package gitenv
+// Package env binds child Git operations to their explicit checkout.
+package env
 
 import (
 	"strconv"
