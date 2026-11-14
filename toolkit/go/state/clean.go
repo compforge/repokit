@@ -138,6 +138,7 @@ type retentionEntry struct {
 // CleanWorktrees removes merged checkouts, then old excess checkouts and environments.
 //
 // +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Eligible checkouts are removed whole, including submodule clones; primary repositories and shared branch refs are retained.`
+// +spec=Caller cancellation stops remaining worktrees and returns confirmed actions without reporting untouched entries as failures.
 // +link=component://docs/worktrees.md
 func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (result WorktreeCleanReport, err error) {
 	ctx = maintenanceContext(ctx)
@@ -181,6 +182,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		action(e, kind, "failed", err.Error(), 0)
 	}
 	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		if entry.Primary {
 			continue
 		}
@@ -213,6 +217,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		if observeErr == nil {
 			e.environments, e.unmanaged, observeErr = worktreeEnvironments(ctx, e.Path, *policy, !options.DryRun)
 		}
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		if observeErr != nil {
 			known = false
 			e.excluded = true
@@ -236,6 +243,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				}
 				e.created = record.Created
 			}
+		}
+		if err := ctx.Err(); err != nil {
+			return report, err
 		}
 		if observeErr != nil {
 			e.excluded = true
@@ -295,10 +305,16 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	}
 	if options.PullRequests != nil {
 		for _, e := range candidates {
+			if err := ctx.Err(); err != nil {
+				return report, err
+			}
 			if e.excluded {
 				continue
 			}
 			number, err := options.PullRequests.MergedPullRequest(ctx, e.Branch, e.SHA)
+			if ctx.Err() != nil {
+				return report, ctx.Err()
+			}
 			if err != nil {
 				e.excluded = true
 				failure(e, "retain", err)
@@ -308,6 +324,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				continue
 			}
 			verified, err := options.PullRequests.MergedPullRequest(ctx, e.Branch, e.SHA)
+			if ctx.Err() != nil {
+				return report, ctx.Err()
+			}
 			if err != nil || verified != number {
 				e.excluded = true
 				if err == nil {
@@ -335,6 +354,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 	}
 	for _, e := range survivors[:max(0, len(survivors)-policy.MaxCount)] {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		remove(e, "max_count", 0)
 	}
 	prepared := make([]*retentionEntry, 0, len(survivors))
@@ -344,6 +366,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 	}
 	for _, e := range prepared[:max(0, len(prepared)-policy.MaxPrepared)] {
+		if err := ctx.Err(); err != nil {
+			return report, err
+		}
 		if e.excluded {
 			continue
 		}
@@ -415,6 +440,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		action(e, "release_environment", status, "max_prepared", 0)
 		report.Actions[len(report.Actions)-1].EstimatedBytes = size
+	}
+	if err := ctx.Err(); err != nil {
+		return report, err
 	}
 	countPrepared := 0
 	for _, e := range candidates {
