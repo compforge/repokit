@@ -271,21 +271,6 @@ def _protection(
     return ""
 
 
-def _removal_protection(entry: state.CheckoutEntry, directories: tuple[Path, ...]) -> str:
-    assert entry.path
-    if _git(entry.path, "status", "--porcelain=v1", "-z", "--untracked-files=all"):
-        return "unsaved_changes"
-    ignored = _git(
-        entry.path, "ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"
-    )
-    for value in ignored.split("\0"):
-        if value and not any(
-            (Path(entry.path) / value).is_relative_to(directory) for directory in directories
-        ):
-            return "unmanaged_ignored_files"
-    return ""
-
-
 def clean_worktrees(
     repo: str | Path,
     *,
@@ -297,7 +282,8 @@ def clean_worktrees(
 ) -> WorktreeCleanReport:
     """Merged first, then oldest checkouts, then oldest prepared environments.
 
-    +spec=`Retention never forces Git removal or deletes branch refs. Unknown creation
+    +spec=`Eligible checkouts are force-removed with all local contents; branch refs remain.
+    Unknown creation
     times sort before recorded times, with paths breaking ties deterministically.`
     +link=`component://docs/worktrees.md`
     """
@@ -360,10 +346,6 @@ def _clean(
             continue
         try:
             reason = _protection(repo, entry, current, inventory)
-            directories, has_unmanaged = _environments(entry.path, policy, recover=not dry_run)
-            environments[entry.path] = directories
-            if has_unmanaged:
-                unmanaged.add(entry.path)
             created = _created(entry.path)
             dates[entry.path] = created or 0
             if reason:
@@ -380,16 +362,14 @@ def _clean(
         if entry.path in excluded:
             return False
         try:
-            protection = _protection(repo, entry, current) or _removal_protection(
-                entry, environments[entry.path]
-            )
-            # Status/ignored-file enumeration may outlive a branch switch in another process.
-            protection = protection or _protection(repo, entry, current)
+            protection = _protection(repo, entry, current)
             if protection:
                 action(entry, "remove_worktree", "skipped", protection, number)
                 return False
             if not dry_run:
-                result = operations.git(repo, "worktree", "remove", "--", entry.path, timeout=30)
+                result = operations.git(
+                    repo, "worktree", "remove", "--force", "--", entry.path, timeout=30
+                )
                 if not result.ok:
                     raise OSError(result.err or "worktree removal failed")
             removed.add(entry.path)
@@ -405,19 +385,19 @@ def _clean(
         row = by_branch.get(entry.branch or "")
         if not entry.path or entry.path in excluded or row is None or row.error or row.ambiguous:
             continue
-        pr = row.selected
-        if pr is None or pr.state != "merged" or not pr.sha or pr.sha != entry.head:
+        pr = row.candidates[0] if len(row.candidates) == 1 else None
+        if pr is None or pr.state != "merged":
             continue
         assert context is not None
         try:
             verified = context.verify(row)
-            latest = verified.selected
+            latest = verified.candidates[0] if len(verified.candidates) == 1 else None
             if (
                 verified.error
                 or verified.ambiguous
                 or latest is None
                 or latest.state != "merged"
-                or latest.sha != entry.head
+                or latest.sha != pr.sha
                 or (latest.number, latest.target_repository) != (pr.number, pr.target_repository)
             ):
                 raise ValueError("merged PR identity changed")
@@ -435,6 +415,19 @@ def _clean(
     for entry in oldest[: max(0, len(oldest) - policy.max_count)]:
         if entry.path:
             remove(entry, "max_count")
+    for entry in oldest:
+        if not entry.path or entry.path in removed:
+            continue
+        try:
+            directories, has_unmanaged = _environments(entry.path, policy, recover=not dry_run)
+            environments[entry.path] = directories
+            if has_unmanaged:
+                unmanaged.add(entry.path)
+        except (OSError, ValueError) as exc:
+            unknown_environments = True
+            excluded.add(entry.path)
+            errors.append(f"{entry.path}: {exc}")
+            action(entry, "inspect_environment", "failed", str(exc))
     prepared = {
         path for path, directories in environments.items() if directories and path not in removed
     } | (unmanaged - removed)

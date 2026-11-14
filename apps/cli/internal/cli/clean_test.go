@@ -161,70 +161,43 @@ func TestCleanTextStateProtectionIsNotFailure(t *testing.T) {
 	}
 }
 
-// +case=Two repository timeouts do not exhaust a global budget or prevent the next repository from completing.
-func TestCleanTimeoutIsPerRepository(t *testing.T) {
+// +case=Worktree timeouts do not impose a deadline on repository cache reclamation.
+func TestCleanTimeoutDoesNotBoundRepositoryCache(t *testing.T) {
 	home := t.TempDir()
-	for _, key := range []string{"a-slow", "b-slow", "z-fast"} {
-		if err := os.MkdirAll(filepath.Join(home, "repositories", key), 0700); err != nil {
-			t.Fatal(err)
-		}
-		if key == "z-fast" {
-			continue
-		}
-		ready, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
-		go func() {
-			done <- state.WithLock(context.Background(), filepath.Join(home, "locks", "activity", key), func(func() error) error {
-				close(ready)
-				<-release
-				return nil
-			})
-		}()
-		select {
-		case <-ready:
-		case err := <-done:
-			t.Fatal(err)
-		}
-		t.Cleanup(func() {
-			close(release)
-			if err := <-done; err != nil {
-				t.Error(err)
-			}
-		})
+	key := "cache"
+	if err := os.MkdirAll(filepath.Join(home, "repositories", key), 0700); err != nil {
+		t.Fatal(err)
 	}
-	for _, dry := range []bool{true, false} {
-		args := []string{"clean", "--home", home, "--timeout", "100ms", "--json"}
-		if dry {
-			args = append(args, "--dry-run")
-		}
-		var out, stderr bytes.Buffer
-		code := Execute(context.Background(), args, nil, &out, &stderr)
-		var result struct {
-			Outcome string            `json:"outcome"`
-			Data    state.CleanReport `json:"data"`
-		}
-		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-			t.Fatal(err, out.String())
-		}
-		if code != 1 || result.Outcome != "partial" || len(result.Data.Errors) != 2 {
-			t.Fatal(code, out.String(), stderr.String())
-		}
-		for _, key := range []string{"a-slow", "b-slow"} {
-			found := false
-			for _, issue := range result.Data.Errors {
-				found = found || strings.Contains(issue, key+": context deadline exceeded")
-			}
-			if !found {
-				t.Fatal("missing repository timeout", out.String())
-			}
-		}
-		found := false
-		for _, a := range result.Data.Actions {
-			if a.Repository == "z-fast" && (a.Status == "planned" || a.Status == "completed") {
-				found = true
-			}
-		}
-		if !found {
-			t.Fatal("later repository was not cleaned", out.String())
-		}
+	ready, release, done := make(chan struct{}), make(chan struct{}), make(chan error, 1)
+	go func() {
+		done <- state.WithLock(context.Background(), filepath.Join(home, "locks", "activity", key), func(func() error) error {
+			close(ready)
+			<-release
+			return nil
+		})
+	}()
+	select {
+	case <-ready:
+	case err := <-done:
+		t.Fatal(err)
+	}
+	timer := time.AfterFunc(150*time.Millisecond, func() { close(release) })
+	defer timer.Stop()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var out, stderr bytes.Buffer
+	code := Execute(ctx, []string{"clean", "--home", home, "--timeout", "20ms", "--json"}, nil, &out, &stderr)
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	var result struct {
+		Outcome string            `json:"outcome"`
+		Data    state.CleanReport `json:"data"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+		t.Fatal(err, out.String())
+	}
+	if code != 0 || result.Outcome != "succeeded" || len(result.Data.Errors) != 0 {
+		t.Fatal(code, out.String(), stderr.String())
 	}
 }

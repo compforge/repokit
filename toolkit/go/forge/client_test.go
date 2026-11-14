@@ -317,7 +317,7 @@ func TestMergedPullRequestEvidence(t *testing.T) {
 		{name: "merged", rows: []string{merged}, verify: merged, want: 1},
 		{name: "closed", rows: []string{githubFixture(1, "closed")}},
 		{name: "open", rows: []string{githubFixture(1, "open"), merged}},
-		{name: "other head", rows: []string{strings.ReplaceAll(merged, `"sha":"abc"`, `"sha":"other"`)}},
+		{name: "other head", rows: []string{strings.ReplaceAll(merged, `"sha":"abc"`, `"sha":"other"`)}, verify: strings.ReplaceAll(merged, `"sha":"abc"`, `"sha":"other"`), want: 1},
 		{name: "duplicate", rows: []string{merged, githubFixture(2, "merged")}},
 		{name: "across targets", rows: []string{merged}, secondTarget: true},
 		{name: "changed state", rows: []string{merged}, verify: githubFixture(1, "closed"), wantError: true},
@@ -356,7 +356,7 @@ func TestMergedPullRequestEvidence(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			number, err := ctx.MergedPullRequest(context.Background(), "topic", "abc")
+			number, err := ctx.MergedPullRequest(context.Background(), "topic")
 			if number != test.want || (err != nil) != test.wantError {
 				t.Fatal(number, err)
 			}

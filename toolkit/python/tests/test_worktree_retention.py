@@ -72,14 +72,34 @@ def test_unknown_dates_are_oldest_and_dry_run_predicts_survivors(repo):
     assert not clean_worktrees(repo, policy=policy).actions
 
 
-def test_dirty_checkout_keeps_sources_but_can_release_environment(repo):
-    path = linked(repo, "dirty", prepared=True)
-    (path / "notes").write_text("irreplaceable")
-    report = clean_worktrees(repo, policy=WorktreePolicy(0, 0))
-    assert path.exists() and (path / "notes").read_text() == "irreplaceable"
-    assert not (path / "node_modules").exists()
-    assert report.remaining_count == 1 and report.remaining_prepared == 0
-    assert any(a.reason == "unsaved_changes" for a in report.actions)
+@pytest.mark.parametrize(
+    "content", ["dirty", "staged", "untracked", "ignored", "invalid_environment"]
+)
+@pytest.mark.parametrize("merged", [False, True])
+def test_eligible_checkout_discards_all_contents(repo, tmp_path, content, merged):
+    # +case=`Merged or excess worktrees are deleted regardless of contents or environment validity.`
+    path = linked(repo, "discard", prepared=True)
+    policy = WorktreePolicy(10 if merged else 0, 0)
+    context = context_for(repo, tmp_path, "discard") if merged else None
+    if content in ("dirty", "staged"):
+        (path / "package.json").write_text("{}")
+        if content == "staged":
+            git(path, "add", "package.json")
+    elif content == "untracked":
+        (path / "notes").write_text("discard")
+    elif content == "ignored":
+        (path / ".private").mkdir()
+        (path / ".private" / "data").write_text("discard")
+    else:
+        (path / "not-ignored").mkdir()
+        policy = replace(policy, outputs=("not-ignored",))
+    for dry_run in (True, False):
+        report = clean_worktrees(repo, context=context, policy=policy, dry_run=dry_run)
+        assert not report.errors
+        assert report.remaining_count == 0 and report.remaining_prepared == 0
+        assert len(report.actions) == 1 and report.actions[0].action == "remove_worktree"
+        assert path.exists() == dry_run
+    assert state.rev_parse(repo, "discard")
 
 
 def test_current_locked_detached_and_primary_are_protected(repo):
@@ -118,12 +138,14 @@ def test_only_merged_is_terminal(repo, tmp_path, pr_state):
     assert state.rev_parse(repo, "proposal")
 
 
-def test_merged_branch_with_new_commits_is_retained(repo, tmp_path):
+def test_merged_checkout_removed_with_new_commits_preserved(repo, tmp_path):
     path = linked(repo, "proposal")
     context = context_for(repo, tmp_path, "proposal")
     git(path, "commit", "--allow-empty", "-m", "new work")
-    assert not clean_worktrees(repo, context=context).actions
-    assert path.exists()
+    head = state.get_head_sha(path)
+    report = clean_worktrees(repo, context=context)
+    assert not report.errors and report.actions[0].reason == "merged"
+    assert not path.exists() and state.rev_parse(repo, "proposal") == head
 
 
 def test_failed_verification_does_not_fall_back_to_age_removal(repo, tmp_path):
@@ -134,15 +156,6 @@ def test_failed_verification_does_not_fall_back_to_age_removal(repo, tmp_path):
     assert path.exists() and report.errors
 
 
-def test_unmanaged_ignored_data_blocks_checkout_removal(repo):
-    path = linked(repo, "private")
-    (path / ".private").mkdir()
-    (path / ".private" / "secret").write_text("local only")
-    report = clean_worktrees(repo, policy=WorktreePolicy(0, 0))
-    assert path.exists()
-    assert report.actions[0].reason == "unmanaged_ignored_files"
-
-
 def test_symlink_environment_never_erases_destination(repo, tmp_path):
     path = linked(repo, "linked-env")
     outside = tmp_path / "shared"
@@ -150,7 +163,7 @@ def test_symlink_environment_never_erases_destination(repo, tmp_path):
     (outside / ".repokit-dependencies.json").write_text('{"manager":"npm","fingerprint":"old"}')
     (path / "node_modules").symlink_to(outside, target_is_directory=True)
     report = clean_worktrees(repo, policy=WorktreePolicy(0, 0))
-    assert path.exists() and outside.exists() and report.errors
+    assert not path.exists() and outside.exists() and not report.errors
 
 
 def test_declared_outputs_only_and_tracked_files_are_protected(repo):
@@ -259,24 +272,6 @@ def test_failed_pr_write_does_not_run_maintenance(repo, tmp_path):
         with pytest.raises(ForgeError):
             context.close(PullRequestKey(REPO, 1))
         refresh.assert_not_called()
-
-
-def test_identity_rechecked_after_file_inventory(repo, tmp_path):
-    from repokit.state import worktrees
-
-    path = linked(repo, "proposal")
-    context = context_for(repo, tmp_path, "proposal")
-    check = worktrees._removal_protection
-
-    def changed(entry, directories):
-        result = check(entry, directories)
-        git(path, "switch", "-c", "reused-while-scanning")
-        return result
-
-    with patch.object(worktrees, "_removal_protection", side_effect=changed):
-        report = clean_worktrees(repo, context=context)
-    assert path.exists()
-    assert report.actions[0].reason == "checkout_identity_changed"
 
 
 def test_lease_wait_resolves_topology_once_and_returns_git_result(repo):

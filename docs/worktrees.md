@@ -61,27 +61,34 @@ Configuration lives in `~/.repokit/repositories/<repo-key>/persistent/config.jso
 3. Recounts surviving prepared checkouts and releases their oldest environments until
    `max_prepared` is reached. This is an independent count, not a fixed number of removals.
 
+The newest retained set provides a buffer for concurrent development sessions, which are
+expected to work in recently created checkouts. Cleanup does not discover Codex or other
+Harness sessions. Merged checkouts are finished work and are reclaimed independently of this
+buffer; callers must start a new worktree for subsequent work. Dirty contents do not extend
+retention beyond the count policy. Use an explicit Git worktree lock to pin a checkout.
+
 Creation time is recorded by the Python and Go worktree creation APIs in the checkout's Git
 administration directory (`repokit-created.json`, schema 1, `created_at` in Unix nanoseconds).
 Missing creation times sort **before all recorded times**; equal/unknown times sort by path.
 No commit timestamp or filesystem mtime is substituted. CLI overrides apply only to that run.
 
 Only merged is terminal for cleanup. Closed unmerged PRs receive ordinary count retention.
-Count retention is independent of PR state: it can remove an old clean open/no-PR checkout,
+Count retention is independent of PR state: it can remove an old open/no-PR checkout,
 while preserving its branch. A failed merged verification skips that checkout for the round.
 
 ## Protection and environment ownership
 
 The invoking checkout, primary checkout, detached checkouts, explicit Git worktree locks,
 in-progress Git operations and ancestors of registered nested checkouts are protected.
-Dirty/untracked files and unmanaged ignored files prevent checkout removal. After these checks,
-Go cleanup uses one `git worktree remove --force` to reclaim the entire checkout and its Git
-registration, including initialized submodule clones. It does not archive or separately manage
-gitlinks; explicit worktree locks remain protected because removal never uses double force.
-Status checks use `--ignore-submodules=none` so repository configuration cannot hide unsaved
-submodule changes. PR-triggered removal reuses the existing observer's association verification
-and requires the local HEAD to equal the PR source SHA, including squash merges. New commits
-on a reused branch are therefore not erased merely because an earlier PR merged.
+Eligible checkouts are removed whole with one `git worktree remove --force`, including dirty,
+untracked and ignored files, dependency directories and initialized submodule clones. Cleanup
+prioritizes disk reclamation; it does not save or archive uncommitted contents. Local branch refs
+and their commits remain. Explicit worktree locks remain protected because removal never uses
+double force. Environment ownership and inventory errors do not block whole-checkout removal;
+these checks apply only when releasing environments from surviving checkouts.
+PR-triggered removal verifies a unique merged PR for the source repository and branch. Local
+commits after the merge do not block reclamation. Open or ambiguous PR associations do not
+qualify for merged cleanup. Checkout identity is rechecked before removal.
 
 Environment release can leave dirty sources intact. It uses the existing Component/workspace
 dependency inventory, accepts only ignored checkout-local directories with RepoKit dependency
@@ -90,7 +97,7 @@ declarations assert that their contents are regenerable; they must not contain t
 symlinked installation roots or nested Git repositories. Unmanaged dependency environments count
 toward the prepared limit but are retained. Shared package-manager caches are never removed.
 Preparation and cleanup share a repository process lease; preparation waits within its deadline
-and Python cleanup skips a busy repository. Go cleanup waits within its command deadline. Explicit Git worktree locks
+and Python cleanup skips a busy repository. Go cleanup waits until the caller cancels. Explicit Git worktree locks
 are the interoperable way to pin an otherwise clean checkout during use by another process.
 Arbitrary external editors/installers do not participate in RepoKit's lease.
 
@@ -147,3 +154,12 @@ succeeds but preparation fails or remains unverified, outcome is `partial`, `con
 `ready=false`. Do not recreate or remove that checkout: inspect each Bin and resume preparation.
 `ready` requires complete observations and ready Bins; a receipt-free existing directory is only
 `present`. Costs include checkout phases and individual Depot phases. Validation is independent.
+
+## Cleanup time budget
+
+Both cleanup commands interpret `--timeout` (default `2m`) as a cumulative processing budget
+for each worktree. Inspection, PR verification, size estimation and removal or environment
+release share that worktree's budget; processing other checkouts does not consume it.
+A timed-out worktree is reported individually and does not stop the next one. Repository cache
+reclamation has no local time budget. Caller cancellation stops the entire sweep and preserves
+confirmed actions. Dry-run uses the same budget as execution.

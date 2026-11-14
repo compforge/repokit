@@ -12,9 +12,11 @@ repocli clean --home /path/to/repokit-home --inactive-days 90 --json
 
 不传 `--repo` 时覆盖所选 home 的已登记仓库；显式传入则只处理该 repository 身份，包含其记录的多个
 clone。home 沿用显式参数、`REPOKIT_HOME`、`~/.repokit` 的优先级。`--inactive-days` 范围为 1–36500；
-`--timeout` 默认 2 分钟，按 repository 独立计时；同一 repository 的多个 clone/worktree 及状态回收共用预算。
-单仓超时保留已完成动作、报告该仓失败并继续下一个仓库；用户取消或调用方 context 到期则停止整次扫描。
-Go `CleanOptions.RepositoryTimeout` 为 0 时仅受调用方 context 限制。
+`--timeout` 默认 2 分钟，是**单个 worktree 的累计处理预算**，包括该 worktree 的检查、PR 核验、目录大小统计、
+删除或依赖释放。处理其他 worktree 的时间不计入其预算。某个 worktree 超时会报告失败并继续处理其他 worktree，
+不会让该仓所有 worktree 共用一个期限。dry-run 使用同样的预算。repo 级缓存回收不设时间预算；
+用户取消或调用方 context 到期仍会终止整轮，并保留已完成结果。
+Go `CleanOptions.WorktreeTimeout` 与 `WorktreeCleanOptions.Timeout` 为 0 时仅受调用方 context 限制。
 
 ## 同一套 worktree 清理能力
 
@@ -31,14 +33,16 @@ Go `CleanOptions.RepositoryTimeout` 为 0 时仅受调用方 context 限制。
 worktree 数量沿用 `~/.repokit/repositories/<repo-key>/persistent/config.json` 的 `worktree.max_count` 和 `worktree.max_prepared`，
 默认 **10 个 linked checkout、3 个 prepared checkout**。先删除实时核验已 merged 的候选，再按创建时间
 回收超额 checkout 和依赖环境。未知创建时间排最老；30 天访问阈值不替代数量策略，也不导致限额内的
-普通 worktree 被全部删除。完整规则见 [worktree retention](worktrees.md)。
+普通 worktree 被全部删除。最新 worktree 的保留窗口为并行开发 session 留出缓冲；repocli 不探测 Harness session，
+已 merged 的 worktree 不再承接后续开发。完整规则见 [worktree retention](worktrees.md)。
 
 两个入口共用 [RepoKit 用户配置](configuration.md)、Forge 连接与实时 PR 查询能力；未配置凭据时报告 PR 状态不可用，仍可执行数量回收。
 PR 核验失败的 checkout 本轮保留。`--provider`、`--api-host`、`--target-repository` 使用同一配置语义。
 
 primary、当前工作目录所属 checkout、detached、Git lock、进行中的 Git 操作、嵌套 checkout 继续保护。
-脏文件、未跟踪文件和未托管的 ignored 文件阻止删除 checkout；但其明确托管的闲置依赖环境仍可释放，
-源码保留。包含当前 RepoKit home 的 checkout 不可回收。操作前重新读取 Git 身份与保护条件；通过检查后用单次 `git worktree remove --force` 整体回收目录与
+一旦满足 merged 或数量回收条件，整体删除 checkout，包括未提交改动、未跟踪和 ignored 文件；不归档本地内容。
+本地 branch refs 和提交保留，PR 合并后的新增提交不阻止回收。依赖环境检查仅用于保留 checkout 时的局部释放，不阻止整体删除。
+包含当前 RepoKit home 的 checkout 不可回收。操作前重新读取 Git 身份与保护条件；通过检查后用单次 `git worktree remove --force` 整体回收目录与
 注册信息，包含其中初始化的 submodule 副本。清理不逐个管理 gitlink，也不为这些副本建立归档；
 不使用可绕过显式 worktree 锁的双重 `--force`。
 
@@ -77,7 +81,7 @@ worktree 删除结果。状态写入 lease 以 `state_locked` 保留；缓存文
 - 有本地 checkout 登记时，保留 `repository.json` 身份和 `activity.json` 中的位置、common Git directory
   及原访问时间，只删除其余可重建状态，包括 topology、PR 观察与验证历史。仅存在于 topology 的位置
   先并入登记，再删除缓存；未知访问时间仍为 0，不因维护续期。
-- 后续全局 clean 继续从登记定位 clone，并实时核验 Git/PR。上次因脏文件、锁或 PR 查询失败而保留的
+- 后续全局 clean 继续从登记定位 clone，并实时核验 Git/PR。上次因锁或 PR 查询失败而保留的
   worktree，在条件解除后仍可回收，无需先访问仓库。登记是发现线索，不是删除授权；失效路径跳过，
   身份变化与读取错误仍报告。
 - 没有本地 checkout 登记的过期 repository 状态可整目录删除。轻量本地登记不按缓存年龄过期；

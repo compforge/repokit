@@ -23,8 +23,8 @@ type CleanOptions struct {
 	InactiveDays     int
 	DryRun           bool
 	CurrentDirectory string
-	// RepositoryTimeout bounds each repository, including all its clones. Zero uses only the caller context.
-	RepositoryTimeout time.Duration
+	// WorktreeTimeout bounds active cleanup work for each worktree. Repository cache reclamation has no local deadline.
+	WorktreeTimeout time.Duration
 	// PullRequests resolves the same live PR capability used by direct worktree cleanup.
 	PullRequests func(context.Context, string) (WorktreePullRequests, error)
 }
@@ -43,7 +43,7 @@ type CleanReport struct {
 
 // Clean applies repository worktree retention and reclaims expired repository state. Source repositories and branch refs are never deleted.
 // +spec=Dry-run shares eligibility and deletion protections with execution. Worktree cleanup uses CleanWorktrees and its repository policy. Cleanup never renews activity; missing repository activity sorts oldest. Worktree retention and errors do not prevent expired cache removal; checkout registration survives expiry, and access and writer protections still apply.
-// +spec=Each repository receives an independent timeout. Expiry retains partial results and continues to the next repository; caller cancellation stops the sweep.
+// +spec=Worktree timeouts retain partial results and continue to the next worktree. Repository cache reclamation has no local timeout; caller cancellation stops the sweep.
 // +link=component://docs/cleanup.md
 func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err error) {
 	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.clean", options.Home) }()
@@ -51,8 +51,8 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 	if options.InactiveDays < 1 || options.InactiveDays > 36500 {
 		return report, errors.New("inactive days must be between 1 and 36500")
 	}
-	if options.RepositoryTimeout < 0 {
-		return report, errors.New("repository timeout must not be negative")
+	if options.WorktreeTimeout < 0 {
+		return report, errors.New("worktree timeout must not be negative")
 	}
 	report.Home, err = ResolveHome(options.Home)
 	if err != nil {
@@ -110,17 +110,8 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 		}
 		started := time.Now()
 		previousErrors := len(report.Errors)
-		repoCtx, cancel := context.WithCancel(ctx)
-		if options.RepositoryTimeout > 0 {
-			cancel()
-			repoCtx, cancel = context.WithTimeout(ctx, options.RepositoryTimeout)
-		}
-		slog.InfoContext(ctx, "repository cleanup started", "repository", key, "timeout", options.RepositoryTimeout)
-		e := report.cleanRepository(repoCtx, directory, options, protected)
-		if repoCtx.Err() != nil {
-			e = repoCtx.Err()
-		}
-		cancel()
+		slog.InfoContext(ctx, "repository cleanup started", "repository", key, "worktree_timeout", options.WorktreeTimeout)
+		e := report.cleanRepository(ctx, directory, options, protected)
 		if e != nil {
 			report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", key, e))
 			report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "failed", Reason: e.Error(), Path: directory})
@@ -266,7 +257,7 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 					control = topology.MainRoot
 				}
 				clones[access.CommonDir] = true
-				request := WorktreeCleanOptions{Home: report.Home, DryRun: options.DryRun, ProtectedPaths: protected}
+				request := WorktreeCleanOptions{Timeout: options.WorktreeTimeout, Home: report.Home, DryRun: options.DryRun, ProtectedPaths: protected}
 				if options.PullRequests != nil {
 					request.PullRequests, e = options.PullRequests(ctx, control)
 					if ctx.Err() != nil {
