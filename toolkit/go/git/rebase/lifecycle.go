@@ -2,9 +2,9 @@ package rebase
 
 import (
 	"errors"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"time"
-
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 func (o *operation) start(opts Options) error {
@@ -15,7 +15,7 @@ func (o *operation) start(opts Options) error {
 		opts.Remote = "origin"
 	}
 	for _, branch := range []string{opts.Branch, opts.Target} {
-		if e := gitworktree.ValidateBranch(o.ctx, o.repo, branch); e != nil {
+		if e := repogit.ValidateBranch(o.ctx, o.repo, branch); e != nil {
 			return failure("invalid_argument", "explicit valid source and target branches are required", e)
 		}
 	}
@@ -59,7 +59,7 @@ func (o *operation) start(opts Options) error {
 		if !contains {
 			return failure("diverged", "local source must contain the captured remote source commit", nil)
 		}
-		r.TargetCommit, e = gitworktree.RefreshBranch(o.ctx, o.repo, r.Remote, r.Target)
+		r.TargetCommit, e = repogit.RefreshBranch(o.ctx, o.repo, r.Remote, r.Target)
 		if e != nil {
 			return failure("fetch_failed", "could not refresh rebase target", e)
 		}
@@ -115,7 +115,7 @@ func (o *operation) continueRebase() error {
 	return o.rewrite("continue", "-c", "core.editor=true", "-c", "rebase.autoStash=false", "rebase", "--continue")
 }
 func (o *operation) rewrite(phase string, args ...string) error {
-	var result gitworktree.GitResult
+	var result command.Result
 	_ = o.measure(phase, func() error {
 		o.report.WriteAttempted = true
 		result = o.run(o.ctx, o.repo, 2*time.Minute, args...)
@@ -159,7 +159,7 @@ func (o *operation) abort() error {
 	if o.report.Phase != "paused" {
 		return failure("not_paused", "abort only restores an in-progress rebase; completed history is never reset", nil)
 	}
-	result := gitworktree.GitResult{}
+	result := command.Result{}
 	_ = o.measure("abort", func() error {
 		o.report.WriteAttempted = true
 		result = o.run(o.ctx, o.repo, 2*time.Minute, "rebase", "--abort")

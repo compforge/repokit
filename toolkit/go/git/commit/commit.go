@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,7 +14,6 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // Plan prepares candidate content without changing HEAD, the real index or working files.
@@ -49,14 +51,14 @@ func execute(ctx context.Context, repo, action string, opts Options) (report Rep
 		return e
 	}
 	if action != "plan" {
-		if !gitworktree.ValidObjectID(opts.Tree) || (opts.Head != "unborn" && !gitworktree.ValidObjectID(opts.Head)) || opts.Branch == "" {
+		if !repogit.ValidObjectID(opts.Tree) || (opts.Head != "unborn" && !repogit.ValidObjectID(opts.Head)) || opts.Branch == "" {
 			return report, failure("intent", "an explicit branch, expected parent and tree are required")
 		}
 		if action == "create" && (opts.IndexFingerprint == "" || strings.TrimSpace(opts.Message) == "" || strings.ContainsRune(opts.Message, 0)) {
 			return report, failure("intent", "create requires the planned index fingerprint and a nonempty message without NUL")
 		}
 	}
-	info, e := gitworktree.Local(ctx, repo)
+	info, e := worktree.Local(ctx, repo)
 	if e != nil {
 		return report, e
 	}
@@ -69,7 +71,7 @@ func execute(ctx context.Context, repo, action string, opts Options) (report Rep
 	var unlock func()
 	if err = measure("lock_wait", func() error {
 		var e error
-		unlock, e = gitworktree.AcquireLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
+		unlock, e = repogit.AcquireLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
 		return e
 	}); err != nil {
 		return report, err
@@ -142,9 +144,9 @@ func execute(ctx context.Context, repo, action string, opts Options) (report Rep
 		reserve := min(5*time.Second, remaining/4)
 		budget = remaining - reserve
 	}
-	var result gitworktree.GitResult
+	var result command.Result
 	_ = measure("commit", func() error {
-		result = gitworktree.RunIndex(ctx, info.Root, o.index, budget, "commit", "--file", filepath.Join(dir, "message"))
+		result = command.RunIndex(ctx, info.Root, o.index, budget, "commit", "--file", filepath.Join(dir, "message"))
 		return result.Err
 	})
 	err = measure("verify", func() error { return o.observe(opts.Intent) })
@@ -213,7 +215,7 @@ func (o *operation) observe(intent Intent) error {
 		return e
 	}
 	tree, parents, _ := strings.Cut(raw, "\n")
-	if !gitworktree.ValidObjectID(tree) {
+	if !repogit.ValidObjectID(tree) {
 		return failure("evidence", "invalid commit tree evidence")
 	}
 	o.report.ActualTree = tree

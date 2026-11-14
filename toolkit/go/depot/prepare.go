@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,7 +14,6 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
@@ -137,7 +137,7 @@ func prepareBin(ctx context.Context, report *Report, index int, options Options)
 		fail("unsafe_path", e.Error(), false)
 		return
 	}
-	tracked := gitworktree.Run(ctx, report.Checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
+	tracked := command.Run(ctx, report.Checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
 	if tracked.Err != nil {
 		fail("inspection_failed", tracked.Err.Error(), false)
 		return

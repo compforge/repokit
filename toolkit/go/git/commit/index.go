@@ -5,18 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 type operation struct {
 	ctx    context.Context
-	info   gitworktree.CheckoutInfo
+	info   worktree.CheckoutInfo
 	report *Report
 	index  string
 }
@@ -26,7 +27,7 @@ func (o *operation) query(args ...string) (string, error) {
 	if deadline, ok := o.ctx.Deadline(); ok {
 		budget = time.Until(deadline)
 	}
-	r := gitworktree.RunIndex(o.ctx, o.info.Root, o.index, budget, args...)
+	r := command.RunIndex(o.ctx, o.info.Root, o.index, budget, args...)
 	if r.Err != nil {
 		return "", r.Err
 	}
@@ -52,7 +53,7 @@ func (o *operation) identity() (string, string, error) {
 		return "", "", failure("branch", "HEAD is not a local branch")
 	}
 	b = strings.TrimPrefix(b, "refs/heads/")
-	h, exists, e := gitworktree.BranchCommit(o.ctx, o.info.Root, b)
+	h, exists, e := repogit.BranchCommit(o.ctx, o.info.Root, b)
 	if e == nil && !exists {
 		h = "unborn"
 	}
@@ -238,7 +239,7 @@ func (o *operation) gitlinks(changes []Change) error {
 	if len(links) == 0 {
 		return nil
 	}
-	r := gitworktree.RunIndex(o.ctx, o.info.Root, o.index, 5*time.Second, "config", "-z", "--blob", o.report.Tree+":.gitmodules", "--get-regexp", `^submodule\..*\.path$`)
+	r := command.RunIndex(o.ctx, o.info.Root, o.index, 5*time.Second, "config", "-z", "--blob", o.report.Tree+":.gitmodules", "--get-regexp", `^submodule\..*\.path$`)
 	if r.Err != nil {
 		return failure("gitlink", "candidate gitlinks require a readable staged .gitmodules registration")
 	}

@@ -26,8 +26,10 @@ internal/
 │   └── history/   # 执行记录、WAL、统计、清理与文件锁；不依赖 validation 父包
 ├── analysis/      # 输入选择、识别、捕获、构图与变更分析编排
 │   └── deadcode/  # deadcode 编排、候选规则、可达性、前后比较与筛选
-├── gitworktree/   # Git checkout 查询与命令执行适配，不依赖 state
-├── git/           # 只读 Git 材料与容量边界
+├── git/           # Git 底层适配：材料读取、refs、push、互斥与恢复记录
+│   ├── env/       # Git 子进程的 checkout 环境隔离
+│   ├── command/   # 命令执行、取消、退出状态与不确定结果
+│   └── worktree/  # checkout 拓扑、枚举与创建
 ├── project/       # common 身份、目录布局、语言、工具证据及归属
 ├── diff/          # patch、变更行与 postimage
 ├── units/         # 源码片段拆分、分类和 Unit 组装
@@ -36,6 +38,8 @@ internal/
 ```
 
 ## 关键约定
+
+- `internal/git` 与 `internal/git/worktree` 使用 `command`，`command` 使用 `env`；底层适配不依赖 `state` 或公开 Git 操作流程。refs、push、lease、record 按文件组织；恢复记录内容与阶段、持锁范围归调用方。
 
 - 应用只能消费公共 API；不能为了 CLI 或测试放宽 internal 可见性。工具包不依赖 apps、Cobra 或 HTTP 展示。验证历史由 validation 通过显式 HistoryDir 保存；不隐式写入用户目录。
 - 终止操作的错误使用公共 `errs.Error`，在所属组件提供 code、操作与目标；应用直接复用其 JSON/text 表达，退出码和输出通道归应用。领域报告中的失败与缺口仍留在报告中，见 [错误契约](../../docs/errors.md)。

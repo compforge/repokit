@@ -1,28 +1,15 @@
-package gitworktree
+// Package worktree adapts Git checkout topology and worktree operations.
+package worktree
 
 import (
-	"bytes"
 	"context"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
-
-	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
 )
-
-// GitResult retains failed and uncertain outcomes. Cancellation after starting a
-// write can leave effects behind; inspect the repository before retrying.
-type GitResult struct {
-	ExitCode  int
-	Stdout    string
-	Stderr    string
-	Uncertain bool
-	Err       error
-}
 
 // WorktreeEntry is a registered Git worktree. The first entry can be a bare or
 // separate metadata directory rather than a usable checkout.
@@ -41,40 +28,9 @@ type CheckoutInfo struct {
 	Linked    bool
 }
 
-func Run(ctx context.Context, repo string, timeout time.Duration, args ...string) GitResult {
-	return RunIndex(ctx, repo, "", timeout, args...)
-}
-
-// RunIndex uses an explicit candidate index while preserving checkout-bound Git execution.
-func RunIndex(ctx context.Context, repo, index string, timeout time.Duration, args ...string) GitResult {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", repo}, args...)...)
-	cmd.Env = gitenv.ForCheckout(os.Environ())
-	if index != "" {
-		cmd.Env = append(cmd.Env, "GIT_INDEX_FILE="+index)
-	}
-	cmd.WaitDelay = time.Second
-	gitProcessGroup(cmd)
-	var out, stderr bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &out, &stderr
-	err := cmd.Run()
-	code := -1
-	if cmd.ProcessState != nil {
-		code = cmd.ProcessState.ExitCode()
-	}
-	// A failed start has no side effect. Once started, cancellation is indeterminate.
-	uncertain := cmd.Process != nil && ctx.Err() != nil
-	if err != nil {
-		err = fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
-		err = errs.Wrap(err, "git.command_failed", "git."+args[0], repo)
-	}
-	return GitResult{ExitCode: code, Stdout: out.String(), Stderr: stderr.String(), Uncertain: uncertain, Err: err}
-}
-
 // ListWorktrees reads NUL-delimited Git records; failure never means an empty inventory.
 func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
-	result := Run(ctx, repo, 5*time.Second, "worktree", "list", "--porcelain", "-z")
+	result := command.Run(ctx, repo, 5*time.Second, "worktree", "list", "--porcelain", "-z")
 	if result.Err != nil {
 		return nil, result.Err
 	}
@@ -102,7 +58,7 @@ func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
 // Local resolves checkout paths without enumerating registered worktrees.
 func Local(ctx context.Context, repo string) (CheckoutInfo, error) {
 	query := func(path, flag string) (string, error) {
-		result := Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
+		result := command.Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
 		if result.Err != nil {
 			return "", result.Err
 		}
@@ -142,7 +98,7 @@ func WithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (Che
 		return info, err
 	}
 	query := func(path, flag string) (string, error) {
-		result := Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
+		result := command.Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
 		if result.Err != nil {
 			return "", result.Err
 		}

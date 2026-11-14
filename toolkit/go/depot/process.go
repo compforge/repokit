@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
+	"github.com/compforge/repokit/toolkit/go/internal/git/env"
 )
 
 type output struct {
@@ -46,7 +46,7 @@ func run(ctx context.Context, root string, args []string, manager string) execut
 	cmd := exec.CommandContext(child, args[0], args[1:]...)
 	cmd.Dir = root
 	cmd.WaitDelay = time.Second
-	cmd.Env = gitenv.ForCheckout(os.Environ())
+	cmd.Env = env.ForCheckout(os.Environ())
 	if manager == "uv" {
 		env := []string{}
 		for _, v := range cmd.Env {

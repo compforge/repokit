@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 type PublishTagsOptions struct {
@@ -41,14 +42,14 @@ type TagPublishReport struct {
 	Phases        []TagPublishPhase `json:"phases"`
 }
 
-type gitRunner func(context.Context, string, time.Duration, ...string) gitworktree.GitResult
+type gitRunner func(context.Context, string, time.Duration, ...string) command.Result
 
 // PublishTags publishes missing lightweight tags at one resolved commit. Existing annotated
 // tags are compared by their peeled commit and are never replaced.
 // +spec=Preflight and reconciliation query the same single push destination; missing tags use one atomic non-force push, never an automatic retry.
 // +link=component://docs/git.md#tag-publication
 func PublishTags(ctx context.Context, repo string, opts PublishTagsOptions) (TagPublishReport, error) {
-	return publishTags(ctx, repo, opts, gitworktree.Run)
+	return publishTags(ctx, repo, opts, command.Run)
 }
 
 func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run gitRunner) (report TagPublishReport, err error) {
@@ -86,7 +87,7 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 			return failure("git.invalid_argument", "tag publication requires tags, an explicit target and a configured remote", nil)
 		}
 		var e error
-		endpoint, e = gitworktree.PushDestination(repo, opts.Remote, func(timeout time.Duration, args ...string) (string, error) { return query(ctx, timeout, args...) })
+		endpoint, e = repogit.PushDestination(repo, opts.Remote, func(timeout time.Duration, args ...string) (string, error) { return query(ctx, timeout, args...) })
 		if e != nil {
 			return e
 		}
@@ -169,10 +170,10 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 			args = append(args, report.TargetCommit+":"+tag.Ref)
 		}
 	}
-	var pushed gitworktree.GitResult
+	var pushed command.Result
 	_ = phase("push", func() error {
 		// +why=Reserve part of the caller's remaining budget for reconciliation; never extend its deadline.
-		budget := gitworktree.PushBudget(ctx)
+		budget := repogit.PushBudget(ctx)
 		report.PushAttempted = true
 		pushed = run(ctx, repo, budget, args...)
 		report.PushExitCode = &pushed.ExitCode
@@ -201,7 +202,7 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 // Unknown/localized summaries stay uncertain; never infer rejection from free-form stderr.
 func pushRejected(output string, tags []TagObservation) bool {
 	for _, tag := range tags {
-		if gitworktree.PushRejected(output, tag.Ref) {
+		if repogit.PushRejected(output, tag.Ref) {
 			return true
 		}
 	}

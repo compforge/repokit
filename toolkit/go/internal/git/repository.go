@@ -8,7 +8,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
+	"github.com/compforge/repokit/toolkit/go/internal/git/env"
 	"io"
 	"os"
 	"os/exec"
@@ -108,7 +108,7 @@ func Open(ctx context.Context, dir string) (*Repository, error) {
 
 func (r *Repository) run(ctx context.Context, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-pager"}, args...)...)
-	cmd.Env = gitenv.ForCheckout(os.Environ())
+	cmd.Env = env.ForCheckout(os.Environ())
 	cmd.Dir = r.Root
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -165,7 +165,7 @@ func (r *Repository) readBlobs(ctx context.Context, s Snapshot, blobs []blob, ha
 	}
 	// One cat-file process avoids spawning Git once for every unchanged file.
 	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
-	cmd.Env = gitenv.ForCheckout(os.Environ())
+	cmd.Env = env.ForCheckout(os.Environ())
 	cmd.Dir = r.Root
 	var input strings.Builder
 	for _, b := range blobs {

@@ -4,12 +4,14 @@ package rebase
 
 import (
 	"context"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"path/filepath"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 type Action string
@@ -58,11 +60,11 @@ type Report struct {
 	Diagnostics    []Diagnostic `json:"diagnostics"`
 	Phases         []Phase      `json:"phases"`
 }
-type runner func(context.Context, string, time.Duration, ...string) gitworktree.GitResult
+type runner func(context.Context, string, time.Duration, ...string) command.Result
 type operation struct {
 	ctx    context.Context
 	repo   string
-	info   gitworktree.CheckoutInfo
+	info   worktree.CheckoutInfo
 	run    runner
 	record *record
 	report Report
@@ -73,7 +75,7 @@ type operation struct {
 // +spec=Unknown writes retain recovery evidence. A remote already equal to the frozen publish commit completes without another push.
 // +link=component://docs/git-rebase.md
 func Run(ctx context.Context, repo string, action Action, opts Options) (Report, error) {
-	return execute(ctx, repo, action, opts, gitworktree.Run)
+	return execute(ctx, repo, action, opts, command.Run)
 }
 func execute(ctx context.Context, repo string, action Action, opts Options, run runner) (report Report, err error) {
 	o := &operation{ctx: ctx, repo: repo, run: run, report: Report{Checkout: repo, Action: action, Phase: "unknown", Conflicts: []string{}, Diagnostics: []Diagnostic{}, Phases: []Phase{}}}
@@ -87,7 +89,7 @@ func execute(ctx context.Context, repo string, action Action, opts Options, run 
 	if action != Start && action != Status && action != Continue && action != Abort && action != Finish {
 		return report, failure("invalid_argument", "unknown rebase action", nil)
 	}
-	o.info, err = gitworktree.Local(ctx, repo)
+	o.info, err = worktree.Local(ctx, repo)
 	if err != nil {
 		return report, err
 	}
@@ -95,7 +97,7 @@ func execute(ctx context.Context, repo string, action Action, opts Options, run 
 	var unlock func()
 	err = o.measure("lock_wait", func() error {
 		var e error
-		unlock, e = gitworktree.AcquireLease(ctx, filepath.Join(o.info.CommonDir, "repokit-worktrees.lock"))
+		unlock, e = repogit.AcquireLease(ctx, filepath.Join(o.info.CommonDir, "repokit-worktrees.lock"))
 		return e
 	})
 	if err != nil {

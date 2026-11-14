@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/gitenv"
+	"github.com/compforge/repokit/toolkit/go/internal/git/env"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -73,7 +73,7 @@ func (m *IgnoreMatcher) Ignored(ctx context.Context, paths []string) (map[string
 	}
 	cmd := exec.CommandContext(ctx, "git", "-c", "core.excludesFile="+os.DevNull,
 		"check-ignore", "--no-index", "--stdin", "-z")
-	cmd.Env = gitenv.ForCheckout(os.Environ())
+	cmd.Env = env.ForCheckout(os.Environ())
 	cmd.Dir, cmd.Stdin, cmd.Stderr = m.root, &input, &stderr
 	out, err := cmd.Output()
 	if ctx.Err() != nil {

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -13,7 +15,6 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // WorktreePolicy retains the newest linked checkouts and prepared environments.
@@ -218,7 +219,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			failure(e, "retain", observeErr)
 			continue
 		}
-		metadata, observeErr := gitworktree.Local(ctx, e.Path)
+		metadata, observeErr := worktree.Local(ctx, e.Path)
 		if observeErr == nil {
 			var data []byte
 			data, observeErr = os.ReadFile(filepath.Join(metadata.GitDir, "repokit-created.json"))
@@ -440,7 +441,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 }
 
 func worktreeQuery(ctx context.Context, repo string, args ...string) (string, error) {
-	result := gitworktree.Run(ctx, repo, 5*time.Second, args...)
+	result := command.Run(ctx, repo, 5*time.Second, args...)
 	return result.Stdout, result.Err
 }
 
@@ -466,7 +467,7 @@ func protectionInInventory(ctx context.Context, current string, entry CheckoutEn
 	if entry.Branch == "" {
 		return "detached_checkout", nil
 	}
-	info, err := gitworktree.Local(ctx, entry.Path)
+	info, err := worktree.Local(ctx, entry.Path)
 	if err != nil {
 		return "", err
 	}

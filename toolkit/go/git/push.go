@@ -3,13 +3,15 @@ package git
 import (
 	"context"
 	"errors"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 // PushOptions identifies the exact local commit and remote branch. History rewriting belongs to rebase.
@@ -51,7 +53,7 @@ type PushReport struct {
 // +spec=Only matching remote evidence confirms publication. Never retry a push automatically or replace the requested commit with a newer branch tip; check observes the original intent.
 // +link=component://docs/git-push.md
 func Push(ctx context.Context, repo string, opts PushOptions) (PushReport, error) {
-	return push(ctx, repo, opts, gitworktree.Run)
+	return push(ctx, repo, opts, command.Run)
 }
 func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (report PushReport, err error) {
 	if opts.Remote == "" {
@@ -81,19 +83,19 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	failure := func(code, msg string, cause error) error {
 		return &errs.Error{Code: "git.push_" + code, Message: msg, Cause: cause}
 	}
-	var info gitworktree.CheckoutInfo
+	var info worktree.CheckoutInfo
 	err = measure("prepare", func() error {
-		if !gitworktree.ValidObjectID(opts.Commit) || (opts.Check && opts.SetUpstream) {
+		if !repogit.ValidObjectID(opts.Commit) || (opts.Check && opts.SetUpstream) {
 			return failure("invalid_argument", "push requires a full commit ID; --check cannot configure upstream", nil)
 		}
-		if e := gitworktree.ValidateBranch(ctx, repo, opts.Branch); e != nil {
+		if e := repogit.ValidateBranch(ctx, repo, opts.Branch); e != nil {
 			return failure("invalid_argument", "explicit valid source branch is required", e)
 		}
-		if e := gitworktree.ValidateBranch(ctx, repo, opts.Target); e != nil {
+		if e := repogit.ValidateBranch(ctx, repo, opts.Target); e != nil {
 			return failure("invalid_argument", "valid destination branch is required", e)
 		}
 		var e error
-		info, e = gitworktree.Local(ctx, repo)
+		info, e = worktree.Local(ctx, repo)
 		if e == nil {
 			repo = info.Root
 			report.Checkout = repo
@@ -106,7 +108,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	var unlock func()
 	err = measure("lock_wait", func() error {
 		var e error
-		unlock, e = gitworktree.AcquireLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
+		unlock, e = repogit.AcquireLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
 		return e
 	})
 	if err != nil {
@@ -114,7 +116,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	}
 	defer unlock()
 	checkSource := func() error {
-		head, exists, e := gitworktree.BranchCommit(ctx, repo, opts.Branch)
+		head, exists, e := repogit.BranchCommit(ctx, repo, opts.Branch)
 		if e != nil {
 			return e
 		}
@@ -133,7 +135,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		if e != nil {
 			return e
 		}
-		tip, e := gitworktree.BranchTip(raw, ref)
+		tip, e := repogit.BranchTip(raw, ref)
 		if e != nil {
 			return e
 		}
@@ -151,7 +153,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	}
 	err = measure("remote_preflight", func() error {
 		var e error
-		endpoint, e = gitworktree.PushDestination(repo, opts.Remote, query)
+		endpoint, e = repogit.PushDestination(repo, opts.Remote, query)
 		if e != nil {
 			return e
 		}
@@ -175,16 +177,16 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		if err = checkSource(); err != nil {
 			return report, err
 		}
-		var result gitworktree.GitResult
+		var result command.Result
 		_ = measure("push", func() error {
 			report.PushAttempted = true
-			result = run(ctx, repo, gitworktree.PushBudget(ctx), "push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no", "--", endpoint, opts.Commit+":"+ref)
+			result = run(ctx, repo, repogit.PushBudget(ctx), "push", "--porcelain", "--no-follow-tags", "--recurse-submodules=no", "--", endpoint, opts.Commit+":"+ref)
 			report.PushExitCode = &result.ExitCode
 			return result.Err
 		})
 		err = measure("remote_verify", observe)
 		if !report.Confirmed {
-			if err == nil && !result.Uncertain && gitworktree.PushRejected(result.Stdout, ref) {
+			if err == nil && !result.Uncertain && repogit.PushRejected(result.Stdout, ref) {
 				return report, failure("rejected", "remote rejected branch publication; inspect the observed remote commit", result.Err)
 			}
 			return report, &errs.Error{Code: "git.push_unknown", Message: "branch publication could not be confirmed", Uncertain: true, Cause: errors.Join(result.Err, err), Hint: "Observe the same remote and target with --check and the original --commit before deciding whether to retry; no push was retried."}

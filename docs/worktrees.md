@@ -40,7 +40,7 @@ confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不�
 
 `cost.phases` 报告 inspect、lock_wait、inventory、branch、base、create、verify、record、observe
 中实际发生的阶段。`ensure` 不隐式安装依赖；调用方决定是否继续运行 `depot prepare` 和验证。
-通用生命周期判断归 state，Git 查询/写入适配归 internal/gitworktree；任务与 session 归属留在调用方。
+通用生命周期判断归 state，checkout 拓扑与 worktree 操作归 internal/git/worktree，通用 Git 命令执行归 internal/git/command，refs、push、互斥与恢复记录机制归 internal/git；任务与 session 归属留在调用方。
 
 ## Policy and ordering
 

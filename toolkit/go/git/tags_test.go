@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"errors"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,10 +12,9 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
-func command(t *testing.T, dir string, args ...string) string {
+func runGit(t *testing.T, dir string, args ...string) string {
 	t.Helper()
 	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
 	out, err := cmd.CombinedOutput()
@@ -28,13 +28,13 @@ func tagFixture(t *testing.T) (string, string, string) {
 	root := t.TempDir()
 	repo := filepath.Join(root, "repo")
 	remote := filepath.Join(root, "remote.git")
-	command(t, root, "init", "-q", repo)
-	command(t, repo, "config", "user.name", "Test")
-	command(t, repo, "config", "user.email", "test@example.com")
-	command(t, repo, "commit", "--allow-empty", "-qm", "first")
-	command(t, root, "init", "--bare", "-q", remote)
-	command(t, repo, "remote", "add", "origin", remote)
-	return repo, remote, command(t, repo, "rev-parse", "HEAD")
+	runGit(t, root, "init", "-q", repo)
+	runGit(t, repo, "config", "user.name", "Test")
+	runGit(t, repo, "config", "user.email", "test@example.com")
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "first")
+	runGit(t, root, "init", "--bare", "-q", remote)
+	runGit(t, repo, "remote", "add", "origin", remote)
+	return repo, remote, runGit(t, repo, "rev-parse", "HEAD")
 }
 func requireProblem(t *testing.T, err error, code string, uncertain bool) {
 	t.Helper()
@@ -48,20 +48,20 @@ func requireProblem(t *testing.T, err error, code string, uncertain bool) {
 func TestPublishTagsPushDestinationAndIdempotence(t *testing.T) {
 	repo, remote, sha := tagFixture(t)
 	fetch := filepath.Join(t.TempDir(), "fetch.git")
-	command(t, repo, "init", "--bare", "-q", fetch)
-	command(t, repo, "remote", "set-url", "origin", fetch)
-	command(t, repo, "remote", "set-url", "--push", "origin", remote)
-	command(t, repo, "tag", "-a", "local-only", "-m", "unrequested", sha)
-	command(t, repo, "config", "push.followTags", "true")
+	runGit(t, repo, "init", "--bare", "-q", fetch)
+	runGit(t, repo, "remote", "set-url", "origin", fetch)
+	runGit(t, repo, "remote", "set-url", "--push", "origin", remote)
+	runGit(t, repo, "tag", "-a", "local-only", "-m", "unrequested", sha)
+	runGit(t, repo, "config", "push.followTags", "true")
 	opts := PublishTagsOptions{Target: "HEAD", Tags: []string{"toolkit/go/v1.0.0", "candidate", "candidate"}}
 	report, err := PublishTags(context.Background(), repo, opts)
 	if err != nil || !report.Confirmed || !report.PushAttempted || len(report.Tags) != 2 || len(report.Phases) != 4 {
 		t.Fatal(report, err)
 	}
-	if command(t, fetch, "tag", "--list") != "" || command(t, remote, "tag", "--list", "local-only") != "" {
+	if runGit(t, fetch, "tag", "--list") != "" || runGit(t, remote, "tag", "--list", "local-only") != "" {
 		t.Fatal("pushed outside requested scope")
 	}
-	command(t, remote, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "annotated", "-m", "existing", sha)
+	runGit(t, remote, "-c", "user.name=Test", "-c", "user.email=test@example.com", "tag", "-a", "annotated", "-m", "existing", sha)
 	opts.Tags = append(opts.Tags, "annotated")
 	report, err = PublishTags(context.Background(), repo, opts)
 	if err != nil || !report.Confirmed || report.PushAttempted || report.TargetCommit != sha {
@@ -72,7 +72,7 @@ func TestPublishTagsPushDestinationAndIdempotence(t *testing.T) {
 			t.Fatal(tag)
 		}
 	}
-	if command(t, repo, "tag", "--list") != "local-only" {
+	if runGit(t, repo, "tag", "--list") != "local-only" {
 		t.Fatal("publication changed local tags")
 	}
 }
@@ -83,10 +83,10 @@ func TestPublishTagsConflictAndInputValidation(t *testing.T) {
 	if _, err := PublishTags(context.Background(), repo, PublishTagsOptions{Target: first, Tags: []string{"existing"}}); err != nil {
 		t.Fatal(err)
 	}
-	command(t, repo, "commit", "--allow-empty", "-qm", "second")
+	runGit(t, repo, "commit", "--allow-empty", "-qm", "second")
 	report, err := PublishTags(context.Background(), repo, PublishTagsOptions{Target: "HEAD", Tags: []string{"existing", "new"}})
 	requireProblem(t, err, "git.tag_conflict", false)
-	if report.PushAttempted || command(t, remote, "tag", "--list", "new") != "" {
+	if report.PushAttempted || runGit(t, remote, "tag", "--list", "new") != "" {
 		t.Fatal(report)
 	}
 	for _, opts := range []PublishTagsOptions{
@@ -103,8 +103,8 @@ func TestPublishTagsConflictAndInputValidation(t *testing.T) {
 	if err == nil || report.PushAttempted {
 		t.Fatal(report, err)
 	}
-	command(t, repo, "remote", "set-url", "--add", "--push", "origin", remote)
-	command(t, repo, "remote", "set-url", "--add", "--push", "origin", filepath.Join(t.TempDir(), "other"))
+	runGit(t, repo, "remote", "set-url", "--add", "--push", "origin", remote)
+	runGit(t, repo, "remote", "set-url", "--add", "--push", "origin", filepath.Join(t.TempDir(), "other"))
 	_, err = PublishTags(context.Background(), repo, PublishTagsOptions{Target: first, Tags: []string{"valid"}})
 	requireProblem(t, err, "git.ambiguous_remote", false)
 }
@@ -115,10 +115,10 @@ func TestPublishTagsAtomicRejection(t *testing.T) {
 		t.Run(map[bool]string{false: "hook", true: "unsupported"}[unsupported], func(t *testing.T) {
 			repo, remote, sha := tagFixture(t)
 			if unsupported {
-				command(t, remote, "config", "receive.advertiseAtomic", "false")
+				runGit(t, remote, "config", "receive.advertiseAtomic", "false")
 			} else {
 				hook := filepath.Join(remote, "hooks", "update")
-				command(t, remote, "config", "core.hooksPath", filepath.Dir(hook))
+				runGit(t, remote, "config", "core.hooksPath", filepath.Dir(hook))
 				if err := os.WriteFile(hook, []byte("#!/bin/sh\n[ \"$1\" != \"refs/tags/rejected\" ]\n"), 0755); err != nil {
 					t.Fatal(err)
 				}
@@ -129,13 +129,13 @@ func TestPublishTagsAtomicRejection(t *testing.T) {
 			} else {
 				requireProblem(t, err, "git.tag_publish_failed", false)
 			}
-			if !report.PushAttempted || report.Confirmed || command(t, remote, "tag", "--list") != "" {
+			if !report.PushAttempted || report.Confirmed || runGit(t, remote, "tag", "--list") != "" {
 				t.Fatal(report)
 			}
 			if !unsupported {
 				// The same remote accepts one ref without --atomic: this fixture detects a lost atomic flag.
-				result := gitworktree.Run(context.Background(), repo, 5*time.Second, "push", remote, sha+":refs/tags/allowed", sha+":refs/tags/rejected")
-				if result.Err == nil || command(t, remote, "tag", "--list") != "allowed" {
+				result := command.Run(context.Background(), repo, 5*time.Second, "push", remote, sha+":refs/tags/allowed", sha+":refs/tags/rejected")
+				if result.Err == nil || runGit(t, remote, "tag", "--list") != "allowed" {
 					t.Fatal(result)
 				}
 			}
@@ -151,17 +151,17 @@ func TestPublishTagsReconciliation(t *testing.T) {
 			pushes, reads := 0, 0
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
-			runner := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+			runner := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 				if args[0] == "ls-remote" {
 					reads++
 					if reads == 2 && mode == "verify_failure" {
-						return gitworktree.GitResult{ExitCode: 1, Err: errors.New("offline")}
+						return command.Result{ExitCode: 1, Err: errors.New("offline")}
 					}
 				}
 				if args[0] == "push" {
 					pushes++
 					if mode != "unapplied_timeout" && mode != "transport_failure" && mode != "remote_failure" {
-						r := gitworktree.Run(ctx, repo, budget, args...)
+						r := command.Run(ctx, repo, budget, args...)
 						if r.Err != nil {
 							t.Fatal(r)
 						}
@@ -170,14 +170,14 @@ func TestPublishTagsReconciliation(t *testing.T) {
 						cancel()
 					}
 					if mode == "transport_failure" {
-						return gitworktree.GitResult{ExitCode: 128, Err: errors.New("connection reset")}
+						return command.Result{ExitCode: 128, Err: errors.New("connection reset")}
 					}
 					if mode == "remote_failure" {
-						return gitworktree.GitResult{ExitCode: 1, Err: errors.New("remote failure"), Stdout: "!\t" + sha + ":refs/tags/v1\t[remote failure] remote did not report status\n"}
+						return command.Result{ExitCode: 1, Err: errors.New("remote failure"), Stdout: "!\t" + sha + ":refs/tags/v1\t[remote failure] remote did not report status\n"}
 					}
-					return gitworktree.GitResult{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
+					return command.Result{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
 				}
-				return gitworktree.Run(ctx, repo, budget, args...)
+				return command.Run(ctx, repo, budget, args...)
 			}
 			report, err := publishTags(ctx, repo, PublishTagsOptions{Target: sha, Tags: []string{"v1"}}, runner)
 			if mode == "applied_timeout" {
@@ -205,26 +205,26 @@ func TestPublishTagsConcurrentChanges(t *testing.T) {
 	for _, conflict := range []bool{false, true} {
 		t.Run(map[bool]string{false: "head", true: "remote"}[conflict], func(t *testing.T) {
 			repo, remote, first := tagFixture(t)
-			command(t, repo, "commit", "--allow-empty", "-qm", "second")
-			second := command(t, repo, "rev-parse", "HEAD")
-			command(t, repo, "push", remote, second+":refs/heads/main")
-			runner := func(ctx context.Context, repo string, budget time.Duration, args ...string) gitworktree.GitResult {
+			runGit(t, repo, "commit", "--allow-empty", "-qm", "second")
+			second := runGit(t, repo, "rev-parse", "HEAD")
+			runGit(t, repo, "push", remote, second+":refs/heads/main")
+			runner := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
 				if args[0] == "push" {
 					if conflict {
-						command(t, remote, "tag", "v1", first)
+						runGit(t, remote, "tag", "v1", first)
 					} else {
-						command(t, repo, "commit", "--allow-empty", "-qm", "moved")
+						runGit(t, repo, "commit", "--allow-empty", "-qm", "moved")
 					}
 				}
-				return gitworktree.Run(ctx, repo, budget, args...)
+				return command.Run(ctx, repo, budget, args...)
 			}
 			report, err := publishTags(context.Background(), repo, PublishTagsOptions{Target: "HEAD", Tags: []string{"v1", "v2"}}, runner)
 			if conflict {
 				requireProblem(t, err, "git.tag_publish_failed", false)
-				if command(t, remote, "rev-parse", "refs/tags/v1") != first || command(t, remote, "tag", "--list", "v2") != "" {
+				if runGit(t, remote, "rev-parse", "refs/tags/v1") != first || runGit(t, remote, "tag", "--list", "v2") != "" {
 					t.Fatal(report)
 				}
-			} else if err != nil || report.TargetCommit != second || command(t, remote, "rev-parse", "refs/tags/v1") != second {
+			} else if err != nil || report.TargetCommit != second || runGit(t, remote, "rev-parse", "refs/tags/v1") != second {
 				t.Fatal(report, err)
 			}
 		})
@@ -233,9 +233,9 @@ func TestPublishTagsConcurrentChanges(t *testing.T) {
 
 func TestPublishTagsRelativePushPath(t *testing.T) {
 	repo, remote, sha := tagFixture(t)
-	command(t, repo, "remote", "set-url", "origin", "../remote.git")
+	runGit(t, repo, "remote", "set-url", "origin", "../remote.git")
 	report, err := PublishTags(context.Background(), repo, PublishTagsOptions{Target: sha, Tags: []string{"v1"}})
-	if err != nil || !report.Confirmed || command(t, remote, "rev-parse", "refs/tags/v1") != sha {
+	if err != nil || !report.Confirmed || runGit(t, remote, "rev-parse", "refs/tags/v1") != sha {
 		t.Fatal(report, err)
 	}
 }

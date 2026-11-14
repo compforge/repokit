@@ -3,6 +3,9 @@ package branch
 import (
 	"context"
 	"errors"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +14,6 @@ import (
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
 )
 
 func git(t *testing.T, dir string, args ...string) string {
@@ -164,19 +166,19 @@ func TestCheckoutFailureAndUnknownWrites(t *testing.T) {
 		t.Run(point, func(t *testing.T) {
 			d := fixture(t)
 			changes(t, d)
-			injected := func(ctx context.Context, repo string, timeout time.Duration, args ...string) gitworktree.GitResult {
+			injected := func(ctx context.Context, repo string, timeout time.Duration, args ...string) command.Result {
 				match := args[0] == "checkout" && strings.HasPrefix(point, "checkout") || args[0] == "stash" && args[1] == "push" && point == "stash_unknown" || args[0] == "stash" && args[1] == "apply" && point == "apply_unknown"
 				if !match {
-					return gitworktree.Run(ctx, repo, timeout, args...)
+					return command.Run(ctx, repo, timeout, args...)
 				}
 				if point == "checkout_failed" {
-					return gitworktree.GitResult{ExitCode: 1, Err: errors.New("rejected")}
+					return command.Result{ExitCode: 1, Err: errors.New("rejected")}
 				}
-				result := gitworktree.Run(ctx, repo, timeout, args...)
+				result := command.Run(ctx, repo, timeout, args...)
 				if result.Err != nil {
 					t.Fatal(result.Err)
 				}
-				return gitworktree.GitResult{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
+				return command.Result{ExitCode: -1, Err: context.DeadlineExceeded, Uncertain: true}
 			}
 			r, e := execute(context.Background(), d, Options{Name: "topic", Base: "main", CarryChanges: true}, false, injected)
 			if point == "checkout_failed" {
@@ -224,11 +226,11 @@ func TestIgnoredCollisionIsPreserved(t *testing.T) {
 func TestUnknownStatusPreventsWrites(t *testing.T) {
 	d := fixture(t)
 	changes(t, d)
-	run := func(ctx context.Context, repo string, timeout time.Duration, args ...string) gitworktree.GitResult {
+	run := func(ctx context.Context, repo string, timeout time.Duration, args ...string) command.Result {
 		if args[0] == "status" {
-			return gitworktree.GitResult{ExitCode: 1, Err: errors.New("unavailable")}
+			return command.Result{ExitCode: 1, Err: errors.New("unavailable")}
 		}
-		return gitworktree.Run(ctx, repo, timeout, args...)
+		return command.Run(ctx, repo, timeout, args...)
 	}
 	r, e := execute(context.Background(), d, Options{Name: "topic", Base: "main", CarryChanges: true}, false, run)
 	checkError(t, e, "query_failed")
@@ -242,8 +244,8 @@ func TestUnknownStatusPreventsWrites(t *testing.T) {
 func TestConfirmedRestoreSurvivesRecordFailure(t *testing.T) {
 	d := fixture(t)
 	changes(t, d)
-	run := func(ctx context.Context, repo string, timeout time.Duration, args ...string) gitworktree.GitResult {
-		r := gitworktree.Run(ctx, repo, timeout, args...)
+	run := func(ctx context.Context, repo string, timeout time.Duration, args ...string) command.Result {
+		r := command.Run(ctx, repo, timeout, args...)
 		if args[0] == "stash" && args[1] == "apply" && r.Err == nil {
 			path := recordPath(filepath.Join(d, ".git"), "topic")
 			if e := os.Remove(path); e != nil {
@@ -264,7 +266,7 @@ func TestConfirmedRestoreSurvivesRecordFailure(t *testing.T) {
 
 func TestSharedLeaseHonorsCallerCancellation(t *testing.T) {
 	d := fixture(t)
-	unlock, e := gitworktree.AcquireLease(context.Background(), filepath.Join(d, ".git", "repokit-worktrees.lock"))
+	unlock, e := repogit.AcquireLease(context.Background(), filepath.Join(d, ".git", "repokit-worktrees.lock"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -287,7 +289,7 @@ func TestLinkedCheckoutKeepsPrivateRecoveryRecord(t *testing.T) {
 	if e != nil || !r.Confirmed {
 		t.Fatal(r, e)
 	}
-	info, e := gitworktree.Local(context.Background(), linked)
+	info, e := worktree.Local(context.Background(), linked)
 	if e != nil {
 		t.Fatal(e)
 	}

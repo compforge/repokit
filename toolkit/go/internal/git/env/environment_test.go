@@ -1,4 +1,4 @@
-package gitenv
+package env
 
 import (
 	"encoding/json"
@@ -9,7 +9,7 @@ import (
 )
 
 func TestSharedEnvironment(t *testing.T) {
-	data, err := os.ReadFile("../../../../conformance/git/environment.json")
+	data, err := os.ReadFile("../../../../../conformance/git/environment.json")
 	if err != nil {
 		t.Fatal(err)
 	}

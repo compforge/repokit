@@ -2,8 +2,8 @@ package rebase
 
 import (
 	"errors"
-
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 )
 
 func (o *operation) finish() error {
@@ -74,7 +74,7 @@ func (o *operation) finish() error {
 		return e
 	}
 	o.report.Phase = "publishing"
-	var result gitworktree.GitResult
+	var result command.Result
 	ref := "refs/heads/" + o.record.Branch
 	_ = o.measure("push", func() error {
 		o.report.PushAttempted = true
@@ -88,7 +88,7 @@ func (o *operation) finish() error {
 		o.publishState("published")
 		return nil
 	}
-	if e == nil && !result.Uncertain && gitworktree.PushRejected(result.Stdout, ref) {
+	if e == nil && !result.Uncertain && repogit.PushRejected(result.Stdout, ref) {
 		return failure("push_rejected", "remote rejected the lease-protected publication; recovery record retained", result.Err)
 	}
 	return unknown("publication could not be confirmed; frozen commit and lease retained", errors.Join(result.Err, e))

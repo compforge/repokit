@@ -1,4 +1,4 @@
-package gitworktree
+package git
 
 import (
 	"context"
@@ -33,18 +33,6 @@ func PushDestination(repo, remote string, query Query) (string, error) {
 		endpoint, e = filepath.Abs(filepath.Join(repo, endpoint))
 	}
 	return endpoint, e
-}
-
-func ValidObjectID(s string) bool {
-	if len(s) != 40 && len(s) != 64 {
-		return false
-	}
-	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
-			return false
-		}
-	}
-	return true
 }
 
 // BranchTip rejects unexpected, duplicate or malformed ref observations; an empty response is absence.

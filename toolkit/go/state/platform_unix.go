@@ -4,13 +4,13 @@ package state
 
 import (
 	"context"
-	"github.com/compforge/repokit/toolkit/go/internal/gitworktree"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
 	"os"
 	"syscall"
 )
 
 func repositoryLease(ctx context.Context, path string) (func(), error) {
-	return gitworktree.AcquireLease(ctx, path)
+	return repogit.AcquireLease(ctx, path)
 }
 
 func directoryIdentity(info os.FileInfo) [2]uint64 {
