@@ -418,6 +418,28 @@ Go/CLI 的 concurrency 默认 2，范围 1–64；format 顺序完成后，lint/
 输出超限或退出时清理其进程组。启动后中断标为 uncertain，未启动时取消标为 cancelled；不自动重试。
 stdout 上限 16 MiB，stderr 上限 64 KiB。输出超过预算会终止检查并报告 uncertain。
 
+## Worker 预算
+
+项目可选消费正整数 `LINT_WORKERS` / `TEST_WORKERS`，分别表示单次 lint / test 的内部并发预算。
+未提供时保留项目默认值；项目负责映射到原生工具及在多层并发之间分配预算。仅声明变量而不使用它
+不会产生提速，串行工具也不因传入变量而获得并发能力。文件范围与检查判定不受预算影响。
+
+Go API 的 `ValidationRequest.LintWorkers` / `TestWorkers` 为零时不添加 Make 参数，负值拒绝。
+CLI 的 `--lint-workers` / `--test-workers` 显式提供时必须为正整数，分别追加
+`LINT_WORKERS=N` / `TEST_WORKERS=N` 到对应检查的 Make 命令；format 不接收这些 override。
+Make 命令行变量覆盖项目普通赋值；项目不要用 `override` 阻止这一契约。
+命令在计划、结果和历史中可见，改变 test 预算只改变 test 命令及其复用身份，不使 lint 缓存失效，反之亦然。
+未提供 flag 时既有环境变量行为保持不变，继承环境仍整体参与环境摘要。
+
+`--concurrency` 限制外层同时执行的检查数，worker 参数限制每个检查的内部并发。
+两层可能叠加，调用方应结合 CPU、内存和共享资源逐步调整；RepoKit 不自动调参。
+预算适用于本轮所有选中的同类检查，需要独立调优时通过 Component 边界限定本轮。
+
+```sh
+repocli validate --base HEAD --concurrency 2 --lint-workers 2 --test-workers 4 --json
+repocli test --component toolkit/go --test-workers 4 --json
+```
+
 ## CLI
 
 ```sh

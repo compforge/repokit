@@ -38,6 +38,8 @@ type ValidationRequest struct {
 	Impact               *analysis.Report
 	Tags                 []string
 	Concurrency          int // zero defaults to two concurrent checks.
+	LintWorkers          int // zero preserves the project default; positive overrides LINT_WORKERS for lint only.
+	TestWorkers          int // zero preserves the project default; positive overrides TEST_WORKERS for test only.
 	Inputs               map[string]map[string]CheckInputDeclaration
 	HistoryDir           string   // empty disables persistent history; CLI supplies its default.
 	Force                bool     // execute even when reusable history exists.
@@ -136,8 +138,12 @@ var makeFilePath = regexp.MustCompile(`^[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*$`)
 // +spec=Explicit files select their most specific Component owners; explicit Components constrain that selection before execution
 // +spec=Checks select the first local Makefile target candidate; absent targets skip without root or language-tool fallback
 // +spec=Recorded inputs bind execution evidence and never decide affected-file selection
+// +spec=Worker overrides bind only the corresponding lint/test command and its reuse identity; omitted budgets preserve project defaults
 // +link=component://docs/validation.md
 func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan, error) {
+	if req.LintWorkers < 0 || req.TestWorkers < 0 {
+		return ValidationPlan{}, errors.New("validation worker budgets must be positive when supplied (zero uses project defaults)")
+	}
 	if req.Base != "" {
 		if req.Impact != nil {
 			return ValidationPlan{}, errors.New("base and impact are alternative selections")
@@ -342,6 +348,16 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 					idx = 5
 				}
 				spec.Command[idx] = variable + "=" + strings.Join(spec.Files, " ")
+			}
+			workers := 0
+			if check == "lint" {
+				workers = req.LintWorkers
+			} else if check == "test" {
+				workers = req.TestWorkers
+			}
+			if workers > 0 {
+				spec.Command = append(spec.Command, fmt.Sprintf("%s_WORKERS=%d", strings.ToUpper(check), workers))
+				slog.DebugContext(ctx, "validation worker budget selected", "component", component.Root, "check", check, "workers", workers)
 			}
 			appendValidationCheck(&plan, component, spec)
 		}
