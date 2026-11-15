@@ -1,13 +1,15 @@
+import type { Comment } from "../comment.js";
+import { readComments } from "./comments.js";
 import type { PullRequestSnapshot, PullRequestConflictState, PullRequestMergeReadiness, PullRequestState } from "@compforge/harness-common";
-import { assertPullRequestKey, pullRequestKey } from "./key.js";
-import { authorMatches, connectionKey, queryKey, nextPage } from "./query.js";
-import type { ForgeComment, ForgeReader, Page, PageQuery, PullRequestKey, PullRequestQuery,
-  PullRequestScanQuery, PullRequestReviewObservation, ForgeReaderOptions, PullRequestReviewThreadState, ForgeReaderConfig, ForgeReadIssue } from "./model.js";
-import { scanPullRequests } from "./scan.js";
-import { pageContinuation, pagePosition } from "./page.js";
-import { ForgeCoverageError, ForgeNotFound } from "./model.js";
-import { readIssue } from "./issues.js";
-import { ForgeHttpClient, nonEmptyString, record, records, reviewActivityFingerprint } from "./http.js";
+import { assertPullRequestKey, pullRequestKey } from "../key.js";
+import { authorMatches, connectionKey, queryKey, nextPage } from "../query.js";
+import type { ForgeReader, Page, PageQuery, PullRequestKey, PullRequestQuery,
+  PullRequestScanQuery, PullRequestReviewObservation, ForgeReaderOptions, PullRequestReviewThreadState, ForgeReaderConfig, ForgeReadIssue } from "../model.js";
+import { scanPullRequests } from "../scan.js";
+import { pageContinuation, pagePosition } from "../page.js";
+import { ForgeCoverageError, ForgeNotFound } from "../model.js";
+import { readIssue } from "../issues.js";
+import { ForgeHttpClient, nonEmptyString, record, records, reviewActivityFingerprint } from "../http.js";
 
 const MAX_DISCUSSION_PAGES = 20;
 
@@ -186,92 +188,14 @@ export class GitLabForgeReader implements ForgeReader {
       observedAt: this.#now().toISOString() };
   }
 
-  async listPullRequestComments(
-    key: PullRequestKey,
-  ): Promise<readonly ForgeComment[]> {
+  async listComments(key: PullRequestKey): Promise<readonly Comment[]> {
     this.#assertPullRequestKey(key);
-    const result: ForgeComment[] = [];
-    let page = 1;
-    for (let count = 0; count < MAX_DISCUSSION_PAGES; count += 1) {
-      const { data, headers } = await this.#http.request(
-        "GET",
-        `${this.#projectBase(key.repository.path)}` +
-          `/merge_requests/${key.number}/discussions` +
-          `?per_page=100&page=${page}`,
-        { headers: this.#headers() },
-      );
-      const discussions = records("GitLab discussions", data);
-      for (const discussion of discussions) {
-        const notes = records("GitLab discussion notes", discussion.notes)
-          .filter((note) => note.system !== true);
-        const toComment = (
-          note: Record<string, unknown>,
-          index: number,
-        ): ForgeComment => {
-          const id = note.id;
-          if (
-            (typeof id !== "number" && typeof id !== "string") ||
-            id === ""
-          ) {
-            throw new Error(`GitLab comment ${index} has no id`);
-          }
-          const position = note.position &&
-              typeof note.position === "object" &&
-              !Array.isArray(note.position)
-            ? note.position as Record<string, unknown>
-            : undefined;
-          const author = note.author &&
-              typeof note.author === "object" &&
-              !Array.isArray(note.author)
-            ? note.author as Record<string, unknown>
-            : undefined;
-          return {
-            id: String(id),
-            body: typeof note.body === "string" ? note.body : "",
-            ...(typeof author?.username === "string"
-              ? { author: author.username }
-              : {}),
-            replyable: false,
-            replies: [],
-            ...(typeof position?.new_path === "string"
-              ? { path: position.new_path }
-              : {}),
-            ...(Number.isSafeInteger(position?.new_line)
-              ? { line: position!.new_line as number }
-              : {}),
-            createdAt: nonEmptyString(
-              `GitLab comment ${id} created_at`,
-              note.created_at,
-            ),
-          };
-        };
-        if (discussion.individual_note === true) {
-          result.push(...notes.map(toComment));
-          continue;
-        }
-        const [root, ...replies] = notes.map(toComment);
-        if (!root) continue;
-        result.push({
-          ...root,
-          replyable: true,
-          replies: replies.sort((left, right) =>
-            left.createdAt.localeCompare(right.createdAt)
-          ),
-        });
-      }
-      const nextPage = headers.get("x-next-page");
-      if (!nextPage) {
-        return result.sort((left, right) =>
-          left.createdAt.localeCompare(right.createdAt)
-        );
-      }
-      const parsed = Number(nextPage);
-      if (!Number.isSafeInteger(parsed) || parsed <= page) {
-        throw new Error("GitLab comment pagination is invalid");
-      }
-      page = parsed;
-    }
-    throw new Error("GitLab comment pagination limit exceeded");
+    return readComments(key, async page => this.#http.request("GET", `${this.#projectBase(key.repository.path)}/merge_requests/${key.number}/discussions?per_page=100&page=${page}`, { headers: this.#headers() }));
+  }
+  async getComment(key: PullRequestKey, id: string): Promise<Comment> {
+    const found = (await this.listComments(key)).find(c => c.id === id);
+    if (!found) throw new ForgeNotFound("comment not found in the specified PR");
+    return found;
   }
 
   #headers(): HeadersInit {

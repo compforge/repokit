@@ -7,7 +7,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/depot"
 	"github.com/compforge/repokit/toolkit/go/forge"
-	"github.com/compforge/repokit/toolkit/go/forge/discussion"
+	"github.com/compforge/repokit/toolkit/go/forge/comment"
 	"github.com/compforge/repokit/toolkit/go/forge/release"
 	repogit "github.com/compforge/repokit/toolkit/go/git"
 	"github.com/compforge/repokit/toolkit/go/git/branch"
@@ -197,12 +197,12 @@ func describeResult(r *commandResult, data any) {
 		if len(v.Errors) > 0 {
 			r.Outcome = "partial"
 		}
-	case []discussion.Discussion:
-		r.Summary = fmt.Sprintf("%d discussion(s)", len(v))
-	case discussion.Discussion:
-		r.Summary = fmt.Sprintf("Thread %s %s; %d comment(s)", v.ID, v.Resolution, len(v.Comments))
-	case discussion.CommentResult:
-		r.Summary = fmt.Sprintf("Comment %s posted in thread %s", v.Comment.ID, v.ThreadID)
+	case []comment.Comment:
+		r.Summary = fmt.Sprintf("%d comment(s)", len(v))
+	case comment.Comment:
+		r.Summary = fmt.Sprintf("Comment %s; resolution=%s", v.ID, v.Resolution)
+	case comment.DeleteResult:
+		r.Summary = fmt.Sprintf("Comment %s deleted=%t", v.CommentID, v.Deleted)
 	case forge.OperationResult:
 		r.Summary = fmt.Sprintf("PR #%d %s; created=%t", v.PullRequest.Key.Number, v.PullRequest.State, v.Created)
 	case forge.PullRequest:

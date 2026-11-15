@@ -1,5 +1,10 @@
 """Forge clients accept explicit endpoint and credentials; no application configuration."""
 
+from .comment import Comment as Comment
+from .comment import CommentAnchor as CommentAnchor
+from .comment import CommentForge as CommentForge
+from .comment import CommentResolution as CommentResolution
+from .comment import DeleteResult as DeleteResult
 from .connection import ForgeConnection as ForgeConnection
 from .connection import detect_provider as detect_provider
 from .creation import PullRequestCreation as PullRequestCreation
@@ -14,3 +19,4 @@ from .observation import PullRequestLifecycle as PullRequestLifecycle
 from .observation import PullRequestObserver as PullRequestObserver
 from .observation import PullRequestStatus as PullRequestStatus
 from .observation import PullRequestStatusUnavailable as PullRequestStatusUnavailable
+from .pr import PullRequestForge as PullRequestForge

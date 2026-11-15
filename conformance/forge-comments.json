@@ -1,0 +1,175 @@
+{
+  "github": {
+    "conversation": [
+      {
+        "id": 1,
+        "body": "Author context",
+        "user": {
+          "login": "human"
+        },
+        "created_at": "2026-01-01T00:00:00Z"
+      }
+    ],
+    "review": [
+      {
+        "id": 1,
+        "body": "Finding",
+        "user": {
+          "login": "bot"
+        },
+        "path": "src/a.go",
+        "side": "LEFT",
+        "line": null,
+        "original_line": 12,
+        "commit_id": "head",
+        "original_commit_id": "base",
+        "created_at": "2026-01-01T00:01:00Z"
+      },
+      {
+        "id": 2,
+        "body": "Not a bug: caller holds the lock",
+        "user": {
+          "login": "human"
+        },
+        "in_reply_to_id": 1,
+        "created_at": "2026-01-01T00:02:00Z",
+        "path": "src/a.go"
+      }
+    ],
+    "summaries": [
+      {
+        "id": 1,
+        "body": "Review summary",
+        "state": "CHANGES_REQUESTED",
+        "submitted_at": "2026-01-01T00:03:00Z",
+        "user": {
+          "login": "human"
+        }
+      },
+      {
+        "id": 9,
+        "body": "Draft",
+        "state": "PENDING"
+      }
+    ],
+    "threads": [
+      {
+        "id": "T1",
+        "isResolved": false,
+        "isOutdated": true,
+        "comments": {
+          "nodes": [
+            {
+              "fullDatabaseId": "1"
+            }
+          ]
+        }
+      }
+    ],
+    "expected": [
+      {
+        "id": "conversation:1",
+        "reply_to_id": null,
+        "resolution": "unsupported"
+      },
+      {
+        "id": "review:1",
+        "reply_to_id": null,
+        "resolution": "unresolved"
+      },
+      {
+        "id": "review:2",
+        "reply_to_id": "review:1",
+        "resolution": "unresolved"
+      },
+      {
+        "id": "summary:1",
+        "reply_to_id": null,
+        "resolution": "unsupported"
+      }
+    ]
+  },
+  "gitlab": {
+    "discussions": [
+      {
+        "id": "D1",
+        "individual_note": false,
+        "notes": [
+          {
+            "id": 1,
+            "body": "Finding",
+            "created_at": "2026-01-01T00:00:00Z",
+            "resolvable": true,
+            "resolved": true,
+            "position": {
+              "old_path": "old.go",
+              "old_line": 12,
+              "head_sha": "head",
+              "base_sha": "base"
+            }
+          },
+          {
+            "id": 2,
+            "body": "Still broken",
+            "created_at": "2026-01-01T00:01:00Z",
+            "resolvable": true,
+            "resolved": false
+          },
+          {
+            "id": 3,
+            "body": "system activity",
+            "system": true
+          }
+        ]
+      },
+      {
+        "id": "D2",
+        "individual_note": false,
+        "notes": [
+          {
+            "id": 4,
+            "body": "Unknown resolution",
+            "created_at": "2026-01-01T00:02:00Z",
+            "position": {
+              "new_path": "file.go",
+              "head_sha": "head"
+            }
+          }
+        ]
+      },
+      {
+        "id": "D3",
+        "individual_note": true,
+        "notes": [
+          {
+            "id": 5,
+            "body": "Plain note",
+            "created_at": "2026-01-01T00:03:00Z"
+          }
+        ]
+      }
+    ],
+    "expected": [
+      {
+        "id": "note:1",
+        "reply_to_id": null,
+        "resolution": "unresolved"
+      },
+      {
+        "id": "note:2",
+        "reply_to_id": null,
+        "resolution": "unresolved"
+      },
+      {
+        "id": "note:4",
+        "reply_to_id": null,
+        "resolution": "unknown"
+      },
+      {
+        "id": "note:5",
+        "reply_to_id": null,
+        "resolution": "unsupported"
+      }
+    ]
+  }
+}

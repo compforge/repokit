@@ -17,8 +17,9 @@ git/                # 显式 Git 操作：不可变 tag 发布与远端核验，
 config/             # 用户配置与 host 级 Forge 访问解析；不承载 repository 状态
 forge/              # 原生 PR 查询、写入与目标观测更新；不触发资源清理
 ├── release/       # Release 查询、确认发布和结果核验，不承担版本策略
-├── discussion/    # 讨论模型、查询和写入，不承担 maintenance
-├── model/         # PR 身份，供生命周期与 discussion 共享
+├── comment/       # 平铺 Comment 模型与 CRUD 接口；平台实现位于 internal/github、internal/gitlab
+├── pr/            # PR 生命周期领域接口
+├── model/         # PR 身份，供生命周期与 Comment 共享
 └── internal/transport/ # 共享 HTTP、认证、响应限制与限流冷却
 validation.go       # 验证公共类型别名与入口；实现归 internal/validation
 internal/

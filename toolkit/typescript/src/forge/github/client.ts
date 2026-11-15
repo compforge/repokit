@@ -1,16 +1,19 @@
+import type { Comment } from "../comment.js";
+import { readComments } from "./comments.js";
+import { ForgeNotFound } from "../model.js";
 import type { PullRequestSnapshot, PullRequestConflictState, PullRequestMergeReadiness, PullRequestState } from "@compforge/harness-common";
-import { assertPullRequestKey, pullRequestKey } from "./key.js";
-import { authorMatches, connectionKey, queryKey, nextPage } from "./query.js";
-import type { ForgeComment, ForgeReader, Page, PageQuery, PullRequestKey, PullRequestQuery,
-  PullRequestScanQuery, PullRequestReviewObservation, ForgeReaderOptions, PullRequestReviewThreadState, ForgeReaderConfig, ForgeReadIssue } from "./model.js";
-import { scanPullRequests } from "./scan.js";
-import { pageContinuation, pagePosition } from "./page.js";
-import { ForgeCoverageError } from "./model.js";
-import { readIssue } from "./issues.js";
-import { ForgeHttpClient, nonEmptyString, record, records, reviewActivityFingerprint } from "./http.js";
+import { assertPullRequestKey, pullRequestKey } from "../key.js";
+import { authorMatches, connectionKey, queryKey, nextPage } from "../query.js";
+import type { ForgeReader, Page, PageQuery, PullRequestKey, PullRequestQuery,
+  PullRequestScanQuery, PullRequestReviewObservation, ForgeReaderOptions, PullRequestReviewThreadState, ForgeReaderConfig, ForgeReadIssue } from "../model.js";
+import { scanPullRequests } from "../scan.js";
+import { pageContinuation, pagePosition } from "../page.js";
+import { ForgeCoverageError } from "../model.js";
+import { readIssue } from "../issues.js";
+import { ForgeHttpClient, nonEmptyString, record, records, reviewActivityFingerprint } from "../http.js";
 
 const MAX_REVIEW_THREAD_PAGES = 20;
-const MAX_COMMENT_PAGES = 20;
+const MAX_COMMENT_PAGES = 100;
 
 
 function repositoryPath(repository: string): string {
@@ -186,84 +189,20 @@ export class GitHubForgeReader implements ForgeReader {
       observedAt: this.#now().toISOString() };
   }
 
-  async listPullRequestComments(
-    key: PullRequestKey,
-  ): Promise<readonly ForgeComment[]> {
+  async listComments(key: PullRequestKey): Promise<readonly Comment[]> {
     this.#assertPullRequestKey(key);
-    const base =
-      `${this.#restBase}/repos/${repositoryPath(key.repository.path)}`;
-    const [conversation, review] = await Promise.all([
-      this.#commentRows(`${base}/issues/${key.number}/comments`),
-      this.#commentRows(`${base}/pulls/${key.number}/comments`),
-    ]);
-    const toComment = (
-      row: Record<string, unknown>,
-      anchored: boolean,
-      index: number,
-    ): ForgeComment => {
-      const id = row.id;
-      if (
-        (typeof id !== "number" && typeof id !== "string") ||
-        id === ""
-      ) {
-        throw new Error(`GitHub comments[${index}].id is invalid`);
-      }
-      const createdAt = nonEmptyString(
-        `GitHub comments[${index}].created_at`,
-        row.created_at,
-      );
-      return {
-        id: String(id),
-        body: typeof row.body === "string" ? row.body : "",
-        ...(typeof (row.user as Record<string, unknown> | undefined)
-              ?.login === "string"
-          ? {
-            author: (row.user as Record<string, unknown>).login as string,
-          }
-          : {}),
-        replyable: false,
-        replies: [],
-        ...(anchored && typeof row.path === "string"
-          ? { path: row.path }
-          : {}),
-        ...(anchored &&
-            Number.isSafeInteger(row.line ?? row.original_line)
-          ? { line: (row.line ?? row.original_line) as number }
-          : {}),
-        createdAt,
-      };
-    };
-
-    const comments = conversation.map((row, index) =>
-      toComment(row, false, index)
-    );
-    const replies = new Map<string, ForgeComment[]>();
-    const roots: ForgeComment[] = [];
-    for (const [index, row] of review.entries()) {
-      const comment = toComment(row, true, conversation.length + index);
-      const parent = row.in_reply_to_id;
-      if (parent !== undefined && parent !== null) {
-        const parentId = String(parent);
-        const siblings = replies.get(parentId);
-        if (siblings) {
-          siblings.push(comment);
-        } else {
-          replies.set(parentId, [comment]);
-        }
-      } else {
-        roots.push(comment);
-      }
-    }
-    comments.push(...roots.map((root) => ({
-      ...root,
-      replyable: true,
-      replies: (replies.get(root.id) ?? []).sort((left, right) =>
-        left.createdAt.localeCompare(right.createdAt)
-      ),
-    })));
-    return comments.sort((left, right) =>
-      left.createdAt.localeCompare(right.createdAt)
-    );
+    const base = `${this.#restBase}/repos/${repositoryPath(key.repository.path)}`;
+    return readComments(key, path => this.#commentRows(`${base}/${path}`), async (query, variables) => {
+      const { data } = await this.#http.request("POST", this.#graphqlUrl, {
+        headers: this.#headers(), body: JSON.stringify({ query, variables }),
+      });
+      return data;
+    });
+  }
+  async getComment(key: PullRequestKey, id: string): Promise<Comment> {
+    const found = (await this.listComments(key)).find(c => c.id === id);
+    if (!found) throw new ForgeNotFound("comment not found in the specified PR");
+    return found;
   }
 
   #headers(): HeadersInit {
@@ -291,11 +230,12 @@ export class GitHubForgeReader implements ForgeReader {
         `${endpoint}${separator}per_page=100&page=${page}`,
         { headers: this.#headers() },
       );
-      result.push(...records("GitHub comments", data));
+      const batch = records("GitHub comments", data);
+      result.push(...batch);
       const hasNextPage = headers.get("link")
         ?.split(",")
         .some((link) => /;\s*rel="next"/.test(link)) ?? false;
-      if (!hasNextPage) return result;
+      if (!hasNextPage && batch.length < 100) return result;
     }
     throw new Error("GitHub comment pagination limit exceeded");
   }

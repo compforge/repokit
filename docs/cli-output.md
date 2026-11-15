@@ -152,10 +152,11 @@ JSON 模式不受颜色、终端宽度或本地化影响，特殊字符与文件
 - [Terraform JSON 格式](https://developer.hashicorp.com/terraform/internals/json-format)：格式版本与兼容规则。
 - [Cargo 外部工具协议](https://doc.rust-lang.org/cargo/reference/external-tools.html)：过程事件、终态与子进程输出边界。
 
-### Discussion 操作
+### Comment 操作
 
-`pr discussion list/show/create/reply/resolve` 使用同一 envelope。`data` 保留 PR 身份、
-thread/comment 的独立 ID、完整正文及平台能力；具体字段和命令见 [PR discussions](pr.md#pr-discussions)。
+`pr comment list/show/create/reply/update/delete/resolve/unresolve` 使用同一 envelope。`data` 保留 PR 身份、
+平铺 Comment、已知直接回复关系与 resolution；thread/discussion 句柄留在 provider 内部。
+具体字段和命令见 [PR comments](pr.md#pr-comments)。
 读取失败不输出已知空数组；写入响应不能确认结果时 outcome 为 unknown，不能从退出码推断未生效。
 
 Release 查询与写入的 `data`、确认状态及 `release.*` 阶段成本见 [Forge Releases](forge-releases.md)。

@@ -15,7 +15,7 @@ internal/
 │   ├── release/   # Forge Release 查询与创建
 │   ├── validation/ # 验证执行、历史查询与 text 展示；根 cli 组装统一结果
 │   ├── worktree/  # checkout 创建/复用、观察与清理命令
-│   ├── pr/        # PR 生命周期和 discussion 命令及展示
+│   ├── pr/        # PR 生命周期和 comment 命令及展示
 │   ├── command/   # 共享选项与结果记录契约
 │   └── forgeaccess/ # PR / Release / cleanup 共用的 Forge 访问装配
 ├── stats/         # CLI 日志与存储统计；验证历史通过工具包公共 API 读取

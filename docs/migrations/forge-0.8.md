@@ -1,5 +1,7 @@
 # Forge API 迁移：TypeScript 0.8 / Python 0.10
 
+本页记录历史版本迁移；TypeScript 0.24 / Python 0.29 的 Comment 契约更新见 [PR comments](../pr.md#pr-comments)。
+
 这是 pre-1.0 的不兼容接口更新。部署前先适配消费方；不要仅更新依赖锁文件。
 
 | 原接口或字段 | 新接口或字段 |
