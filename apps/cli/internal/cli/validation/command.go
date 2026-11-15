@@ -22,7 +22,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
 	var planOnly, force, showHistory bool
-	var concurrency int
+	var concurrency, lintWorkers, testWorkers int
 	var inputsFile, historyDir string
 	var changed, checks []string
 	command := &cobra.Command{
@@ -32,8 +32,14 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 		Long:        "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
 		Args:        cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
-			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
+			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0 || cmd.Flags().Changed("lint-workers") || cmd.Flags().Changed("test-workers")) {
 				return errors.New("--history cannot be combined with check execution options")
+			}
+			if cmd.Flags().Changed("lint-workers") && lintWorkers <= 0 {
+				return errors.New("--lint-workers must be positive")
+			}
+			if cmd.Flags().Changed("test-workers") && testWorkers <= 0 {
+				return errors.New("--test-workers must be positive")
 			}
 			if opts.Timeout <= 0 {
 				return errors.New("--timeout must be positive")
@@ -78,7 +84,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				}
 				return cmdutil.JSON(cmd.OutOrStdout(), history)
 			}
-			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, Checks: checks, Base: base, ChangedFiles: changed}
+			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, LintWorkers: lintWorkers, TestWorkers: testWorkers, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
@@ -129,6 +135,12 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
 	command.Flags().BoolVar(&planOnly, "plan", false, "print the plan as JSON without running checks")
 	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")
+	if name == "validate" || name == "lint" {
+		command.Flags().IntVar(&lintWorkers, "lint-workers", 0, "positive LINT_WORKERS override for lint targets; omitted uses project default")
+	}
+	if name == "validate" || name == "test" {
+		command.Flags().IntVar(&testWorkers, "test-workers", 0, "positive TEST_WORKERS override for test targets; omitted uses project default")
+	}
 	command.Flags().StringVar(&inputsFile, "inputs", "", "JSON Component/check input declarations and receipt paths")
 	command.Flags().StringVar(&historyDir, "history-dir", "", "validation history root (default ~/.repokit/repositories)")
 	command.Flags().BoolVar(&force, "force", false, "execute checks even when successful history matches")
