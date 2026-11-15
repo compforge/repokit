@@ -11,6 +11,7 @@ CLI 是 Go 工具包的消费方，负责命令行交互和本地 viewer；通�
 cmd/repocli/       # 启动、信号、版本与退出
 internal/
 ├── cli/           # 根命令、结果封装、执行日志与 JSONL 历史
+│   ├── code/      # Code 分析命令，dead 提供用途与可达性分析
 │   ├── git/       # 显式 Git 操作与 tag 发布
 │   ├── release/   # Forge Release 查询与创建
 │   ├── validation/ # 验证执行、历史查询与 text 展示；根 cli 组装统一结果

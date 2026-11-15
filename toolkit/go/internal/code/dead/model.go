@@ -1,6 +1,6 @@
-// Package deadcode owns repository deadcode analysis, including capture
+// Package dead owns repository deadcode analysis, including capture
 // orchestration, candidate rules, reachability and before/after comparison.
-package deadcode
+package dead
 
 import (
 	shared "github.com/compforge/codegraph"

@@ -3,15 +3,15 @@
 Deadcode is a [Code analysis](../code.md) capability: it evaluates declaration usage
 and reachability using snapshot-bound graph evidence.
 
-`repocli deadcode` analyzes usage evidence in complete captured repository graphs.
+`repocli code dead` analyzes usage evidence in complete captured repository graphs.
 It can scan the repository, inspect selected documents, or follow a diff's graph
 nodes to declarations whose usefulness may have changed. It does not delete code.
 
 ## Repository and document scope
 
 ```sh
-repocli deadcode --head HEAD --exclude-tests --exclude-entrypoints --json
-repocli deadcode --file internal/service.go --file internal/worker.go --json
+repocli code dead --head HEAD --exclude-tests --exclude-entrypoints --json
+repocli code dead --file internal/service.go --file internal/worker.go --json
 ```
 
 `--file` selects exact snapshot-relative candidate paths. Each occurrence is one
@@ -27,18 +27,18 @@ no viewer document-count truncation or impact workset selection. Capture and gra
 budgets still apply; a failed build produces no candidate report. For larger graphs:
 
 ```sh
-repocli deadcode --max-nodes 250000 --max-relations 1000000 --json
+repocli code dead --max-nodes 250000 --max-relations 1000000 --json
 ```
 
 ## Review a change
 
 ```sh
 # HEAD versus working tree, including untracked files
-repocli deadcode --base HEAD --exclude-tests --exclude-entrypoints --json
+repocli code dead --base HEAD --exclude-tests --exclude-entrypoints --json
 # HEAD versus index
-repocli deadcode --base HEAD --staged --json
+repocli code dead --base HEAD --staged --json
 # Two exact revisions; nothing from the current working tree is mixed in
-repocli deadcode --base main --head HEAD --mode unreachable --json
+repocli code dead --base main --head HEAD --mode unreachable --json
 ```
 
 `--base` captures both versions once through the same comparison mechanism as
@@ -90,8 +90,8 @@ whole unreachable call chains.
 ### Unreachable
 
 ```sh
-repocli deadcode --mode unreachable --json
-repocli deadcode --mode unreachable --root 'qualified.symbol' --json
+repocli code dead --mode unreachable --json
+repocli code dead --mode unreachable --root 'qualified.symbol' --json
 ```
 
 `--root` is repeatable and accepts an exact declaration ID or a unique qualified
@@ -161,7 +161,7 @@ command success.
 
 ## Implementation boundary
 
-`toolkit/go/internal/code/deadcode` owns the complete deadcode flow: request
+`toolkit/go/internal/code/dead` owns the complete deadcode flow: request
 validation, capture and graph-build orchestration, candidate rules, reachability,
 before/after comparison and report assembly. Graph policy consumes CodeGraph facts;
 it does not parse language syntax or execute target code.
@@ -169,6 +169,6 @@ it does not parse language syntax or execute target code.
 The shared `internal/analysis` package supplies capture and graph primitives.
 `CaptureDiffSnapshots` retains the comparison's exact source versions, and
 `CapturedSnapshot.Graph` builds from retained contents. The dependency points from
-`code/deadcode` to `analysis`; shared analysis primitives do not import Code capabilities.
+`code/dead` to `analysis`; shared analysis primitives do not import Code capabilities.
 The public Go API remains in `toolkit/go/deadcode.go`, with CLI presentation in
 `apps/cli`.

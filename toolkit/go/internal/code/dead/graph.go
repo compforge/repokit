@@ -1,4 +1,4 @@
-package deadcode
+package dead
 
 import (
 	"cmp"

@@ -130,13 +130,13 @@ including structural analysis used in repository and Component identification.
 
 ### Deadcode candidates
 
-`repocli deadcode --json` builds a graph of all captured text documents and reports
+`repocli code dead --json` builds a graph of all captured text documents and reports
 declaration nodes with no incoming usage edges. The Go API is `AnalyzeDeadcode`.
 Use `--base HEAD` to follow dependencies from changed documents in both versions,
 including unchanged files. The report distinguishes newly dead code from related
 historical candidates. `--file` limits candidates while keeping whole-graph callers;
 `--mode unreachable` finds dead call chains and cycles from declared roots. Results
-retain snapshot identity, graph diagnostics and risks. See [rules and limitations](docs/code/deadcode.md).
+retain snapshot identity, graph diagnostics and risks. See [rules and limitations](docs/code/dead.md).
 
 ## Usage
 

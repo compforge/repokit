@@ -27,7 +27,7 @@ internal/
 │   └── history/   # 执行记录、WAL、统计、清理与文件锁；不依赖 validation 父包
 ├── analysis/      # 输入选择、识别、捕获、构图与变更分析编排
 ├── code/          # Code 分析领域，职责与方向见 ../../docs/code.md
-│   └── deadcode/  # 用途、可达性、候选规则、前后比较与筛选
+│   └── dead/  # 用途、可达性、候选规则、前后比较与筛选
 ├── git/           # Git 底层适配：材料读取、refs、push、互斥与恢复记录
 │   ├── env/       # Git 子进程的 checkout 环境隔离
 │   ├── command/   # 命令执行、取消、退出状态与不确定结果

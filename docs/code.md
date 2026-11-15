@@ -8,7 +8,7 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 
 | 子能力 | 关注的问题 | 当前状态 |
 | --- | --- | --- |
-| [Deadcode](code/deadcode.md) | 声明是否被使用、是否从声明的入口可达，以及改动前后的用途变化 | 已实现：`repocli deadcode` / Go `AnalyzeDeadcode` |
+| [Deadcode](code/dead.md) | 声明是否被使用、是否从声明的入口可达，以及改动前后的用途变化 | 已实现：`repocli code dead` / Go `AnalyzeDeadcode` |
 | 规模与复杂度 | 文件和函数长度、类型的方法数量；后续可扩展嵌套与分支复杂度 | 规划方向，尚无对应命令或规则 |
 | 耦合与结构 | 依赖范围、循环依赖团、跨模块调用与关系聚合 | 规划方向，尚无对应命令或规则 |
 | 架构约束 | 项目声明的模块边界、允许的依赖方向及其违反证据 | 规划方向，尚无对应命令或规则 |
@@ -49,7 +49,7 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 报告保留快照身份、候选范围、实际分析范围与诊断。文件或符号筛选可以只影响返回结果，
 不能悄悄删掉判定所需的外部调用者。静态关系不等于运行时执行，弱推断不等于确定调用；
 缺失材料、未解析关系或预算耗尽时，没有发现问题不能表述为已经证明代码健康。
-具体范围和完整性要求由各子能力声明，见 [Deadcode](code/deadcode.md)。
+具体范围和完整性要求由各子能力声明，见 [Deadcode](code/dead.md)。
 
 ### 版本比较
 
@@ -64,21 +64,21 @@ Deadcode 已实现候选身份匹配和用途变化分类，具体字段与限�
 docs/
 ├── code.md                  # Code 领域定位、公共约束与能力索引
 ├── code/
-│   └── deadcode.md          # deadcode 使用方式、规则、结果与实现边界
+│   └── dead.md          # deadcode 使用方式、规则、结果与实现边界
 └── codegraph.md             # 多个上层能力共享的代码事实与仓库适配
 
 toolkit/go/
 ├── deadcode.go              # 现有公开 API：AnalyzeDeadcode 与公共类型
 └── internal/
     ├── code/
-    │   └── deadcode/        # deadcode 流程、规则、比较与所属测试
+    │   └── dead/        # deadcode 流程、规则、比较与所属测试
     ├── analysis/            # 共享捕获、构图与分析原语
     └── codegraph/           # 共享 CodeGraph 的仓库适配与查询
 ```
 
-`internal/code` 以子能力组织目录。依赖方向为 `code/deadcode → analysis` 和共享代码事实；
-共享原语不反向依赖 Code 子能力。当前 CLI 入口仍是 `repocli deadcode`，Go 入口仍是
-`AnalyzeDeadcode`，CLI 展示位于 `apps/cli/internal/cli/deadcode.go`。
+`internal/code` 以子能力组织目录。依赖方向为 `code/dead → analysis` 和共享代码事实；
+共享原语不反向依赖 Code 子能力。CLI 以 Code 为领域组织，当前入口是 `repocli code dead`，Go 入口仍是
+`AnalyzeDeadcode`，CLI 展示位于 `apps/cli/internal/cli/code/dead.go`。
 公共命令与 SDK 入口按实际使用需求演进，目录归属本身不要求新增一层转发 API。
 
 各子能力的行为契约和 case 随实现维护；目录迁移保留现有 spec/case 及验证场景。
