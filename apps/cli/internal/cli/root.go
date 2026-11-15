@@ -97,9 +97,18 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 
 func newRootCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{
-		Use:           "repocli",
-		Version:       Version,
-		Short:         "Tools for Git repositories",
+		Use:     "repocli",
+		Version: Version,
+		Short:   "Repository analysis, validation, and Git/Forge operations",
+		Long: `Inspect repository structure and changes, run component checks,
+and perform Git and Forge operations.
+
+RepoKit Home connects remote repositories, pull requests and comments
+with local clones, branches and worktrees. It stores configuration,
+registrations, cached observations and execution history.
+
+Git and the forge remain authoritative for their respective state;
+callers own workflow decisions.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
