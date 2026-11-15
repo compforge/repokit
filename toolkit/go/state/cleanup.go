@@ -9,7 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/compforge/quality-harness/sdks/go/common"
@@ -19,6 +19,9 @@ import (
 const DefaultInactiveDays = 30
 
 type CleanOptions struct {
+	Validation    func(context.Context, string, string, int, bool) (ResourceCount, error)
+	cacheBefore   float64
+	cacheOverflow bool
 	// MergedPR verifies a recorded PR against Forge, independent of local checkout availability.
 	MergedPR         func(context.Context, common.Repository, int) (bool, error)
 	Home             string
@@ -36,12 +39,13 @@ type CleanAction struct {
 	WorktreeAction
 }
 type CleanReport struct {
-	Home           string        `json:"home"`
-	InactiveBefore time.Time     `json:"inactiveBefore"`
-	DryRun         bool          `json:"dryRun"`
-	Actions        []CleanAction `json:"actions"`
-	Errors         []string      `json:"errors"`
-	EstimatedBytes int64         `json:"estimatedBytes"`
+	Counts         []ResourceCount `json:"counts"`
+	Home           string          `json:"home"`
+	InactiveBefore time.Time       `json:"inactiveBefore"`
+	DryRun         bool            `json:"dryRun"`
+	Actions        []CleanAction   `json:"actions"`
+	Errors         []string        `json:"errors"`
+	EstimatedBytes int64           `json:"estimatedBytes"`
 }
 
 // Clean applies repository worktree retention and reclaims expired repository state. Source repositories and branch refs are never deleted.
@@ -83,6 +87,13 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 		selected = filepath.Base(directory)
 		protected = append(protected, checkout.Root)
 	}
+	locks, err := CleanLocks(ctx, report.Home, selected, options.DryRun)
+	if err != nil {
+		report.Errors = append(report.Errors, err.Error())
+	}
+	for _, a := range locks {
+		report.appendAction(ctx, selected, a)
+	}
 	root := filepath.Join(report.Home, "repositories")
 	info, e := os.Lstat(root)
 	if errors.Is(e, os.ErrNotExist) {
@@ -98,7 +109,48 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 	if e != nil {
 		return report, e
 	}
+	policy, e := LoadCleanupPolicy(report.Home, "")
+	if e != nil {
+		return report, e
+	}
+	candidates := []cacheCandidate{}
 	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		directory := filepath.Join(root, entry.Name())
+		has, e := hasRepositoryCache(directory)
+		if e != nil {
+			report.Errors = append(report.Errors, e.Error())
+			continue
+		}
+		if !has {
+			continue
+		}
+		at, e := resourceAccess(directory)
+		if e != nil {
+			continue
+		}
+		candidates = append(candidates, cacheCandidate{path: directory, access: at})
+	}
+	sort.Slice(candidates, func(i, j int) bool {
+		if candidates[i].access == candidates[j].access {
+			return candidates[i].path < candidates[j].path
+		}
+		return candidates[i].access < candidates[j].access
+	})
+	overflow := map[string]float64{}
+	for i := 0; i < len(candidates)-policy.Repository.MaxCount; i++ {
+		overflow[candidates[i].path] = candidates[i].access
+	}
+	repositoryCount := ResourceCount{Resource: "repository", Before: len(candidates), After: len(candidates), MaxCount: policy.Repository.MaxCount}
+	for _, entry := range entries {
+		if at, ok := overflow[filepath.Join(root, entry.Name())]; ok {
+			options.cacheBefore = at
+			options.cacheOverflow = true
+		} else {
+			options.cacheOverflow = false
+		}
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
@@ -124,33 +176,27 @@ func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err e
 			return report, err
 		}
 	}
+	removed := []string{}
+	if options.DryRun {
+		for _, a := range report.Actions {
+			if a.Status == "planned" {
+				removed = append(removed, a.Path)
+			}
+		}
+	}
+	for _, candidate := range candidates {
+		has, e := remainingRepositoryCache(candidate.path, removed)
+		if e != nil {
+			report.Errors = append(report.Errors, e.Error())
+		} else if !has {
+			repositoryCount.After--
+		}
+	}
+	repositoryCount.OverBudget = max(0, repositoryCount.After-repositoryCount.MaxCount)
+	report.Counts = append(report.Counts, repositoryCount)
 	return report, nil
 }
 
-// Active record writers are protected; disposable cache mtime is not access.
-func stateProtection(ctx context.Context, directory string) (string, error) {
-	reason := ""
-	err := filepath.WalkDir(directory, func(path string, d fs.DirEntry, e error) error {
-		if e != nil {
-			return e
-		}
-		if e = ctx.Err(); e != nil {
-			return e
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			return nil
-		}
-		if d.IsDir() {
-			if strings.HasSuffix(d.Name(), ".lock") {
-				reason = "state_locked"
-				return filepath.SkipAll
-			}
-			return nil
-		}
-		return nil
-	})
-	return reason, err
-}
 func directoryBytes(ctx context.Context, path string) (int64, error) {
 	var total int64
 	err := filepath.WalkDir(path, func(_ string, d fs.DirEntry, e error) error {
@@ -173,35 +219,36 @@ func directoryBytes(ctx context.Context, path string) (int64, error) {
 }
 
 func checkoutLocations(directory string, checkouts map[string]checkoutAccess) error {
-	entries, err := os.ReadDir(filepath.Join(directory, "checkouts"))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
+	paths, err := filepath.Glob(filepath.Join(directory, "clones", "*", "checkouts", "*", "checkout.json"))
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if !entry.IsDir() || entry.Type()&os.ModeSymlink != 0 {
-			continue
-		}
+	for _, path := range paths {
 		var row checkoutObservation
-		found, err := Read(filepath.Join(directory, "checkouts", entry.Name(), "observation.json"), &row)
+		found, err := Read(path, &row)
 		if err != nil {
 			return err
 		}
 		if !found {
 			continue
 		}
-		if row.Version != 1 || !filepath.IsAbs(row.Path) || !filepath.IsAbs(row.CommonDir) || Digest(row.Path) != entry.Name() || Digest(row.CommonDir) != row.Clone {
-			return errors.New("invalid checkout observation identity")
+		key := filepath.Base(filepath.Dir(path))
+		clone := filepath.Base(filepath.Dir(filepath.Dir(filepath.Dir(path))))
+		if row.Version != 1 || !filepath.IsAbs(row.Path) || !filepath.IsAbs(row.CommonDir) || Digest(row.Path) != key || Digest(row.CommonDir) != clone || row.Clone != clone {
+			return errors.New("invalid checkout registration identity")
 		}
-		if current, ok := checkouts[entry.Name()]; ok {
-			if current.Path != row.Path || current.CommonDir != row.CommonDir {
-				return errors.New("checkout activity and topology disagree")
-			}
-		} else {
-			checkouts[entry.Name()] = checkoutAccess{Path: row.Path, CommonDir: row.CommonDir}
+		var access struct {
+			Version      int     `json:"version"`
+			LastAccessAt float64 `json:"lastAccessAt"`
 		}
+		found, err = Read(filepath.Join(filepath.Dir(path), "access.json"), &access)
+		if err != nil {
+			return err
+		}
+		if found && (access.Version != 1 || !validAccess(access.LastAccessAt)) {
+			return errors.New("invalid checkout access")
+		}
+		checkouts[key] = checkoutAccess{Path: row.Path, CommonDir: row.CommonDir, LastAccessAt: access.LastAccessAt}
 	}
 	return nil
 }
@@ -211,16 +258,15 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 	// Snapshot discovery under the activity lease. Remote queries and worktree
 	// maintenance use their own repository lease and the caller's deadline.
 	locations := map[string]checkoutAccess{}
-	e := withActivity(ctx, directory, func(_ context.Context, lease *activityLease) error {
-		for key, access := range lease.record.Checkouts {
-			locations[key] = access
-		}
+	var discoveryErr error
+	e := withActivity(ctx, directory, func(_ context.Context, _ *activityLease) error {
+		discoveryErr = checkoutLocations(directory, locations)
 		return nil
 	})
 	if e != nil {
 		return e
 	}
-	e = checkoutLocations(directory, locations)
+	e = discoveryErr
 	if e == nil {
 		e = func() error {
 			clones := map[string]bool{}
@@ -271,6 +317,7 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 					}
 				}
 				result, e := CleanWorktrees(ctx, control, request)
+				report.Counts = append(report.Counts, ResourceCount{Resource: "checkout", Repository: key, Clone: Digest(info.CommonDir), Before: result.BeforeCount, After: result.RemainingCount, MaxCount: result.MaxCount, OverBudget: result.OverCount})
 				for _, a := range result.Actions {
 					report.appendAction(ctx, key, a)
 				}
@@ -288,39 +335,76 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 	if e != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("%s: worktree discovery or cleanup: %v", key, e))
 	}
-	if e := report.cleanComments(ctx, directory, options); e != nil {
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		report.Errors = append(report.Errors, fmt.Sprintf("%s: comment cleanup: %v", key, e))
+	activity, e := readRepositoryAccess(directory)
+	if e != nil {
+		return e
 	}
-	// Re-read access under a fresh lease: a foreground access during Git/PR
-	// maintenance must retain the cache. Worktree outcomes do not veto expiry.
-	e = withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
-		reason := ""
-		if lease.record.LastAccessAt >= float64(report.InactiveBefore.UnixNano())/1e9 {
-			reason = "recently_accessed"
-		}
-		if reason == "" {
-			// Protect active record writers, including those that started during
-			// remote maintenance. Cache mtime does not renew user access.
-			var e error
-			reason, e = stateProtection(ctx, directory)
+	expire := activity.LastAccessAt < float64(report.InactiveBefore.UnixNano())/1e9
+	before := float64(time.Now().UnixNano()) / 1e9
+	if options.cacheOverflow && activity.LastAccessAt <= options.cacheBefore {
+		expire = true
+		before = options.cacheBefore
+	}
+	if busy, err := publicationBusy(directory); err != nil {
+		return err
+	} else if busy {
+		report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: "state_locked", Path: directory})
+		return nil
+	}
+
+	merged := map[int]bool{}
+	if !expire && options.MergedPR != nil {
+		var repository common.Repository
+		found, e := Read(filepath.Join(directory, "repository.json"), &repository)
+		if e != nil {
+			report.Errors = append(report.Errors, e.Error())
+		} else if found && RepositoryKey(repository.Forge.Name, repository.Path) == key {
+			paths, e := directories(filepath.Join(directory, "prs"))
 			if e != nil {
 				return e
 			}
+			for _, path := range paths {
+				number, e := strconv.Atoi(filepath.Base(path))
+				if e != nil || number < 1 {
+					continue
+				}
+				if _, e := os.Lstat(filepath.Join(path, "comments")); errors.Is(e, os.ErrNotExist) {
+					continue
+				} else if e != nil {
+					return e
+				}
+				value, e := options.MergedPR(ctx, repository, number)
+				if e != nil {
+					report.Errors = append(report.Errors, fmt.Sprintf("PR %d: %v", number, e))
+				} else {
+					merged[number] = value
+				}
+			}
 		}
-		if reason != "" {
-			report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: reason, Path: directory, LastAccessAt: lease.record.LastAccessAt})
-			return nil
+	}
+	if options.Validation != nil {
+		policy, err := LoadCleanupPolicy(report.Home, key)
+		if err != nil {
+			report.Errors = append(report.Errors, err.Error())
+		} else {
+			count, err := options.Validation(ctx, report.Home, key, policy.Validation.MaxCount, options.DryRun)
+			count.Repository = key
+			report.Counts = append(report.Counts, count)
+			if err != nil {
+				report.Errors = append(report.Errors, err.Error())
+			}
 		}
-		action, e := reclaimRepositoryState(ctx, lease, options.DryRun)
-		if e != nil {
-			return e
-		}
+	}
+	result, e := CleanRepository(ctx, CacheCleanOptions{Home: report.Home, RepositoryKey: key, DryRun: options.DryRun, Expire: expire, AccessBefore: before, Merged: merged})
+	for _, action := range result.Actions {
 		report.appendAction(ctx, key, action)
-		return nil
-	})
+	}
+	report.Errors = append(report.Errors, result.Errors...)
+	report.Counts = append(report.Counts, result.Counts...)
+	if !expire {
+		report.appendAction(ctx, key, WorktreeAction{Action: "retain_repository", Status: "skipped", Reason: "recently_accessed", Path: directory, LastAccessAt: activity.LastAccessAt})
+	}
+
 	return e
 }
 

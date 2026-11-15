@@ -257,7 +257,7 @@ CheckSpec 的 inputVersion 标识输入契约，当前为 2；不同契约的历
 父包的 `reuse.go` 解释检查结果及输入清单，判断本轮是否可复用，并衔接执行。依赖方向仅为 validation → history。
 history 原样保存检查载荷，仅解析统计和事件一致性所需字段，不依赖父包的 CheckResult、输入类型或规划策略。
 
-CLI 默认历史位于 Home 的 repository 目录，身份编码与根目录覆盖见 [Home](home.md#目录与身份)。
+CLI 默认历史位于 Home 的 repositories/<repo-key>/validation 目录，身份编码与根目录覆盖见 [Home](home.md#目录与身份)。
 同仓多个 clone/worktree 共用一个历史库和锁；checkout 路径记录在事件和输入中，不创建 checkout 子目录。
 统计汇总 repository 内的执行与复用，候选 Run 仍要求与本次 checkout 相同；不会跨 checkout 复用。
 工具包通过 `ValidationRequest.HistoryDir` 显式启用历史；空目录配置不持久化、不复用。
@@ -279,7 +279,8 @@ macOS/Linux 通过 OS 文件锁保护 Open → 读写 → Close，锁等待最�
 历史损坏、缺失输入/输出或写入失败明确进入 diagnostics，不自动修复，也不以不完整历史授予复用；
 真实检查可以继续，结果通过与历史持久化分别报告。
 
-默认按 30 天窗口滚动截断事件的过期前缀，不区分成功、失败或未完成，也不因近期复用延长旧 Run 的保留期。
+默认同时保留最新 1000 个 Run 的软窗口（Home / repository cleanup.validation.max_count 可覆盖）；未完成 Run 可暂留额外 WAL 前缀，不挤掉较新 Run。
+另按 30 天窗口滚动截断事件的过期前缀，不区分成功、失败或未完成，也不因近期复用延长旧 Run 的保留期。
 截断后缺少 started 的 finished/reused 事件在重放时忽略，不计入统计、不提供复用证据；最差按未执行过重新检查。
 随后清理过期且未被保留 Run 引用的 inputs/logs。每日输出文件仅在该日期没有保留 Run、且文件修改时间已过期时整体删除；当天过期 Run 的输出可随同日保留 Run 延后清理。旧布局沿用按 Run 清理。工具包可用 HistoryRetentionDays 调整天数。
 `validate --history` 输出保留期统计，不执行检查；报告 history 也提供执行次数、通过/失败/未完成次数、

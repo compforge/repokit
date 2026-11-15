@@ -71,7 +71,7 @@ func Load(home string) (*Config, error) {
 		return nil, invalid(path, "expected a JSON object with a forges map")
 	}
 	for key := range document {
-		if key != "forges" {
+		if key != "forges" && key != "cleanup" && key != "worktree" {
 			return nil, invalid(path, "unknown configuration field")
 		}
 	}

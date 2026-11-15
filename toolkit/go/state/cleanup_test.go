@@ -35,8 +35,13 @@ func ageActivity(t *testing.T, repo, home string, old time.Time, recent ...strin
 		record.Checkouts[Digest(path)] = v
 		record.LastAccessAt = v.LastAccessAt
 	}
-	if err = Write(filepath.Join(directory, "activity.json"), record, func() error { return nil }); err != nil {
+	if err = Write(filepath.Join(directory, "access.json"), record, func() error { return nil }); err != nil {
 		t.Fatal(err)
+	}
+	for _, v := range record.Checkouts {
+		if err := Write(filepath.Join(directory, "clones", Digest(v.CommonDir), "checkouts", Digest(v.Path), "access.json"), map[string]any{"version": 1, "lastAccessAt": v.LastAccessAt}, func() error { return nil }); err != nil {
+			t.Fatal(err)
+		}
 	}
 	return directory
 }
@@ -119,7 +124,7 @@ func TestGlobalCleanupReusesWorktreePolicyAndProtection(t *testing.T) {
 	directory := ageActivity(t, root, home, time.Now().Add(-40*24*time.Hour), recent)
 	record, _ := readActivity(directory)
 	delete(record.Checkouts, Digest(unknown))
-	if err = Write(filepath.Join(directory, "activity.json"), record, func() error { return nil }); err != nil {
+	if err = Write(filepath.Join(directory, "access.json"), record, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
 	for _, dry := range []bool{true, false} {
@@ -145,7 +150,7 @@ func TestGlobalCleanupReusesWorktreePolicyAndProtection(t *testing.T) {
 			}
 		}
 	}
-	if _, err := os.Stat(unknown); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(unknown, "metadata.json")); !os.IsNotExist(err) {
 		t.Fatal("unknown checkout retained", err)
 	}
 	if _, err = os.Stat(old); !errors.Is(err, os.ErrNotExist) {
@@ -170,10 +175,10 @@ func writeExpiredRepository(t *testing.T, home, key string) string {
 	t.Helper()
 	path := filepath.Join(home, "repositories", key)
 	old := time.Now().Add(-40 * 24 * time.Hour)
-	if err := Write(filepath.Join(path, "activity.json"), activityRecord{Version: 1, LastAccessAt: float64(old.Unix()), Checkouts: map[string]checkoutAccess{}}, func() error { return nil }); err != nil {
+	if err := Write(filepath.Join(path, "access.json"), activityRecord{Version: 1, LastAccessAt: float64(old.Unix()), Checkouts: map[string]checkoutAccess{}}, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(path, "cache"), []byte("cached bytes"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(path, "metadata.json"), []byte("cached bytes"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	oldFiles(t, path, old)
@@ -189,30 +194,31 @@ func TestCleanRepositoryStateTreatsMissingActivityAsOldAndPreservesExternalSymli
 	os.Symlink(outside, filepath.Join(home, "repositories", "external"))
 	unknown := filepath.Join(home, "repositories", "unknown")
 	os.MkdirAll(unknown, 0700)
+	os.WriteFile(filepath.Join(unknown, "metadata.json"), []byte("cached bytes"), 0600)
 	refreshed := writeExpiredRepository(t, home, "refreshed")
 	os.WriteFile(filepath.Join(refreshed, "new-observation"), []byte("new"), 0600)
 	broken := writeExpiredRepository(t, home, "broken")
-	os.WriteFile(filepath.Join(broken, "activity.json"), []byte("broken"), 0600)
-	before, _ := os.ReadFile(filepath.Join(expired, "activity.json"))
+	os.WriteFile(filepath.Join(broken, "access.json"), []byte("broken"), 0600)
+	before, _ := os.ReadFile(filepath.Join(expired, "access.json"))
 	for _, dry := range []bool{true, false} {
 		report, err := Clean(context.Background(), CleanOptions{Home: home, InactiveDays: 30, DryRun: dry})
 		if err != nil || len(report.Errors) != 1 || report.EstimatedBytes == 0 {
 			t.Fatal(report, err)
 		}
 		if dry {
-			after, _ := os.ReadFile(filepath.Join(expired, "activity.json"))
+			after, _ := os.ReadFile(filepath.Join(expired, "access.json"))
 			if string(before) != string(after) {
 				t.Fatal("preview changed activity")
 			}
 		}
 	}
-	if _, err := os.Stat(expired); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Stat(filepath.Join(expired, "metadata.json")); !errors.Is(err, os.ErrNotExist) {
 		t.Fatal("expired state retained", err)
 	}
-	if _, err := os.Stat(unknown); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(unknown, "metadata.json")); !os.IsNotExist(err) {
 		t.Fatal("unknown activity was not treated as old", err)
 	}
-	if _, err := os.Stat(refreshed); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(refreshed, "metadata.json")); !os.IsNotExist(err) {
 		t.Fatal("cache mtime incorrectly renewed access", err)
 	}
 	for _, p := range []string{marker, broken} {
@@ -241,7 +247,7 @@ func TestGlobalCleanReclaimsWorktreeByPolicyAndExpiredStateButNeverPrimary(t *te
 		}
 		removed := false
 		for _, a := range report.Actions {
-			removed = removed || a.Action == "remove_repository_cache"
+			removed = removed || a.Action == "remove_branch_cache"
 		}
 		if !removed {
 			t.Fatal(report)
@@ -287,11 +293,11 @@ func TestInvalidActivityAndCancellationNeverAuthorizeDeletion(t *testing.T) {
 	home := t.TempDir()
 	path := writeExpiredRepository(t, home, "idle")
 	var raw map[string]any
-	data, _ := os.ReadFile(filepath.Join(path, "activity.json"))
+	data, _ := os.ReadFile(filepath.Join(path, "access.json"))
 	json.Unmarshal(data, &raw)
 	raw["version"] = 2
 	data, _ = json.Marshal(raw)
-	os.WriteFile(filepath.Join(path, "activity.json"), data, 0600)
+	os.WriteFile(filepath.Join(path, "access.json"), data, 0600)
 	report, err := Clean(context.Background(), CleanOptions{Home: home, InactiveDays: 30})
 	if err != nil || len(report.Errors) != 1 {
 		t.Fatal(report, err)
@@ -364,7 +370,7 @@ func TestGlobalCleanDiscoversWorktreesWithoutActivity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.Remove(filepath.Join(directory, "activity.json")); err != nil {
+	if err = os.Remove(filepath.Join(directory, "access.json")); err != nil {
 		t.Fatal(err)
 	}
 	oldFiles(t, directory, time.Now().Add(-40*24*time.Hour))
@@ -431,7 +437,7 @@ func TestGlobalAndDirectWorktreeRetentionAgree(t *testing.T) {
 		}
 		actions := []WorktreeAction{}
 		for _, a := range global.Actions {
-			if a.Action == "retain_repository" || a.Action == "remove_repository_cache" {
+			if withinDirectory(home, a.Path) {
 				continue
 			}
 			row := a.WorktreeAction
@@ -503,7 +509,7 @@ func TestExpiredCacheRemovedDespiteRetainedWorktreeAndPRFailure(t *testing.T) {
 		}
 		removed := false
 		for _, a := range report.Actions {
-			removed = removed || a.Action == "remove_repository_cache"
+			removed = removed || a.Action == "remove_branch_cache"
 		}
 		if !removed {
 			t.Fatal(report)
@@ -566,7 +572,7 @@ func TestCleanupRechecksRecordWriterAfterRemoteQuery(t *testing.T) {
 	directory := ageActivity(t, root, home, old)
 	oldFiles(t, directory, old)
 	report, err := Clean(ctx, CleanOptions{Home: home, InactiveDays: 30, PullRequests: func(context.Context, string) (WorktreePullRequests, error) {
-		return nil, os.Mkdir(filepath.Join(directory, "topology.lock"), 0700)
+		return nil, os.MkdirAll(LockPath(filepath.Join(directory, "topology"))+".lock", 0700)
 	}})
 	if err != nil || len(report.Errors) != 0 {
 		t.Fatal(report, err)
@@ -594,7 +600,7 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 			linked := create("retained", false)
 			setCleanupPolicy(t, root, WorktreePolicy{MaxCount: 0, MaxPrepared: 0})
 			directory := ageActivity(t, root, home, time.Now().Add(-40*24*time.Hour))
-			activityPath := filepath.Join(directory, "activity.json")
+			activityPath := filepath.Join(directory, "access.json")
 			if scenario == "topology_only" {
 				if err := os.Remove(activityPath); err != nil {
 					t.Fatal(err)
@@ -604,7 +610,7 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if err := Write(filepath.Join(directory, "history", "run.json"), map[string]string{"result": "expired"}, func() error { return nil }); err != nil {
+			if err := Write(filepath.Join(directory, "validation", "history", "run.json"), map[string]string{"result": "expired"}, func() error { return nil }); err != nil {
 				t.Fatal(err)
 			}
 			linkedInfo, err := Checkout(ctx, linked)
@@ -632,19 +638,18 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 				wantErrors = 1
 			}
 			var cacheBytes int64
-			entries, err := os.ReadDir(directory)
+			paths, err := filepath.Glob(filepath.Join(directory, "clones", "*", "branches", "*", "branch.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
-			for _, entry := range entries {
-				if entry.Name() != "activity.json" && entry.Name() != "repository.json" && entry.Name() != "persistent" {
-					size, err := directoryBytes(ctx, filepath.Join(directory, entry.Name()))
-					if err != nil {
-						t.Fatal(err)
-					}
-					cacheBytes += size
+			for _, path := range paths {
+				size, err := directoryBytes(ctx, path)
+				if err != nil {
+					t.Fatal(err)
 				}
+				cacheBytes += size
 			}
+
 			for _, dry := range []bool{true, false} {
 				options.DryRun = dry
 				report, err := Clean(ctx, options)
@@ -669,10 +674,13 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 					}
 				}
 			}
-			entries, err = os.ReadDir(directory)
-			if err != nil || len(entries) != 3 || entries[0].Name() != "activity.json" || entries[1].Name() != "persistent" || entries[2].Name() != "repository.json" {
-				t.Fatal("cache not reclaimed independently of registration", entries, err)
+			if has, err := hasRepositoryCache(directory); err != nil || has {
+				t.Fatal("cache not reclaimed independently of registration", has, err)
 			}
+			if _, err := os.Stat(filepath.Join(directory, "validation", "history", "run.json")); err != nil {
+				t.Fatal("history lost", err)
+			}
+
 			registration, err := readActivity(directory)
 			if err != nil || registration.Checkouts[Digest(root)].Path != root || registration.Checkouts[Digest(linked)].Path != linked {
 				t.Fatal("checkout registration lost", registration, err)
@@ -702,7 +710,7 @@ func TestGlobalCleanupRetainsRegistrationForLaterReclamation(t *testing.T) {
 				t.Fatal("branch removed", err)
 			}
 			report, err = Clean(ctx, options)
-			if err != nil || len(report.Errors) != 0 || len(report.Actions) != 1 || report.Actions[0].Reason != "registration_only" || report.EstimatedBytes != 0 {
+			if err != nil || len(report.Errors) != 0 || len(report.Actions) != 0 || report.EstimatedBytes != 0 {
 				t.Fatal("registration-only cleanup did not converge", report, err)
 			}
 		})

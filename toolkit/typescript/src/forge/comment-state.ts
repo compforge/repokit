@@ -20,7 +20,7 @@ export class CommentState {
       const repository = repositoryKey(key.repository.forge.name, key.repository.path);
       const directory = store.path("repositories", repository);
       const root = store.path("repositories", repository, "prs", String(key.number), "comments");
-      await recordAccess(store, repository, signal);
+      await recordAccess(store, repository, signal,undefined,["prs",String(key.number),"comments"]);
       await store.locked(root, signal, async owned => {
         await store.write(`${directory}/repository.json`, key.repository, owned);
         const entries = await readdir(root, { withFileTypes: true }).catch((error: NodeJS.ErrnoException) => {

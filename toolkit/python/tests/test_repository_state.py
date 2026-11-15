@@ -9,6 +9,7 @@ from test_operations import run
 from repokit import git
 from repokit import state as checkout_state
 from repokit._git_environment import checkout_environment
+from repokit.git.state import checkout_info
 from repokit.state import RepositoryState
 from repokit.state.identity import digest_path, name_part, repository_key
 
@@ -44,12 +45,19 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     assert checkout_state.add_worktree(
         repo, linked, "HEAD", branch="feature/a", home=state.store.root
     ).ok
-    directory = state.store.root / "repositories/github--owner--project"
+    directory = (
+        state.store.root
+        / "repositories/github--owner--project"
+        / "clones"
+        / digest_path(checkout_info(repo).common_dir)
+    )
     key = digest_path(str(linked.resolve()))
-    assert (directory / "branches/feature%2Fa/worktrees" / key / "path").resolve() == linked
+    assert json.loads((directory / "checkouts" / key / "checkout.json").read_text())["path"] == str(
+        linked
+    )
     cached = state.branch(repo, "feature/a", max_age=3600)
     assert cached.source == "cache" and cached.complete and len(cached.checkouts) == 1
-    (directory / "checkouts" / key / "observation.json").unlink()
+    (directory / "checkouts" / key / "checkout.json").unlink()
     repaired = state.branch(repo, "feature/a", max_age=3600)
     assert repaired.source == "git" and len(repaired.checkouts) == 1
     history = directory / "history/keep"
@@ -61,7 +69,7 @@ def test_state_lifecycle_and_cache(repo, tmp_path):
     assert history.read_text() == "keep"
     run(repo, "branch", "-D", "feature/a")
     state.observe(repo, reconcile=True)
-    assert not (directory / "branches/feature%2Fa").exists()
+    assert not (directory / "branches/feature%2Fa/branch.json").exists()
 
 
 def test_clone_heads_are_independent(repo, tmp_path, monkeypatch):
@@ -76,7 +84,7 @@ def test_clone_heads_are_independent(repo, tmp_path, monkeypatch):
     run(other, "-c", "commit.gpgsign=false", "commit", "--allow-empty", "-qm", "next")
     run(other, "branch", "topic")
     state = RepositoryState(tmp_path / "state")
-    directory = state.observe(repo)
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
     state.observe(other)
     monkeypatch.setenv("GIT_DIR", str(repo / ".git"))
     monkeypatch.setenv("GIT_WORK_TREE", str(repo))
@@ -85,7 +93,7 @@ def test_clone_heads_are_independent(repo, tmp_path, monkeypatch):
     second = state.branch(other, "topic", max_age=3600)
     assert first.head != second.head
     assert state.branch(other, "topic").head == second.head
-    record = directory / "branches/topic/observation.json"
+    record = directory / "branches/topic/branch.json"
     before = record.read_bytes()
     with pytest.raises(OSError):
         state.observe(tmp_path / "missing", reconcile=True)
@@ -96,12 +104,11 @@ def test_detached_and_unregistered_checkout_are_preserved(repo, tmp_path):
     state = RepositoryState(tmp_path / "state")
     linked = tmp_path / "detached"
     assert checkout_state.add_worktree(repo, linked, "HEAD", detach=True).ok
-    directory = state.observe(repo)
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
     key = digest_path(str(linked.resolve()))
     assert (directory / "checkouts" / key).exists()
     assert not list((directory / "branches").glob("*/worktrees/" + key))
     # A stale registration is not authority to delete a surviving source directory.
-    from repokit.git.state import checkout_info
 
     info = checkout_info(linked)
     import shutil
@@ -121,14 +128,14 @@ def test_python_typescript_state_and_lock_interoperate(repo, tmp_path):
     run(repo, "remote", "add", "origin", "https://github.com/owner/project.git")
     run(repo, "branch", "topic")
     state = RepositoryState(tmp_path / "state")
-    directory = state.observe(repo)
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
     program = f"""import {{RepositoryState}} from {json.dumps(module.as_uri())};
       const state=new RepositoryState({json.dumps(str(state.store.root))});
       const row=await state.branch({json.dumps(str(repo))},'topic',{{maxAgeMs:3600000}});
       if(row.source!=='cache')throw Error('cache not shared');
       await state.observe({json.dumps(str(repo))});
       console.log(row.head);"""
-    with state.store.locked(directory / "topology"):
+    with state.store.locked(directory.parent.parent / "topology"):
         child = subprocess.Popen(
             ["node", "--input-type=module", "-e", program],
             stdout=subprocess.PIPE,
@@ -150,12 +157,12 @@ def test_unknown_primary_location_is_incomplete_and_not_reclaimed(repo, tmp_path
     linked = tmp_path / "linked"
     assert checkout_state.add_worktree(repo, linked, "HEAD", branch="topic").ok
     state = RepositoryState(tmp_path / "state")
-    directory = state.observe(repo)
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
     primary_key = digest_path(str(repo.resolve()))
     state.observe(linked, reconcile=True)
     observed = state.branch(linked, primary_branch, max_age=3600)
     assert not observed.complete and not observed.checkouts
-    assert (directory / "checkouts" / primary_key / "observation.json").exists()
+    assert (directory / "checkouts" / primary_key / "checkout.json").exists()
 
 
 def test_partial_publication_repairs_without_unrelated_branch_reads(repo, tmp_path, monkeypatch):
@@ -164,11 +171,11 @@ def test_partial_publication_repairs_without_unrelated_branch_reads(repo, tmp_pa
     branch = get_current_branch(repo)
     run(repo, "branch", "other")
     state = RepositoryState(tmp_path / "state")
-    directory = state.observe(repo)
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
     original = state.store.write
 
     def fail_branch(path, value, owned):
-        if path == directory / "branches" / name_part(branch) / "observation.json":
+        if path == directory / "branches" / name_part(branch) / "branch.json":
             raise OSError("interrupted publication")
         return original(path, value, owned)
 
@@ -176,7 +183,7 @@ def test_partial_publication_repairs_without_unrelated_branch_reads(repo, tmp_pa
     with pytest.raises(OSError, match="interrupted publication"):
         state.observe(repo)
     monkeypatch.setattr(state.store, "write", original)
-    unrelated = directory / "branches/other/observation.json"
+    unrelated = directory / "branches/other/branch.json"
     unrelated.write_text("{")
     for age in (3600, 0):
         observed = state.branch(repo, branch, max_age=age)
@@ -238,17 +245,14 @@ def test_activity_tracks_selected_checkout_not_inventory(repo, tmp_path):
     assert checkout_state.add_worktree(
         repo, linked, "HEAD", branch="idle", home=state.store.root
     ).ok
-    directory = state.observe(repo)
-    activity = directory / "activity.json"
-    record = json.loads(activity.read_text())
-    key = digest_path(str(linked.resolve()))
-    record["lastAccessAt"] = 1
-    for item in record["checkouts"].values():
-        item["lastAccessAt"] = 1
-    activity.write_text(json.dumps(record))
+    directory = state.observe(repo) / "clones" / digest_path(checkout_info(repo).common_dir)
+    activity = directory.parent.parent / "access.json"
+    checkout_access = directory / "checkouts" / digest_path(str(linked.resolve())) / "access.json"
+    checkout_access.write_text(json.dumps({"version": 1, "lastAccessAt": 1}))
+    activity.write_text(json.dumps({"version": 1, "lastAccessAt": 1}))
     state.branch(repo, "idle", max_age=3600)
     refreshed = json.loads(activity.read_text())
     assert refreshed["lastAccessAt"] > 1
-    assert refreshed["checkouts"][key]["lastAccessAt"] == 1
+    assert json.loads(checkout_access.read_text())["lastAccessAt"] == 1
     state.observe(repo, reconcile=True, record_use=False)
     assert json.loads(activity.read_text()) == refreshed

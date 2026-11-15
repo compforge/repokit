@@ -42,7 +42,7 @@ func TestCleanCommentLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario == "locked" {
-				if err := os.Mkdir(comments+".lock", 0700); err != nil {
+				if err := os.MkdirAll(LockPath(comments)+".lock", 0700); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -52,11 +52,11 @@ func TestCleanCommentLifecycle(t *testing.T) {
 					t.Fatal(err)
 				}
 				activity.LastAccessAt = float64(time.Now().Add(-40 * 24 * time.Hour).Unix())
-				if err := Write(filepath.Join(directory, "activity.json"), activity, func() error { return nil }); err != nil {
+				if err := Write(filepath.Join(directory, "access.json"), activity, func() error { return nil }); err != nil {
 					t.Fatal(err)
 				}
 			}
-			previous, err := os.ReadFile(filepath.Join(directory, "activity.json"))
+			previous, err := os.ReadFile(filepath.Join(directory, "access.json"))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -85,7 +85,7 @@ func TestCleanCommentLifecycle(t *testing.T) {
 			if errors.Is(err, os.ErrNotExist) != (scenario == "merged") {
 				t.Fatal(err, report)
 			}
-			current, err := os.ReadFile(filepath.Join(directory, "activity.json"))
+			current, err := os.ReadFile(filepath.Join(directory, "access.json"))
 			if err != nil || string(current) != string(previous) {
 				t.Fatal("maintenance renewed activity", err)
 			}
@@ -93,7 +93,7 @@ func TestCleanCommentLifecycle(t *testing.T) {
 				t.Fatal(err)
 			}
 			if scenario == "merged" || scenario == "dry" {
-				if report.Actions[0].Action != "remove_pr_comments" || report.EstimatedBytes != 2 {
+				if report.Actions[0].Action != "remove_comment" || report.EstimatedBytes != 2 {
 					t.Fatal(report)
 				}
 			}

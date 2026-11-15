@@ -36,9 +36,9 @@ type cloneBranch struct {
 	ObservedAt float64  `json:"observedAt"`
 }
 type branchRecord struct {
-	Version int                    `json:"version"`
-	Branch  string                 `json:"branch"`
-	Clones  map[string]cloneBranch `json:"clones"`
+	Version int    `json:"version"`
+	Branch  string `json:"branch"`
+	cloneBranch
 }
 
 // BranchObservation contains one clone's observed branch, not a cross-clone tip.
@@ -97,19 +97,22 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 		return nil, err
 	}
 	clone := Digest(info.CommonDir)
+	if err := RecordObjectAccess(ctx, home, filepath.Base(directory), "clones", clone, "branches", Part(branch)); err != nil {
+		return nil, err
+	}
 	var result *BranchObservation
 	read := func(source string) error {
-		return WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
+		return WithLock(ctx, RepositoryLock(directory, "topology"), func(owned func() error) error {
 			var record branchRecord
-			found, err := Read(filepath.Join(directory, "branches", Part(branch), "observation.json"), &record)
+			found, err := Read(filepath.Join(directory, "clones", clone, "branches", Part(branch), "branch.json"), &record)
 			if err != nil || !found {
 				return err
 			}
-			if record.Version != 1 || record.Branch != branch {
+			if record.Version != 1 || record.Branch != branch || record.CommonDir != info.CommonDir {
 				return errors.New("invalid branch observation identity")
 			}
-			observed, ok := record.Clones[clone]
-			if !ok {
+			observed := record.cloneBranch
+			if observed.Head == "" {
 				return nil
 			}
 			result = &BranchObservation{Complete: observed.Complete, Branch: branch, Head: observed.Head, ObservedAt: observed.ObservedAt, Source: source, Checkouts: []CheckoutEntry{}}
@@ -118,7 +121,7 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 					return errors.New("invalid checkout observation key")
 				}
 				var row checkoutObservation
-				found, err := Read(filepath.Join(directory, "checkouts", key, "observation.json"), &row)
+				found, err := Read(filepath.Join(directory, "clones", clone, "checkouts", key, "checkout.json"), &row)
 				if err != nil {
 					return err
 				}
@@ -173,7 +176,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 		return "", err
 	}
 	clone := Digest(info.CommonDir)
-	err = WithLock(ctx, filepath.Join(directory, "topology"), func(owned func() error) error {
+	err = WithLock(ctx, RepositoryLock(directory, "topology"), func(owned func() error) error {
 		out, err := worktreeQuery(ctx, repo, "for-each-ref", "--format=%(refname)%00%(objectname)", "refs/heads/")
 		if err != nil {
 			return err
@@ -220,7 +223,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 			rows[Digest(path)] = checkoutObservation{1, clone, info.CommonDir, path, e.SHA, e.Branch, e.Primary, at}
 		}
 		previous := map[string]checkoutObservation{}
-		paths, err := filepath.Glob(filepath.Join(directory, "checkouts", "*", "observation.json"))
+		paths, err := filepath.Glob(filepath.Join(directory, "clones", clone, "checkouts", "*", "checkout.json"))
 		if err != nil {
 			return err
 		}
@@ -240,17 +243,16 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 		if err := Write(filepath.Join(directory, "repository.json"), identity, owned); err != nil {
 			return err
 		}
+		if err := Write(filepath.Join(directory, "clones", clone, "clone.json"), map[string]any{"version": 1, "commonDir": info.CommonDir}, owned); err != nil {
+			return err
+		}
 		for key, row := range rows {
-			root := filepath.Join(directory, "checkouts", key)
-			if err := Write(filepath.Join(root, "observation.json"), row, owned); err != nil {
-				return err
-			}
-			if err := stateLink(filepath.Join(root, "path"), row.Path, owned); err != nil {
+			root := filepath.Join(directory, "clones", clone, "checkouts", key)
+			if err := Write(filepath.Join(root, "checkout.json"), row, owned); err != nil {
 				return err
 			}
 		}
 		names := map[string]bool{}
-		known := map[string]bool{}
 		if selectedBranch != nil {
 			names[*selectedBranch] = true
 		} else {
@@ -258,13 +260,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 				names[name] = true
 			}
 		}
-		for key := range rows {
-			known[key] = true
-		}
-		for key := range previous {
-			known[key] = true
-		}
-		paths, err = filepath.Glob(filepath.Join(directory, "branches", "*", "observation.json"))
+		paths, err = filepath.Glob(filepath.Join(directory, "clones", clone, "branches", "*", "branch.json"))
 		if err != nil {
 			return err
 		}
@@ -278,27 +274,20 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 				return err
 			}
 			if found {
-				if _, ok := record.Clones[clone]; ok {
+				if record.CommonDir == info.CommonDir {
 					names[record.Branch] = true
 				}
 			}
 		}
 		for branch := range names {
-			root := filepath.Join(directory, "branches", Part(branch))
-			path := filepath.Join(root, "observation.json")
-			record := branchRecord{1, branch, map[string]cloneBranch{}}
+			root := filepath.Join(directory, "clones", clone, "branches", Part(branch))
+			path := filepath.Join(root, "branch.json")
+			record := branchRecord{Version: 1, Branch: branch}
 			if _, err := Read(path, &record); err != nil {
 				return err
 			}
-			if record.Version != 1 || record.Branch != branch || record.Clones == nil {
+			if record.Version != 1 || record.Branch != branch {
 				return errors.New("branch observation identity mismatch")
-			}
-			branchKnown := map[string]bool{}
-			for key := range known {
-				branchKnown[key] = true
-			}
-			for _, key := range record.Clones[clone].Checkouts {
-				branchKnown[key] = true
 			}
 			links := []string{}
 			for key, row := range rows {
@@ -314,34 +303,15 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 						branchComplete = false
 					}
 				}
-				record.Clones[clone] = cloneBranch{Complete: branchComplete, Head: head, CommonDir: info.CommonDir, Checkouts: links, ObservedAt: at}
+				record.cloneBranch = cloneBranch{Complete: branchComplete, Head: head, CommonDir: info.CommonDir, Checkouts: links, ObservedAt: at}
 			} else {
-				delete(record.Clones, clone)
+				record.cloneBranch = cloneBranch{CommonDir: info.CommonDir, ObservedAt: at}
 			}
 			if err := Write(path, record, owned); err != nil {
 				return err
 			}
-			for key := range branchKnown {
-				if _, err := hex.DecodeString(key); err != nil || len(key) != 32 {
-					return errors.New("invalid checkout observation key")
-				}
-				link := filepath.Join(root, "worktrees", key)
-				if row, ok := rows[key]; ok && row.Branch == branch {
-					if err := stateLink(link, "../../../checkouts/"+key, owned); err != nil {
-						return err
-					}
-				} else if entry, err := os.Lstat(link); err == nil && entry.Mode()&os.ModeSymlink != 0 {
-					if err := owned(); err != nil {
-						return err
-					}
-					if err := os.Remove(link); err != nil {
-						return err
-					}
-				} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-					return err
-				}
-			}
-			if reconcile && len(record.Clones) == 0 {
+
+			if reconcile && record.Head == "" {
 				if err := retireBranch(root, owned); err != nil {
 					return err
 				}
@@ -357,7 +327,7 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 					if err := owned(); err != nil {
 						return err
 					}
-					if err := retireCheckout(filepath.Join(directory, "checkouts", key)); err != nil {
+					if err := retireCheckout(filepath.Join(directory, "clones", clone, "checkouts", key)); err != nil {
 						return err
 					}
 				} else if err != nil {
@@ -370,53 +340,14 @@ func observeBranch(ctx context.Context, repo, home string, reconcile bool, selec
 	})
 	return directory, err
 }
-func stateLink(path, target string, owned func() error) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	if info, err := os.Lstat(path); err == nil && info.Mode()&os.ModeSymlink == 0 {
-		return fmt.Errorf("refusing to replace non-link %s", path)
-	} else if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".link-*.tmp")
-	if err != nil {
-		return err
-	}
-	temporary := f.Name()
-	if err := f.Close(); err != nil {
-		return err
-	}
-	if err := os.Remove(temporary); err != nil {
-		return err
-	}
-	defer os.Remove(temporary)
-	if err := os.Symlink(target, temporary); err != nil {
-		return err
-	}
-	if err := owned(); err != nil {
-		return err
-	}
-	return os.Rename(temporary, path)
-}
 func retireCheckout(root string) error {
-	info, err := os.Lstat(root)
-	if err != nil {
-		return err
-	}
-	if !info.IsDir() {
-		return errors.New("checkout state is not a directory")
-	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
 	}
 	for _, entry := range entries {
-		if entry.Name() != "path" && entry.Name() != "observation.json" {
+		if entry.Name() != "checkout.json" && entry.Name() != "access.json" {
 			return fmt.Errorf("unrecognized checkout state retained: %s", root)
-		}
-		if entry.Name() == "path" && entry.Type()&os.ModeSymlink == 0 {
-			return errors.New("checkout path marker is not a symlink")
 		}
 	}
 	for _, entry := range entries {
@@ -427,33 +358,18 @@ func retireCheckout(root string) error {
 	return os.Remove(root)
 }
 func retireBranch(root string, owned func() error) error {
+	if err := owned(); err != nil {
+		return err
+	}
+	if err := os.Remove(filepath.Join(root, "branch.json")); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
 	entries, err := os.ReadDir(root)
 	if err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		if entry.Name() != "worktrees" && entry.Name() != "observation.json" {
-			return nil
-		}
+	if len(entries) == 0 {
+		return os.Remove(root)
 	}
-	links := filepath.Join(root, "worktrees")
-	items, err := os.ReadDir(links)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	if len(items) > 0 {
-		return nil
-	}
-	if err := owned(); err != nil {
-		return err
-	}
-	if err == nil {
-		if err := os.Remove(links); err != nil {
-			return err
-		}
-	}
-	if err := os.Remove(filepath.Join(root, "observation.json")); err != nil {
-		return err
-	}
-	return os.Remove(root)
+	return nil
 }

@@ -61,7 +61,7 @@ func TestValidationRunsExecutionReuseAndEvidence(t *testing.T) {
 	}
 	// Missing artifacts preserve the known successful Run, but cannot be complete evidence.
 	entries, _ := os.ReadDir(dir)
-	store := filepath.Join(dir, entries[0].Name())
+	store := filepath.Join(dir, entries[0].Name(), "validation")
 	inputPath := filepath.Join(store, "inputs", detail.Run.InputID+".json")
 	if err := os.WriteFile(inputPath, []byte("invalid-json"), 0600); err != nil {
 		t.Fatal(err)

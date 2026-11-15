@@ -18,7 +18,7 @@ type checkoutAccess struct {
 type activityRecord struct {
 	Version      int                       `json:"version"`
 	LastAccessAt float64                   `json:"lastAccessAt"`
-	Checkouts    map[string]checkoutAccess `json:"checkouts"`
+	Checkouts    map[string]checkoutAccess `json:"-"`
 }
 type maintenanceKey struct{}
 type activityLease struct {
@@ -63,28 +63,50 @@ func RecordRepositoryAccess(ctx context.Context, home, key string) error {
 }
 func recordAccess(ctx context.Context, directory string, info *CheckoutInfo) error {
 	return withActivity(ctx, directory, func(ctx context.Context, a *activityLease) error {
-		now := float64(time.Now().UnixNano()) / 1e9
-		a.record.LastAccessAt = math.Max(a.record.LastAccessAt, now)
-		if info != nil {
-			a.record.Checkouts[Digest(info.Root)] = checkoutAccess{info.Root, info.CommonDir, math.Max(now, a.record.Checkouts[Digest(info.Root)].LastAccessAt)}
-		}
-		return Write(filepath.Join(directory, "activity.json"), a.record, a.owned)
+		return WithLock(ctx, filepath.Join(directory, "access"), func(owned func() error) error {
+			now := float64(time.Now().UnixNano()) / 1e9
+			a.record.LastAccessAt = math.Max(a.record.LastAccessAt, now)
+			if info != nil {
+				clone := filepath.Join(directory, "clones", Digest(info.CommonDir))
+				if err := Write(filepath.Join(clone, "clone.json"), map[string]any{"version": 1, "commonDir": info.CommonDir}, owned); err != nil {
+					return err
+				}
+				path := filepath.Join(clone, "checkouts", Digest(info.Root))
+				var row checkoutObservation
+				if _, err := Read(filepath.Join(path, "checkout.json"), &row); err != nil {
+					return err
+				}
+				row.Version, row.Clone, row.CommonDir, row.Path = 1, Digest(info.CommonDir), info.CommonDir, info.Root
+				if err := Write(filepath.Join(path, "checkout.json"), row, owned); err != nil {
+					return err
+				}
+				for _, p := range []string{clone, path} {
+					if err := touchAccess(p, now, owned); err != nil {
+						return err
+					}
+				}
+			}
+			return Write(filepath.Join(directory, "access.json"), a.record, owned)
+		})
 	})
 }
 func validAccess(at float64) bool { return at >= 0 && !math.IsNaN(at) && !math.IsInf(at, 0) }
 func readActivity(directory string) (activityRecord, error) {
+	record, err := readRepositoryAccess(directory)
+	if err != nil {
+		return record, err
+	}
+	err = checkoutLocations(directory, record.Checkouts)
+	return record, err
+}
+func readRepositoryAccess(directory string) (activityRecord, error) {
 	record := activityRecord{Version: 1, Checkouts: map[string]checkoutAccess{}}
-	found, err := Read(filepath.Join(directory, "activity.json"), &record)
+	found, err := Read(filepath.Join(directory, "access.json"), &record)
 	if err != nil {
 		return record, err
 	}
 	if found && (record.Version != 1 || !validAccess(record.LastAccessAt) || record.Checkouts == nil) {
 		return record, errors.New("invalid repository activity record")
-	}
-	for key, value := range record.Checkouts {
-		if !filepath.IsAbs(value.Path) || !filepath.IsAbs(value.CommonDir) || Digest(value.Path) != key || !validAccess(value.LastAccessAt) {
-			return record, errors.New("invalid checkout activity identity")
-		}
 	}
 	return record, nil
 }
@@ -95,11 +117,57 @@ func withActivity(ctx context.Context, directory string, fn func(context.Context
 	// Outside the disposable repository tree, so deletion cannot replace a held lease.
 	lock := filepath.Join(filepath.Dir(filepath.Dir(directory)), "locks", "activity", filepath.Base(directory))
 	return WithLock(ctx, lock, func(owned func() error) error {
-		record, err := readActivity(directory)
+		record, err := readRepositoryAccess(directory)
 		if err != nil {
 			return err
 		}
 		lease := &activityLease{directory, record, owned}
 		return fn(context.WithValue(ctx, activityLeaseKey{}, lease), lease)
+	})
+}
+
+func touchAccess(directory string, now float64, owned func() error) error {
+	var record struct {
+		Version      int     `json:"version"`
+		LastAccessAt float64 `json:"lastAccessAt"`
+	}
+	found, err := Read(filepath.Join(directory, "access.json"), &record)
+	if err != nil {
+		return err
+	}
+	if found && (record.Version != 1 || !validAccess(record.LastAccessAt)) {
+		return errors.New("invalid resource access")
+	}
+	record.Version, record.LastAccessAt = 1, math.Max(now, record.LastAccessAt)
+	return Write(filepath.Join(directory, "access.json"), record, owned)
+}
+
+// RecordObjectAccess renews an explicitly used object and its owning repository.
+// relative identifies owner directories, never remote identities or filesystem paths outside Home.
+func RecordObjectAccess(ctx context.Context, home, key string, relative ...string) error {
+	if ctx.Value(maintenanceKey{}) != nil {
+		return nil
+	}
+	for _, part := range relative {
+		if part == "" || filepath.Base(part) != part || part == "." || part == ".." {
+			return errors.New("invalid resource path")
+		}
+	}
+	if err := RecordRepositoryAccess(ctx, home, key); err != nil {
+		return err
+	}
+	resolved, err := ResolveHome(home)
+	if err != nil {
+		return err
+	}
+	directory := filepath.Join(resolved, "repositories", key)
+	return withActivity(ctx, directory, func(_ context.Context, lease *activityLease) error {
+		now := float64(time.Now().UnixNano()) / 1e9
+		if len(relative) > 2 && (relative[0] == "prs" || relative[0] == "clones") {
+			if err := touchAccess(filepath.Join(directory, relative[0], relative[1]), now, lease.owned); err != nil {
+				return err
+			}
+		}
+		return touchAccess(filepath.Join(append([]string{directory}, relative...)...), now, lease.owned)
 	})
 }

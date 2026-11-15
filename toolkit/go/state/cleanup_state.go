@@ -1,83 +1,73 @@
 package state
 
 import (
-	"context"
 	"errors"
 	"os"
 	"path/filepath"
 )
 
-// +spec=Local checkout registration outlives disposable repository observations and history. Save topology-only locations before removing observations; maintenance never renews access.
-// +link=component://docs/home.md#清理与回收
-func reclaimRepositoryState(ctx context.Context, lease *activityLease, dryRun bool) (WorktreeAction, error) {
-	directory := lease.directory
-	action := WorktreeAction{Action: "remove_repository_state", Status: "planned", Reason: "inactive", Path: directory, LastAccessAt: lease.record.LastAccessAt}
-	if action.LastAccessAt == 0 {
-		action.Reason = "access_unknown"
-	}
-	if err := checkoutLocations(directory, lease.record.Checkouts); err != nil {
-		// Incomplete discovery cannot authorize deletion of the only known locations.
-		return action, err
-	}
-	registered := len(lease.record.Checkouts) > 0
-	_, persistentErr := os.Lstat(filepath.Join(directory, "persistent"))
-	if persistentErr != nil && !errors.Is(persistentErr, os.ErrNotExist) {
-		return action, persistentErr
-	}
-	retained := registered || persistentErr == nil
-	paths := []string{filepath.Base(directory)}
-	if retained {
-		action.Action = "remove_repository_cache"
-		entries, err := os.ReadDir(directory)
-		if err != nil {
-			return action, err
+func hasRepositoryCache(directory string) (bool, error) {
+	return remainingRepositoryCache(directory, nil)
+}
+func remainingRepositoryCache(directory string, removed []string) (bool, error) {
+	covered := func(path string) bool {
+		for _, parent := range removed {
+			if path == parent || withinDirectory(parent, path) {
+				return true
+			}
 		}
-		paths = nil
+		return false
+	}
+
+	for _, name := range []string{"metadata.json", "remotes"} {
+		if covered(filepath.Join(directory, name)) {
+			continue
+		}
+		if _, err := os.Lstat(filepath.Join(directory, name)); err == nil {
+			return true, nil
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return false, err
+		}
+	}
+	prs, err := directories(filepath.Join(directory, "prs"))
+	if err != nil {
+		return false, err
+	}
+	for _, pr := range prs {
+		if covered(pr) {
+			continue
+		}
+		entries, err := os.ReadDir(pr)
+		if err != nil {
+			return false, err
+		}
 		for _, entry := range entries {
-			if entry.Name() != "activity.json" && entry.Name() != "repository.json" && entry.Name() != "persistent" {
-				paths = append(paths, filepath.Join(filepath.Base(directory), entry.Name()))
+			if entry.Name() != "access.json" && !covered(filepath.Join(pr, entry.Name())) {
+				return true, nil
 			}
 		}
 	}
-	for _, path := range paths {
-		size, err := directoryBytes(ctx, filepath.Join(filepath.Dir(directory), path))
-		if err != nil {
-			return action, err
-		}
-		action.EstimatedBytes += size
-	}
-	if len(paths) == 0 {
-		action.Action, action.Status, action.Reason = "retain_repository", "skipped", "registration_only"
-		return action, nil
-	}
-	if err := lease.owned(); err != nil {
-		return action, err
-	}
-	if dryRun {
-		return action, nil
-	}
-	if retained {
-		// Persist the discovery inventory before its source observations can disappear.
-		if err := Write(filepath.Join(directory, "activity.json"), lease.record, lease.owned); err != nil {
-			return action, err
-		}
-	}
-	boundary, err := os.OpenRoot(filepath.Dir(directory))
+	clones, err := directories(filepath.Join(directory, "clones"))
 	if err != nil {
-		return action, err
+		return false, err
 	}
-	for _, path := range paths {
-		if err = lease.owned(); err != nil {
-			break
+	for _, clone := range clones {
+		branches, err := directories(filepath.Join(clone, "branches"))
+		if err != nil {
+			return false, err
 		}
-		// Root-relative deletion does not follow symlinks out of the state tree.
-		if err = boundary.RemoveAll(path); err != nil {
-			break
+		for _, branch := range branches {
+			for _, name := range []string{"branch.json", "associations"} {
+				if covered(filepath.Join(branch, name)) {
+					continue
+				}
+				if _, err := os.Lstat(filepath.Join(branch, name)); err == nil {
+					return true, nil
+				} else if !errors.Is(err, os.ErrNotExist) {
+					return false, err
+				}
+			}
 		}
 	}
-	if err = errors.Join(err, boundary.Close()); err != nil {
-		return action, err
-	}
-	action.Status = "completed"
-	return action, nil
+	return false, nil
 }

@@ -15,7 +15,7 @@ async function fixture(t, events = corpus.events) {
   await mkdir(root);
   execFileSync("git",["init","-q",root]);
   execFileSync("git",["-C",root,"remote","add","origin","https://github.com/example/history.git"]);
-  const directory = join(home,"repositories","github--example--history");
+  const directory = join(home,"repositories","github--example--history","validation");
   if (events !== null) {
     await mkdir(join(directory,"history"),{recursive:true});
     await writeFile(join(directory,"history","00000000000000000001"),encode(events));

@@ -31,7 +31,7 @@ func TestDailyOutputRoundTrip(t *testing.T) {
 			t.Fatal(entry.Name())
 		}
 	}
-	reopened := newStore(filepath.Dir(h.dir), "fixture", "/fixture")
+	reopened := newStore(filepath.Dir(filepath.Dir(h.dir)), "fixture", "/fixture")
 	for _, id := range ids {
 		out, stderr, err := reopened.LoadOutput(ctx, id, at.UTC())
 		if err != nil || out != id+output || stderr != "" {

@@ -21,10 +21,11 @@ func TestCleanEnvelopeDryRunAndPartialFailure(t *testing.T) {
 	root := filepath.Join(home, "repositories", "idle")
 	os.MkdirAll(root, 0700)
 	data, _ := json.Marshal(map[string]any{"version": 1, "lastAccessAt": time.Now().Add(-40 * 24 * time.Hour).Unix(), "checkouts": map[string]any{}})
-	os.WriteFile(filepath.Join(root, "activity.json"), data, 0600)
+	os.WriteFile(filepath.Join(root, "access.json"), data, 0600)
+	os.WriteFile(filepath.Join(root, "metadata.json"), []byte("{}"), 0600)
 	broken := filepath.Join(home, "repositories", "broken")
 	os.MkdirAll(broken, 0700)
-	os.WriteFile(filepath.Join(broken, "activity.json"), []byte("broken"), 0600)
+	os.WriteFile(filepath.Join(broken, "access.json"), []byte("broken"), 0600)
 	for _, dry := range []bool{true, false} {
 		args := []string{"clean", "--home", home, "--json"}
 		if dry {
@@ -40,13 +41,13 @@ func TestCleanEnvelopeDryRunAndPartialFailure(t *testing.T) {
 			t.Fatal(code, out.String(), stderr.String())
 		}
 		if dry {
-			got, _ := os.ReadFile(filepath.Join(root, "activity.json"))
+			got, _ := os.ReadFile(filepath.Join(root, "access.json"))
 			if !bytes.Equal(got, data) {
 				t.Fatal("dry run refreshed activity")
 			}
 		}
 	}
-	if _, err := os.Stat(root); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(root, "metadata.json")); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 }
@@ -76,15 +77,15 @@ func TestRepositoryCommandRecordsSelectedCheckoutAccess(t *testing.T) {
 	if code := Execute(context.Background(), []string{"inspect", "--repo", repo, "--home", home, "--json"}, nil, &out, &stderr); code != 0 {
 		t.Fatal(code, out.String(), stderr.String())
 	}
-	paths, err := filepath.Glob(filepath.Join(home, "repositories", "*", "activity.json"))
+	paths, err := filepath.Glob(filepath.Join(home, "repositories", "*", "access.json"))
 	if err != nil || len(paths) != 1 {
 		t.Fatal(paths, err)
 	}
 	var value struct {
-		Checkouts map[string]any `json:"checkouts"`
+		LastAccessAt float64 `json:"lastAccessAt"`
 	}
 	data, _ := os.ReadFile(paths[0])
-	if err = json.Unmarshal(data, &value); err != nil || len(value.Checkouts) != 1 {
+	if err = json.Unmarshal(data, &value); err != nil || value.LastAccessAt <= 0 {
 		t.Fatal(string(data), err)
 	}
 	out.Reset()
@@ -138,7 +139,7 @@ func TestCleanTextReportsPRConnectionError(t *testing.T) {
 
 // +case=Unknown activity expires despite recent cache writes; active state locks are successful skips.
 func TestCleanTextStateProtectionIsNotFailure(t *testing.T) {
-	for _, reason := range []string{"access_unknown", "state_locked"} {
+	for _, reason := range []string{"inactive", "state_locked"} {
 		t.Run(reason, func(t *testing.T) {
 			home := t.TempDir()
 			directory := filepath.Join(home, "repositories", "idle")
@@ -146,10 +147,10 @@ func TestCleanTextStateProtectionIsNotFailure(t *testing.T) {
 				t.Fatal(err)
 			}
 			if reason == "state_locked" {
-				if err := os.Mkdir(filepath.Join(directory, "topology.lock"), 0700); err != nil {
+				if err := os.MkdirAll(state.RepositoryLock(directory, "cleanup")+".lock", 0700); err != nil {
 					t.Fatal(err)
 				}
-			} else if err := os.WriteFile(filepath.Join(directory, "observation.json"), []byte("{}"), 0600); err != nil {
+			} else if err := os.WriteFile(filepath.Join(directory, "metadata.json"), []byte("{}"), 0600); err != nil {
 				t.Fatal(err)
 			}
 			var out, stderr bytes.Buffer
@@ -219,10 +220,10 @@ func TestCleanMergedCommentsWithoutCheckout(t *testing.T) {
 		t.Fatal(err)
 	}
 	comments := filepath.Join(directory, "prs", "7", "comments")
-	if err := os.MkdirAll(comments, 0700); err != nil {
+	if err := os.MkdirAll(filepath.Join(comments, "note"), 0700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(comments, "cached.json"), []byte("{}"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(comments, "note", "connection.json"), []byte("{}"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"forges":{"gitlab.com":{"provider":"gitlab","token":"fixture"}}}`), 0600); err != nil {
@@ -264,7 +265,11 @@ func TestCleanMergedCommentsWithoutCheckout(t *testing.T) {
 		}
 		action := result.Data.Actions[0]
 		expected := map[string]string{"open": "skipped", "dry": "planned", "merged": "completed"}[stage]
-		if result.Outcome != "succeeded" || action.Action != "remove_pr_comments" || action.Status != expected {
+		expectedAction := "remove_comment"
+		if stage == "open" {
+			expectedAction = "retain_repository"
+		}
+		if result.Outcome != "succeeded" || action.Action != expectedAction || action.Status != expected {
 			t.Fatal(out.String())
 		}
 		_, err := os.Stat(comments)

@@ -138,7 +138,7 @@ func TestValidationCorruptHistoryRunsChecksAndReportsGap(t *testing.T) {
 	if err != nil || !first.Passed {
 		t.Fatalf("%+v %v", first, err)
 	}
-	paths, err := filepath.Glob(filepath.Join(req.HistoryDir, "*", "history", "*"))
+	paths, err := filepath.Glob(filepath.Join(req.HistoryDir, "*", "validation", "history", "*"))
 	if err != nil || len(paths) == 0 {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestValidationRepositoryHistoryAcrossWorktrees(t *testing.T) {
 			if origin != "" && entries[0].Name() != "github--example--shared" {
 				t.Fatal(entries[0].Name())
 			}
-			stored, err := os.ReadDir(filepath.Join(history, entries[0].Name()))
+			stored, err := os.ReadDir(filepath.Join(history, entries[0].Name(), "validation"))
 			if err != nil {
 				t.Fatal(err)
 			}

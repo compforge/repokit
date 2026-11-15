@@ -66,7 +66,7 @@ func TestValidationHistoryCLI(t *testing.T) {
 		t.Fatal(code, exported, err)
 	}
 	entries, _ := os.ReadDir(dir)
-	if err := os.RemoveAll(filepath.Join(dir, entries[0].Name(), "logs")); err != nil {
+	if err := os.RemoveAll(filepath.Join(dir, entries[0].Name(), "validation", "logs")); err != nil {
 		t.Fatal(err)
 	}
 	code, partial := run("show", id)

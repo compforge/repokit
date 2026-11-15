@@ -18,7 +18,7 @@ Git 仓库为权威。缓存仅在明确的访问范围与新鲜度契约内复�
 状态发布及恢复。Git 适配层负责读取 Git 事实和执行命令，不依赖 state，也不回调 state 发布记录。
 创建、移除与清理 checkout 由 state 协调 Git 操作和状态更新；上层 CLI/Forge 消费 state 的业务入口。
 持久化记录是 state 的实现材料，不能通过直接改 JSON 代替 Git 操作。
-访问记录、worktree 保留与 repository 状态回收分别维护；聚合清理只组合既有 worktree service。
+访问记录、worktree 保留与各领域缓存分别维护；聚合清理协调所属领域入口。
 state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI 展示，也不作为所有持久化数据的总入口。
 
 | 实现 | 目录与入口 |
@@ -34,58 +34,100 @@ state 不承担 Forge 连接、Git 命令执行、validation 工作流或 CLI �
 结构信息复用、动态观测的新鲜度、操作前实时核验分别属于 state 的读取与操作契约。
 当前 branch 读取已有 read-through；checkout 结构查询仍读取 Git，尚未实现跨调用的结构信息复用。
 
+## 文件组织思路
+
+目录表达对象的身份与强归属，文件表达该对象的事实和策略；关联关系通过完整身份引用表达。
+文件布局同时服务对象定位、独立清理和失败后对账；清理契约见[资源生命周期](#资源生命周期)。
+
+### 归属、关联与清理边界
+
+Repository 拥有 PR，PR 拥有 Comment；Clone 拥有本地 Branch 和 Checkout。Worktree 是 linked
+Checkout，使用同一身份和记录。PR 分别引用 source / target branch，Checkout 引用检出的 branch，
+Comment 通过 reply_to_id 引用另一条评论。这些引用不改变对象归属，也不直接授予级联删除资格。
+
+本地分支按 Clone + ref 区分；远端分支按 Repository + ref 区分。共享对象只保留一份记录，
+使用者保存引用。反向关联优先按需计算，确有查询需要时再建立可重建索引，明确事实来源。
+源码和依赖环境继续留在本地 checkout；Home 保存位置和领域记录，不按磁盘树复制源码树。
+
+### 文件命名与信息表达
+
+某层级的信息直接放在对象目录下，不机械增加 observations/ 或单设 mapping.json 重复身份。
+文件按含义命名，例如 branch.json、checkout.json、creation.json、access.json；目录已确定访问对象，
+PR/Comment 的连接观测文件可继续以 connection-key 命名，隔离不同访问范围。
+
+文件名、存在性和内容都是信息载体：明确的布尔标记可用空文件，独立简单值可用短文本，需要整体
+核验和更新的字段使用 JSON。需要一起变化的字段原子发布；标记文件同样要定义创建、删除和并发语义。
+路径标识复用安全编码；同一事实有一个明确来源，派生索引可重建。访问时间显式保存，不用 mtime 代替。
+
+目录分组应对应真实归属或领域职责。validation/ 将同一领域的历史、输入和输出放在一起；
+不再通过 persistent/ 按保留期限拆散对象。配置、创建来源、当前观测可以共处一个对象目录，
+各自保留期限由领域 cleanup 判断；只有整个对象已无保留内容时，才回收对象目录。
+
+### 登记、访问与锁
+
+checkout.json 拥有位置登记，状态字段标明观测时间；淘汰动态观测时保留仍有效的登记字段。
+不在 repository 的集中访问记录中重复保存所有 checkout 的位置。clone.json 保存 common Git directory
+等发现信息，失效登记经过实时核验后回收。登记是资源定位线索，不替代操作前的身份验证。
+
+访问记录按实际决策粒度就近保存：PR、Branch、Checkout 各有 access.json；评论按 PR 的评论集合
+淘汰时，使用 comments/access.json，无需为每条 Comment 增加文件。Repository 的 access.json
+只保留自身聚合访问事实，不复制子对象清单。明确访问可以续期所属对象，后台刷新和维护不续期。
+
+锁位于被保护的回收目录之外，仓库级清理还要与子对象发布协调。移动记录路径时统一调整三种语言
+的锁键和顺序，继续复用现有空 .lock 目录 lease；文件表达原则不改变锁协议。读取与清理均不跟随
+源码 symlink 扩大操作边界，记录发布失败仍须保留已确认的 Git/Forge 操作结果。
+
+### 对象布局
+
+```text
+~/.repokit/
+  config.json
+  locks/
+    activity/<repo-key>.lock/            # 短期访问 lease
+    resources/<repo-key>.lock/           # 仓库记录发布与回收 lease
+  logs/
+  scans/
+  forge-http/
+  repositories/<repo-key>/
+    repository.json
+    config.json                         # repository 级策略
+    access.json
+    metadata.json
+    remotes/<scope-key>.json             # 按查询范围隔离的远端分支观测
+    clones/<clone-key>/
+      clone.json
+      access.json
+      branches/<branch-key>/
+        branch.json
+        creation.json
+        access.json
+        associations/<scope-key>.json   # 可重建的 PR 关联查询记录
+      checkouts/<checkout-key>/
+        checkout.json
+        access.json
+    prs/<number>/
+      access.json
+      <connection-key>.json
+      comments/
+        access.json
+        <comment-key>/<connection-key>.json
+    validation/
+      lock                              # 领域自身的 OS advisory lock
+      history/
+      inputs/
+      logs/
+```
+
+本地对象键沿用 common Git directory、checkout 路径及 ref 的明确身份编码；移动路径后需重新核验
+登记，不把本地键提升为公共 Repository 身份。PR 关联保留完整源/目标仓库身份和访问范围。
+远端查询缓存、跨仓扫描 checkpoint、传输协调记录继续由所属模块管理。
+
 ## 目录与身份
-
-目录按对象身份与归属组织；某一层级的信息直接放在该对象目录下。目录已经定位对象时，
-不为统一分类机械增加 `observations/` 等中间层，也不再单设文件重复记录同一身份映射。
-新增或调整布局时按这一原则收敛，文件名明确表达记录的含义或访问范围。
-
-文件名、存在性和内容都是信息载体：单一标记可用空文件表达，简单值可用短文本，
-需要整体读写的结构化信息使用 JSON；不强制把所有信息包装成 JSON 对象。路径中的业务标识
-复用统一的安全编码规则。同一事实只保留一种权威表达，需要一起变化的字段放在同一记录中原子更新。
-锁也是这种表达方式的例子；本项目现有的 `.lock` 空目录 lease 协议见下文“持久化边界”，
-不因文件表达原则改成另一套锁协议。
 
 Home 统一解析优先级为显式 `home` / `Home` / `--home` → `REPOKIT_HOME` → `~/.repokit`。
 解析本身不创建文件；省略 Home 使用默认目录，不表示禁用持久化。空字符串视为省略，纯空白路径拒绝；
 路径做绝对化和词法规范化，不解析 symlink。CLI、配置、Forge、topology 和验证默认历史均从此根派生。
 `--history-dir` 只覆盖验证历史根，不改变其它信息的位置。
-
-落盘布局如下：
-
-```text
-~/.repokit/
-  config.json                           # 用户维护的 Forge 访问配置
-  logs/
-    YYYY-MM-DD.log                      # CLI 执行日志
-    diff-YYYY-MM-DD.jsonl                # diff timeline；日志独立保留策略
-  locks/activity/<repo-key>.lock/        # repository 外的访问/回收 lease
-  repositories/<repo-key>/
-    repository.json                     # 身份；本地登记不随缓存过期
-    activity.json                       # checkout 登记位置与访问事实；不因维护续期
-    persistent/
-      config.json                      # repository 级配置，不随缓存过期
-      clones/<clone-key>/branches/<branch-key>.json  # 已确认的分支创建来源
-    remotes/<scope-key>.json             # 请求范围与远端 URL 隔离的远端分支观测
-    metadata.json                       # 已观察的 repository metadata（例如 default branch）
-    branches/<branch-key>/
-      observation.json                  # 按 clone 保留 head、observedAt、checkout keys
-      worktrees/<checkout-key> -> ../../../checkouts/<checkout-key>
-      associations/<scope-key>.json     # source/targets/connection 范围内的 PR 发现
-    checkouts/<checkout-key>/
-      observation.json                  # path、commonDir、head、branch、primary、observedAt
-      path -> /absolute/source/path
-    prs/<number>/
-      <connection-key>.json              # 该连接的 PR 快照、刷新与发现状态
-      comments.lock/                     # 仅发布评论记录或清理期间存在
-      comments/<comment-key>/
-        <connection-key>.json            # 单条评论的最近观测
-    history/                            # 验证 WAL，独立保留策略
-    inputs/
-    logs/
-  scans/<scope-key>.json                 # 可能跨仓的 Forge discovery checkpoint
-  forge-http/                           # endpoint/account 范围的传输协调
-```
 
 工作源码继续位于调用方选择的位置，不搬进状态目录。branch 可以没有 checkout；detached checkout
 只有 checkout 记录。PR 属于目标 repository，branch 关联记录可以引用另一个目标仓。
@@ -135,8 +177,8 @@ Python `PullRequestObserver.get_pull_request(key, refresh=True)` 和 TS observer
 resolution 永远不变，也不要求永久保留评论缓存。
 
 Go `state.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Git 创建/移除已成功但状态发布失败时，保留成功的 Git 结果并附 metadata diagnostic，避免误重试。`reconcile` 另外回收
-当前 clone 中已不再注册、且源路径确实不存在的 checkout 记录及其 branch 链接。它只删除明确拥有的
-状态文件和 symlink，不遍历或删除 symlink 指向的源码。未知文件、未知 checkout 路径或读取失败不会
+当前 clone 中已不再注册、且源路径确实不存在的 checkout 记录及其 branch 投影。它只删除明确拥有的
+状态文件，不遍历或删除 symlink 指向的源码。未知文件、未知 checkout 路径或读取失败不会
 变成删除授权。仍存在的非注册源码目录保留其旧记录，供后续核对。
 
 删除 branch 的投影只移除当前 clone 的信息；其他 clone、PR 关联和执行历史独立保留。
@@ -159,11 +201,14 @@ repocli pr show 123 --repo /path/to/repository --max-age 0
 
 ## 持久化边界
 
-记录通过临时文件、fsync 和 rename 发布；权限为目录 0700、记录 0600。topology 按 repository
-持有共享 lease，PR/关联按记录持有 lease，Comment 以 PR 下 `comments` 为发布/清理锁范围。
-Go/Python/TypeScript 使用兼容的 `.lock` 空目录协议：等待最多 30 秒、每 10 秒续期、30 秒失效。
+记录通过临时文件、fsync 和 rename 发布；权限为目录 0700、记录 0600。topology、PR、Comment
+与关联记录共用 repository 级 resources lease，避免父资源清理和子资源发布并发。访问与回收
+按 activity → resources 的顺序获取 lease；远端查询不占访问 lease。
+Go/Python/TypeScript 使用兼容的 `.lock` 空目录协议：获取等待最多 30 秒、每 10 秒续期、30 秒失效。获取期限不限制已获锁操作的总时长。
 失去 lease 或取消后不得发布记录；同一 Home 的进程使用相同锁参数。Validation WAL 使用自己的 OS 文件锁，
-其执行语义与保留规则见 [validation](validation.md#执行历史)。
+锁文件位于保留的 validation 目录内，不随 Run 淘汰而删除；执行语义与保留规则见 [validation](validation.md#执行历史)。
+锁的持有周期覆盖一次临界操作，正常结束、失败或取消均释放；资源保留周期独立。清理资源时仍持锁，
+完成后释放。全局 clean 另外回收失效的空 lease 目录，不删除活跃 lease 或未知锁内容。
 失败可能留下部分最新投影，下次分支读取或显式观察修复；因此它不是动作日志，也不能代替操作前重新验证。
 
 只读写当前目录结构，不扫描、迁移或回退旧的 repo key、PR 文件和关联记录。
@@ -187,15 +232,15 @@ Go/Python/TypeScript 使用兼容的 `.lock` 空目录协议：等待最多 30 �
 
 ## 持久配置、来源记录与操作恢复
 
-`persistent/config.json` 保存 repository 级 worktree 策略，多个 clone 共用。Go
-`SaveWorktreePolicy` / `LoadWorktreePolicy` 和 Python `load_policy` 使用同一路径，缺失时使用默认策略。
+`config.json` 保存 repository 级 worktree 策略，多个 clone 共用。Go
+`SaveWorktreePolicy` / `LoadWorktreePolicy` 和 Python `load_policy` 使用同一路径，缺失字段继承 Home 默认配置。
 分支创建来源按 common Git directory 隔离，记录 branch、baseRef、baseCommit、remote 与 createdAt。
 `state.CreateBranch` 和 worktree ensure 在确认新分支后发布记录；记录失败保留已确认的 Git 效果并返回诊断。
 Go `LoadBranchCreation`、Python `branch_creation` 与 CLI `git branch show` 读取来源；未经 RepoKit
 记录的分支来源为未知，不从当前 ancestry 猜测。分支在外部删除重建后，旧记录仅是最后一次已确认创建的历史，
 不能证明当前分支仍源于该基线，也不能覆盖调用方的任务基线或 PR target。
 
-过期缓存清理保留 `persistent/`、仓库身份和 checkout 登记。Git branch/commit/rebase 的恢复记录继续
+过期缓存清理保留配置、`creation.json`、仓库身份和有效 checkout 登记。Git branch/commit/rebase 的恢复记录继续
 由 Git 操作组件保存在 common Git directory；它们不随观测缓存清理。Validation 历史仍由 validation
 拥有格式与保留机制，不能因为物理上同处 RepoKit home 就纳入 state 的业务模型。
 
@@ -339,7 +384,7 @@ Python `forge_client(checkout, home=..., timeout=..., target_repository=...)` �
 
 ### Repository 配置
 
-`~/.repokit/repositories/<repo-key>/persistent/config.json` 保存所有 clone 共用的 repository 策略。
+`~/.repokit/repositories/<repo-key>/config.json` 保存所有 clone 共用的 repository 策略。
 例如 `{"worktree":{"max_count":10,"max_prepared":3,"outputs":["dist"]}}`。缺失时使用默认策略，
 无效配置返回错误；配置、创建来源和登记不随过期观测清理。Git branch/commit/rebase 恢复记录仍归
 Git 操作组件，存放在 common Git directory。完整布局见上文[目录与身份](#目录与身份)。
@@ -376,7 +421,7 @@ Go `CleanOptions.WorktreeTimeout` 与 `WorktreeCleanOptions.Timeout` 为 0 时�
 | `clean` | 所选 home 已登记的仓库；可用 `--repo` 限定 | 各 clone 的既有 worktree 策略；repository 状态另按访问时间过期 |
 | `worktree clean` | 指定 clone | 同一 worktree 策略；支持本次运行的数量覆盖 |
 
-worktree 数量沿用 `~/.repokit/repositories/<repo-key>/persistent/config.json` 的 `worktree.max_count` 和 `worktree.max_prepared`，
+worktree 数量沿用 `~/.repokit/repositories/<repo-key>/config.json` 的 `worktree.max_count` 和 `worktree.max_prepared`，
 默认 **10 个 linked checkout、3 个 prepared checkout**。先删除实时核验已 merged 的候选，再按创建时间
 回收超额 checkout 和依赖环境。未知创建时间排最老；30 天访问阈值不替代数量策略，也不导致限额内的
 普通 worktree 被全部删除。最新 worktree 的保留窗口为并行开发 session 留出缓冲；repocli 不探测 Harness session，
@@ -392,63 +437,20 @@ primary、当前工作目录所属 checkout、detached、Git lock、进行中的
 注册信息，包含其中初始化的 submodule 副本。清理不逐个管理 gitlink，也不为这些副本建立归档；
 不使用可绕过显式 worktree 锁的双重 `--force`。
 
-### 已 merged PR 的评论缓存
+### PR 评论与访问事实
 
-从 Home 已有 `prs/<number>/comments/` 出发，通过统一配置直接查询 Forge，不要求本地 checkout
-仍存在，也不扫描远端 PR 全集。只有实时确认 merged 才回收 comments；404、权限或网络错误保留
-缓存并进入部分失败报告，open/closed 保留。CLI 使用 Forge client 的默认 10 秒单请求超时；
-不将 worktree 的 `--timeout` 当作整仓扫描预算，调用方取消仍终止维护。
+Home 中已有评论集合可以通过统一 Forge 配置实时查询 merged 状态，不依赖本地 checkout。
+确认 merged 后回收整个评论集合；查询错误进入部分失败报告，不据此推断 merged。
+数量预算与 repository 闲置回收独立生效，缓存清理不删除远端评论。
 
-发布与删除共用 PR 下 `comments.lock/`，持有中的 writer 以 `state_locked` 保留。删除不跟随
-symlink，不删除远端评论或 PR 观测。dry-run 同样核验，报告 `remove_pr_comments` 的 `planned` 动作；
-实际删除成功标为 `completed`。后续历史读取重新构建缓存与回复结构。已访问过期的仓库直接进入整仓缓存回收，不再逐 PR 核验或重复估算空间。
-访问过期回收独立于 PR 终态；失败不意味着 merged，也不延长缓存保留期。
+明确访问只更新所选对象及其所属集合、PR、clone、repository 的 access.json；不续期兄弟对象。
+Comment 的访问同时更新 comments/access.json 和所属 PR。访问时间与 observedAt 分开，后台刷新、
+clean、dry-run、stats 和历史查询不续期。缺失访问时间按冷数据排序，损坏记录仍是错误。
+外部编辑器、直接 Git 和终端 cd 不提供 RepoKit 访问事实；实际删除仍核验 Git 保护条件。
 
-### 访问事实
-
-每个 `repositories/<key>/activity.json` 保存 schema 1 的 repository `lastAccessAt`，以及按 checkout
-路径摘要索引的 `checkouts`：`path`、`commonDir` 和 `lastAccessAt`。时间单位为 Unix 秒。
-访问记录不等于 topology/PR 的 `observedAt`，也不使用操作系统 atime、Git commit 时间或源码 mtime 推断访问。
-
-- 面向仓库的 CLI 命令记录所选 checkout；原生 Go `RecordAccess`、Python/TS 的 RepositoryState
-  branch/observe、checkout 创建，以及显式 PR 缓存查询记录对应使用。纯原生分析 API 仍只读，调用方
-  若以其它方式使用 checkout，应显式记录访问或使用 Git worktree lock 固定它。
-- 读取一个 checkout 不续期同仓其他 checkout。扫描库存与维护不是访问；Go 清理上下文、Python
-  `observe(record_use=False)`、TS `observe({recordUse:false})` 不更新访问时间。
-- clean/dry-run、stats、help、version、upgrade 不更新访问。验证历史的统计读取不续期；正常验证执行
-  与复用查询记录使用。失败尝试也可能说明用户正在使用该 checkout。
-- 缺少 repository 访问记录或访问时间时按很老处理，进入状态过期候选，动作原因标为 `access_unknown`。
-  位置从现有 checkout observation 获取，再用 Git 实时核验；不拿 observation 时间冒充访问时间。
-  未来访问时间仍保留；损坏记录、读取失败或身份不匹配属于错误，不当作时间未知。
-
-外部编辑器、终端 `cd`、直接 Git 与任意第三方 SDK 不提供 RepoKit 访问事实。worktree 保留由现有
-数量与 merged 策略决定；正在使用的干净 worktree 可通过 `git worktree lock` 固定。
-
-### 状态回收与并发
-
-访问更新与闲置回收共用 `home/locks/activity/<repository-key>.lock` 的跨语言 lease；锁位于待回收
-目录之外。清理先在短 lease 内读取登记位置，释放后执行 Git/PR 维护，最后重新取得 lease 并读取
-最新访问记录再决定状态删除。远端查询不占 activity lease，也不继承其 30 秒发布期限；查询期间发生的
-前台访问仍能及时续期。删除前再次检查状态写入锁。Git 资源操作另外使用现有 repository lease；checkout
-创建先释放 Git lease 再发布访问/状态，避免锁顺序倒置。维护成功后的观察发布不续期。
-
-repository 状态仅按访问过期与状态写入保护决定删除，不依赖 linked checkout 数量、PR 查询结果或
-worktree 删除结果。状态写入 lease 以 `state_locked` 保留；缓存文件的 mtime 不续期访问，也不阻止
-过期回收。登记与缓存有不同生命周期：
-
-- 有本地 checkout 登记时，保留 `repository.json` 身份和 `activity.json` 中的位置、common Git directory
-  及原访问时间，只删除其余可重建状态，包括 topology、PR 观察与验证历史。仅存在于 topology 的位置
-  先并入登记，再删除缓存；未知访问时间仍为 0，不因维护续期。
-- 后续全局 clean 继续从登记定位 clone，并实时核验 Git/PR。上次因锁或 PR 查询失败而保留的
-  worktree，在条件解除后仍可回收，无需先访问仓库。登记是发现线索，不是删除授权；失效路径跳过，
-  身份变化与读取错误仍报告。
-- 没有本地 checkout 登记的过期 repository 状态可整目录删除。轻量本地登记不按缓存年龄过期；
-  被保留的 primary checkout、worktree 和 branch refs 不受缓存回收影响。
-
-日志、共享包缓存、其它 home，以及 `--history-dir` 指向的外部目录不在范围内。
-
-目录删除限定在所选 home 的 repositories 根内；不跟随其中的源码 symlink。数据回收成功不代表远端 PR
-消失，也不删除源码仓库。`--dry-run` 不删除资源、不更新访问或 topology；临时 lease 和 CLI 日志仍按常规管理。
+登记保留位置，不因缓存闲置而丢失。后续 clean 继续定位 clone 并核验 Git；路径消失才回收登记。
+配置、创建来源与 Validation 的独立保留规则不受 repository 缓存预算影响。维护不删除真实 clone、
+branch refs、远端对象、共享包缓存或其它 Home。显式 history-dir 指向的外部目录不在全局 clean 范围内。
 
 ### 输出与空间
 
@@ -456,10 +458,116 @@ worktree 删除结果。状态写入 lease 以 `state_locked` 保留；缓存文
 `data.errors` 保留失败；text 模式同样把各条错误写到 stderr。部分失败返回非零和 `outcome: partial`，
 成功项目不会被抹掉。`skipped` 保留动作本身不产生错误；跳过资源显示的 0 字节表示未计入回收估算，
 不表示该目录为空。
-`remove_repository_cache` 表示回收缓存并保留登记，`remove_repository_state` 表示无本地登记时整目录回收；
-只剩登记时以 `registration_only` 跳过，保留文件不计入回收字节数。
+`remove_repository_cache` 回收指定缓存文件；`remove_pr`、`remove_comment` 等动作标明领域。
+配置、登记、创建来源和未知内容保留，不以删除 repository 整目录来实现缓存预算。
+`data.counts` 报告对应 repository / clone 的前后数量、max_count 与 over_budget。
 `planned` 表示预览候选，`completed` 表示已完成；跳过和失败的资源不计入回收估算。
 
 `estimatedBytes` 是不跟随 symlink 的普通文件逻辑大小之和；dry-run 汇总预计回收动作，执行结果汇总
 已完成动作。它不是文件系统实际释放块数：硬链接、稀疏文件、压缩与 snapshot 都会影响物理空间。
 失败时不声称释放全部容量。`cost.wallSeconds` 记录命令耗时，动作日志包含路径、原因与估算字节数。
+
+## 资源生命周期
+
+### 概念与关系
+
+| 概念 | 身份与关系 |
+|---|---|
+| Repository | Forge + repository path；拥有 PR，关联多个本地 Clone |
+| Clone | common Git directory；拥有本地 Branch、对象库与 Checkout |
+| Checkout / Worktree | Clone 下的工作目录，可检出 Branch 或 detached；Worktree 为 linked Checkout，不重复登记、计数 |
+| Branch | 本地为 Clone + ref，远端为 Repository + ref；与 Checkout、PR 分别关联 |
+| PR | 目标 Repository + number；分别引用一个 source branch 和 target branch，一个 Branch 可参与多个 PR |
+| Comment | PR + CommentID；reply_to_id 引用同一 PR 内另一 Comment；resolution 保留平台事实 |
+| Component / Bin | 组件引用实际依赖环境或产物；多个组件可以共用同一 Bin，按实际使用范围核验 |
+| Validation Run | 一次执行身份，引用 repository、checkout、输入和输出证据 |
+
+Branch 名称可以复用，旧 PR merged 不能证明当前 branch 已无用途。关联判断保留仓库、ref、revision
+与观测来源；本地 branch 结合 remote/upstream 等事实关联远端。缓存缺失不表示远端对象消失。
+
+### 独立 cleanup 与组合调用
+
+每类可管理资源在所属领域提供 cleanup，接受明确的 scope、policy、dry-run 和调用方取消信号。
+各语言采用自身 API 形式，共享身份、结果语义、持久化与并发契约。无需给所有资源预建通用 CRUD 基类。
+
+| Cleanup owner | 自己完成的契约 |
+|---|---|
+| Repository | 仓库缓存预算、闲置回收及附属领域组合，保留有价值的配置、登记和历史 |
+| PR | PR 缓存淘汰，完整回收所属评论集合，失效本仓分支的关联查询缓存 |
+| Comment | 评论预算、集合完整性及缓存回收 |
+| Checkout / Worktree | 删除资格、实际目录操作、位置登记和链接对账 |
+| Branch | 分支缓存清理；不删除实际 Git ref |
+| Clone | 核验本地位置与拥有对象，清理失效登记和辅助记录；缓存预算不自动授权删除实际 clone |
+| Bin | 核验剩余使用者，释放环境或产物并更新回执 |
+| Validation | Run 保留规则，成组回收证据并保留有效的共享引用 |
+
+Go/Python/TypeScript 的 state 均提供 Repository、PR、Comment、Branch、Clone 缓存独立清理。
+Go 的 state.CleanWorktrees、depot.Clean 与 repokit.CleanValidationHistory 分别管理真实 worktree、
+Bin 与历史；repokit.Clean 组合 state 和 validation，repocli clean 消费此入口。PR 清理在同一 lease
+内完整删除子评论集合，后续 Comment 清理跳过已删除父对象。全局入口不通过子进程调用 CLI。
+
+结果包括已完成、跳过、失败及原因，前后数量、剩余超额、空间估算、受影响关联对象和覆盖缺口。
+未知操作结果先核对事实；重试不重复已确认的副作用，部分完成后的对账失败可继续修复。
+
+### 数量预算与访问事实
+
+配置放在 Home 的 config.json 与 repository 的 config.json，后者覆盖前者。三语言共享解析语料。
+省略继承默认值，0 表示尽量不保留可回收项，负数、null、布尔值和非整数拒绝。Repository 总预算
+由 Home 配置决定；对象清理使用其 repository 覆盖策略。默认值不是容量测量结论。
+
+```json
+{"cleanup":{"repository":{"max_count":100},"pr":{"max_count":100},"comment":{"max_count":5000},"branch":{"max_count":200},"validation":{"max_count":1000}},"worktree":{"max_count":10,"max_prepared":3}}
+```
+
+| 预算 | 统计范围 | 默认 max_count |
+|---|---|---:|
+| Repository 缓存 | 每个 Home 有缓存内容的 repository，登记独立保留 | 100 |
+| PR 缓存 | 每个 Repository 不同 PR 身份 | 100 |
+| Comment 缓存 | 每个 Repository 全部根评论和回复 | 5,000 |
+| Branch 缓存 | 每个 Repository，按 clone + ref 区分本地身份 | 200 |
+| Linked Checkout | 每个 Clone | 10 |
+| Prepared Checkout | 每个 Clone | 3 |
+| Validation Run | 每个 Repository，与保留期限共同生效 | 1,000 |
+
+max_count 是软上限，正常创建和读取不因达限而失败。先固定最新保留窗口，再处理窗口外候选；
+旧候选受到保护时允许超额，不挤掉窗口内较新对象。clean 按领域资格和排序尽量收敛；正在使用、
+锁定、共享依赖或无法确认状态等条件可以造成超额，报告具体原因。真实资源的使用与保护需要可核验
+证据，访问时间或数量窗口不等同于识别所有外部 session。保留现有 worktree 内容处置与保护契约。
+
+同一对象的多个 connection 观测不重复计入逻辑数量；实际文件容量另计，可后续增加 max_bytes。
+Comment 按整个 PR 评论集合淘汰，计数仍按每条 Comment；最新单个集合过大时可超过正数预算。
+读取仍返回完整远端结果，不能把预算裁剪后的缓存作为完整列表。Bin 按物理资源去重；Prepared
+Checkout 统计带环境的 checkout，不把 Bin 数量与 checkout 数量混用。
+
+observed_at 控制事实新鲜度，last_access_at 参与淘汰排序，保留期限由领域决定。访问记录采用上文
+对象级布局，维护、后台轮询和 stats 不续期；访问子对象可续期所属集合、PR、repository，不续期兄弟对象。
+缺少访问时间可以使可重建缓存排在较早候选位置，损坏、读取失败和真实资源删除资格仍须分别处理。
+
+### 关联清理与全局调度
+
+归属关系由 owner 组合清理；引用关系只触发对方重新判断；共享资源核验最后一个有效使用者。
+最后一个 checkout 消失后仍核验 clone 是否存在，创建来源和执行历史可独立保留。
+
+全局 clean 的协调流程由工具包拥有，repocli 负责参数和展示：
+
+1. 发现 Home 登记，回收已失效的空锁记录，按 repository 访问时间固定超额候选。
+2. 各 clone 通过现有 worktree owner 核验并回收 checkout / Bin；错误保留在报告中。
+3. 在访问 lease 之外查询已有评论集合的 PR merged 状态。
+4. Validation owner 独立按 TTL 与 Run 数量维护历史。
+5. 按 activity → resources 获取 lease，重读访问事实；顺序清理 PR、Comment、Branch 缓存和失效登记，汇总数量与部分失败。
+
+归属清理不重复计算子目录空间；PR 淘汰使本仓派生的 branch association 缓存失效。
+仍有 scopeIds 或 nextRefreshAt 的 PR 记录受到保护，预算不能使跟踪任务消失。跨仓扫描 checkpoint
+由扫描 owner 管理。没有通用引用递归删除；剩余本地位置和真实 Git 资源按各自资格重新核验。
+
+dry-run 使用相同候选与保护规则，模拟父子删除关系，不修改资源或登记；临时 lease 和 CLI 日志仍按常规管理。
+一个资源失败仍可继续独立资源。保留单 worktree 累计时间预算，repository 缓存回收无隐式本地期限；
+调用方取消终止整轮并保留已完成结果。Validation 按 WAL 前缀淘汰；未完成 Run 可保留额外前缀，
+但不挤掉最新 Run。TTL 独立生效；新近无引用证据暂留至 TTL，避免删除并发执行尚未发布的输入或输出。
+
+### 布局切换
+
+本版本直接使用上述布局，不双读、不自动迁移旧格式。升级前如需保留旧配置和创建来源，应在工具进程
+停止后将 repository 的 persistent/config.json 移到 config.json，将 persistent/clones/<clone>/branches/<branch>.json
+移到 clones/<clone>/branches/<branch>/creation.json。旧 history、inputs、logs 可一同移入 validation/ 保留历史。
+可重建观测无需搬运，位置登记由后续明确访问或 observe 重新建立；旧布局不会作为当前事实读取。

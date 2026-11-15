@@ -64,7 +64,7 @@ class CommentState:
             ]
         )
         repository: dict[str, object] = {"forge": {"name": self.forge.name}, "path": self.path}
-        record_access(store, key)
+        record_access(store, key, relative=("prs", str(number), "comments"))
         with store.locked(root) as owned:
             store.write(directory / "repository.json", repository, owned)
             if isinstance(result, list):

@@ -113,7 +113,7 @@ async function location(repository: string, options: ValidationHistoryOptions, s
     const common = (await git.run(["rev-parse", "--path-format=absolute", "--git-common-dir"])).toString().trim();
     key = localKey(await realpath(common));
   }
-  return { key, directory: join(options.historyDir || join(resolveHome(options.home), "repositories"), key) };
+  return { key, directory: join(options.historyDir || join(resolveHome(options.home), "repositories"), key, "validation") };
 }
 
 /**

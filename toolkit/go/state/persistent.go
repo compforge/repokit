@@ -10,13 +10,13 @@ import (
 	"github.com/compforge/repokit/toolkit/go/git/branch"
 )
 
-// PersistentDirectory separates durable configuration and creation facts from expiring observations.
+// PersistentDirectory returns the repository owner directory for configuration and provenance.
 func PersistentDirectory(ctx context.Context, repo, home string) (string, error) {
 	directory, _, _, err := stateLocation(ctx, repo, home)
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(directory, "persistent"), nil
+	return directory, nil
 }
 
 type BranchCreation struct {
@@ -30,7 +30,7 @@ type BranchCreation struct {
 
 func creationPath(ctx context.Context, repo, name, home string) (string, string, CheckoutInfo, error) {
 	directory, info, _, err := stateLocation(ctx, repo, home)
-	return filepath.Join(directory, "persistent", "clones", Digest(info.CommonDir), "branches", Part(name)+".json"), directory, info, err
+	return filepath.Join(directory, "clones", Digest(info.CommonDir), "branches", Part(name), "creation.json"), directory, info, err
 }
 
 // LoadBranchCreation reads explicit creation provenance, never inferring it from ancestry.
@@ -81,19 +81,22 @@ func SaveWorktreePolicy(ctx context.Context, repo, home string, policy WorktreeP
 		return err
 	}
 	path := filepath.Join(directory, "config.json")
-	return writePersistent(ctx, filepath.Dir(directory), path, struct {
-		Worktree WorktreePolicy `json:"worktree"`
-	}{policy})
+	return withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
+		config := map[string]any{}
+		if _, err := Read(path, &config); err != nil {
+			return err
+		}
+		if config == nil {
+			return fmt.Errorf("configuration must be an object")
+		}
+		config["worktree"] = policy
+		return Write(path, config, lease.owned)
+	})
 }
 
 // Serialize first publication with expiry; the activity lease lives outside the disposable tree.
 func writePersistent(ctx context.Context, directory, path string, value any) error {
 	return withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
-		return WithLock(ctx, path, func(owned func() error) error {
-			if err := lease.owned(); err != nil {
-				return err
-			}
-			return Write(path, value, owned)
-		})
+		return WithLock(ctx, path, func(owned func() error) error { return Write(path, value, owned) })
 	})
 }

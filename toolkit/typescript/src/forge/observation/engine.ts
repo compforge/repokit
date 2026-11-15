@@ -72,7 +72,7 @@ export class ObservationEngine {
   }
   async get(key: PullRequestKey, query: PullRequestObservationQuery = {}): Promise<PullRequestObservationResult> {
     assertPullRequestKey(key,this.reader.forge);
-    await recordAccess(this.#store,repositoryKey(key.repository.forge.name,key.repository.path),query.signal ?? new AbortController().signal);
+    await recordAccess(this.#store,repositoryKey(key.repository.forge.name,key.repository.path),query.signal ?? new AbortController().signal,undefined,["prs",String(key.number)]);
     return this.#get(key, query);
   }
   async #get(key: PullRequestKey, query: PullRequestObservationQuery, scopeId?: string): Promise<PullRequestObservationResult> {

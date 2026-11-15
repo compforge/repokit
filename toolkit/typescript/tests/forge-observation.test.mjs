@@ -93,8 +93,7 @@ test('discovery persists facts before its checkpoint and merged overlaps use cac
 test('observation write failure rejects and never advances the discovery checkpoint',async t=>{
   const f=await fixture(t);f.setListed([key()]);
   f.reader.getPullRequest=async k=>{
-    const repos=await readdir(join(f.home,'repositories'));
-    await mkdir(join(f.home,'repositories',repos[0],'prs','1',digest(['fixture','account-a'])+'.json'));
+    await mkdir(join(f.home,'repositories','fixture--org--repo','prs','1',digest(['fixture','account-a'])+'.json'),{recursive:true});
     return {...k,state:'merged'};
   };
   await assert.rejects(f.observer.poll({scopes:[{kind:'repository',repository}]}),ObservationStorageError);
@@ -154,7 +153,7 @@ test('a stale lock from an exited process is recovered',async t=>{
   const {utimes}=await import('node:fs/promises');
   const f=await fixture(t);await f.observer.get(key());
   const repos=await readdir(join(f.home,'repositories'));
-  const lock=join(f.home,'repositories',repos[0],'prs','1',digest(['fixture','account-a'])+'.json.lock');
+  const lock=join(f.home,'locks','resources',repos[0]+'.lock');
   await mkdir(lock);await utimes(lock,new Date(0),new Date(0));
   assert.equal((await f.observer.get(key())).source,'cache');
   await assert.rejects(readFile(lock),{code:'ENOENT'});

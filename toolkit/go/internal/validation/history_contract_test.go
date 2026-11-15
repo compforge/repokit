@@ -44,7 +44,7 @@ func TestSharedHistoryQueries(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			path := filepath.Join(dir, empty.Repository, "history")
+			path := filepath.Join(dir, empty.Repository, "validation", "history")
 			if err := os.MkdirAll(path, 0700); err != nil {
 				t.Fatal(err)
 			}
@@ -229,7 +229,7 @@ func historyContractFixture(t *testing.T) (root, dir, store string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store = filepath.Join(dir, empty.Repository)
+	store = filepath.Join(dir, empty.Repository, "validation")
 	var corpus struct{ Events []json.RawMessage }
 	data, err := os.ReadFile("../../../../conformance/history/runs.json")
 	if err != nil {

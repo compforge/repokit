@@ -83,7 +83,7 @@ func TestWorktreeObserveExplicitStateRoot(t *testing.T) {
 	if result["directory"] != filepath.Join(state, "repositories", "github--owner--project") {
 		t.Fatal(result)
 	}
-	if _, err := os.Stat(filepath.Join(result["directory"], "branches", "main", "observation.json")); err != nil {
+	if paths, err := filepath.Glob(filepath.Join(result["directory"], "clones", "*", "branches", "main", "branch.json")); err != nil || len(paths) != 1 {
 		t.Fatal(err)
 	}
 }

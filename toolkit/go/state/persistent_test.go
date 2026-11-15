@@ -42,14 +42,11 @@ func TestDurableRepositoryFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(filepath.Join(directory, "disposable"), []byte("cache"), 0600); err != nil {
+	if err = os.WriteFile(filepath.Join(directory, "metadata.json"), []byte("cache"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	for _, dry := range []bool{true, false} {
-		err = withActivity(ctx, directory, func(ctx context.Context, lease *activityLease) error {
-			_, e := reclaimRepositoryState(ctx, lease, dry)
-			return e
-		})
+		_, err = CleanRepository(ctx, CacheCleanOptions{Home: home, RepositoryKey: filepath.Base(directory), DryRun: dry, Expire: true})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -61,7 +58,7 @@ func TestDurableRepositoryFacts(t *testing.T) {
 			t.Fatal(shared, err)
 		}
 	}
-	if _, err = os.Stat(filepath.Join(directory, "disposable")); !os.IsNotExist(err) {
+	if _, err = os.Stat(filepath.Join(directory, "metadata.json")); !os.IsNotExist(err) {
 		t.Fatal(err)
 	}
 }

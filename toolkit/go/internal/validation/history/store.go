@@ -25,7 +25,7 @@ type Store struct {
 }
 
 func newStore(base, repository, checkout string) *Store {
-	return &Store{dir: filepath.Join(base, repository), repository: repository, checkout: checkout}
+	return &Store{dir: filepath.Join(base, repository, "validation"), repository: repository, checkout: checkout}
 }
 
 // Open identifies a repository using its credential-free origin. Local repositories
@@ -63,7 +63,7 @@ func (h *Store) access(ctx context.Context, fn func(*wal.Log) error) error {
 
 func (h *Store) accessLog(ctx context.Context, readOnly bool, fn func(*wal.Log) error) (err error) {
 	if !readOnly && h.trackAccess {
-		if err = repostate.RecordAccess(ctx, h.checkout, filepath.Dir(filepath.Dir(h.dir))); err != nil {
+		if err = repostate.RecordAccess(ctx, h.checkout, filepath.Dir(filepath.Dir(filepath.Dir(h.dir)))); err != nil {
 			return err
 		}
 	}

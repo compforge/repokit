@@ -52,45 +52,21 @@ func safeRelative(path string) bool {
 // LoadWorktreePolicy reads configuration shared by the repository's checkouts.
 func LoadWorktreePolicy(ctx context.Context, repo, home string) (policy WorktreePolicy, err error) {
 	defer func() { err = errs.Wrap(err, "state.policy_failed", "state.policy", repo) }()
-	config := struct {
-		Worktree WorktreePolicy `json:"worktree"`
-	}{WorktreePolicy{MaxCount: 10, MaxPrepared: 3}}
+	policy = WorktreePolicy{MaxCount: 10, MaxPrepared: 3}
+	resolved, err := ResolveHome(home)
+	if err != nil {
+		return policy, err
+	}
 	directory, err := PersistentDirectory(ctx, repo, home)
 	if err != nil {
-		return config.Worktree, err
+		return policy, err
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "config.json"))
-	if errors.Is(err, os.ErrNotExist) {
-		return config.Worktree, nil
-	}
-	if err == nil {
-		var fields map[string]json.RawMessage
-		err = json.Unmarshal(data, &fields)
-		if err == nil && fields == nil {
-			err = errors.New("repository configuration must be an object")
-		}
-		if err == nil {
-			if value, found := fields["worktree"]; found {
-				var policyFields map[string]json.RawMessage
-				err = json.Unmarshal(value, &policyFields)
-				if err == nil && policyFields == nil {
-					err = errors.New("worktree configuration must be an object")
-				}
-				for _, name := range []string{"max_count", "max_prepared", "outputs"} {
-					if string(policyFields[name]) == "null" {
-						err = fmt.Errorf("worktree %s must not be null", name)
-					}
-				}
-			}
-		}
-		if err == nil {
-			err = json.Unmarshal(data, &config)
+	for _, path := range []string{filepath.Join(resolved, "config.json"), filepath.Join(directory, "config.json")} {
+		if err := overlayPolicy(path, "worktree", &policy); err != nil {
+			return policy, err
 		}
 	}
-	if err == nil {
-		err = config.Worktree.Validate()
-	}
-	return config.Worktree, err
+	return policy, policy.Validate()
 }
 
 type WorktreeAction struct {
@@ -105,6 +81,11 @@ type WorktreeAction struct {
 }
 
 type WorktreeCleanReport struct {
+	BeforeCount       int              `json:"before_count"`
+	MaxCount          int              `json:"max_count"`
+	MaxPrepared       int              `json:"max_prepared"`
+	OverCount         int              `json:"over_count"`
+	OverPrepared      *int             `json:"over_prepared"`
 	Actions           []WorktreeAction `json:"actions"`
 	Errors            []string         `json:"errors"`
 	RemainingCount    int              `json:"remaining_count"`
@@ -163,6 +144,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if err := policy.Validate(); err != nil {
 		return report, err
 	}
+	report.MaxCount, report.MaxPrepared = policy.MaxCount, policy.MaxPrepared
 	info, err := Checkout(ctx, repo)
 	if err != nil {
 		return report, err
@@ -219,6 +201,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		e := &retentionEntry{CheckoutEntry: entry, remaining: options.Timeout}
 		candidates = append(candidates, e)
+		report.BeforeCount++
 		run(e, func(ctx context.Context) {
 			home, homeErr := ResolveHome(options.Home)
 			if homeErr != nil {
@@ -464,13 +447,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 					return
 				}
 			}
-			if !options.DryRun {
-				for _, directory := range directories {
-					if err = releaseEnvironment(ctx, e.Path, directory); err != nil {
-						break
-					}
-				}
-			}
+			_, err = releaseBins(ctx, e.Path, directories, options.DryRun)
 			if err != nil {
 				failure(e, "release_environment", err)
 				return
@@ -497,7 +474,10 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			}
 		}
 	}
+	report.OverCount = max(0, report.RemainingCount-policy.MaxCount)
 	if known {
+		over := max(0, countPrepared-policy.MaxPrepared)
+		report.OverPrepared = &over
 		report.RemainingPrepared = &countPrepared
 	}
 	changed := false
