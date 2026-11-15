@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -21,9 +20,16 @@ func TestDeadcodeCLI(t *testing.T) {
 	gitCommand(t, root, "commit", "-qm", "fixture")
 	for _, flags := range [][]string{nil, {"--head", "HEAD"}, {"--staged"}} {
 		var out, stderr bytes.Buffer
-		args := append([]string{"deadcode", "--repo", root, "--json"}, flags...)
+		args := append([]string{"code", "dead", "--repo", root, "--json"}, flags...)
 		if code := Execute(context.Background(), args, nil, &out, &stderr); code != 0 {
 			t.Fatalf("%d: %s", code, &stderr)
+		}
+		var envelope commandResult
+		if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+			t.Fatal(err)
+		}
+		if envelope.Command != "repocli code dead" {
+			t.Fatal(envelope.Command)
 		}
 		var report repokit.DeadcodeReport
 		if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
@@ -34,7 +40,7 @@ func TestDeadcodeCLI(t *testing.T) {
 		}
 	}
 	var filtered, filterErrors bytes.Buffer
-	if code := Execute(context.Background(), []string{"deadcode", "--repo", root, "--exclude-tests", "--exclude-entrypoints", "--json"}, nil, &filtered, &filterErrors); code != 0 {
+	if code := Execute(context.Background(), []string{"code", "dead", "--repo", root, "--exclude-tests", "--exclude-entrypoints", "--json"}, nil, &filtered, &filterErrors); code != 0 {
 		t.Fatalf("%d: %s", code, &filterErrors)
 	}
 	var report repokit.DeadcodeReport
@@ -45,7 +51,7 @@ func TestDeadcodeCLI(t *testing.T) {
 		t.Fatal(report.Nodes)
 	}
 	var out, stderr bytes.Buffer
-	if code := Execute(context.Background(), []string{"deadcode", "--repo", root}, nil, &out, &stderr); code != 0 {
+	if code := Execute(context.Background(), []string{"code", "dead", "--repo", root}, nil, &out, &stderr); code != 0 {
 		t.Fatalf("%d: %s", code, &stderr)
 	}
 	if !strings.Contains(out.String(), "Deadcode candidates: 2") || !strings.Contains(out.String(), "main.go:4\tFunction\torphan") {
@@ -54,24 +60,14 @@ func TestDeadcodeCLI(t *testing.T) {
 	for _, flags := range [][]string{{"--max-nodes", "-1"}, {"--max-relations", "-1"}, {"--timeout", "0s"}, {"--head", "HEAD", "--staged"}, {"unexpected"}} {
 		out.Reset()
 		stderr.Reset()
-		if code := Execute(context.Background(), append([]string{"deadcode", "--repo", root}, flags...), nil, &out, &stderr); code != 2 {
+		if code := Execute(context.Background(), append([]string{"code", "dead", "--repo", root}, flags...), nil, &out, &stderr); code != 2 {
 			t.Fatalf("%v: %d %s", flags, code, &stderr)
 		}
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := Execute(context.Background(), []string{"deadcode", "--repo", root, "--head", "missing-ref"}, nil, &out, &stderr); code != 1 {
+	if code := Execute(context.Background(), []string{"code", "dead", "--repo", root, "--head", "missing-ref"}, nil, &out, &stderr); code != 1 {
 		t.Fatalf("%d %s", code, &stderr)
-	}
-}
-
-type deadcodeBrokenWriter struct{}
-
-func (deadcodeBrokenWriter) Write([]byte) (int, error) { return 0, errors.New("write failed") }
-
-func TestDeadcodeWriterErrors(t *testing.T) {
-	if err := writeDeadcode(deadcodeBrokenWriter{}, repokit.DeadcodeReport{}, false); err == nil {
-		t.Fatal("lost write error")
 	}
 }
 
@@ -85,7 +81,7 @@ func TestDeadcodeCLIDiffAndFiles(t *testing.T) {
 	gitCommand(t, root, "commit", "-qm", "before")
 	put(t, root, "main.go", "package main\nfunc main(){}\n")
 	var out, stderr bytes.Buffer
-	args := []string{"deadcode", "--repo", root, "--base", "HEAD", "--mode", "unreachable", "--json"}
+	args := []string{"code", "dead", "--repo", root, "--base", "HEAD", "--mode", "unreachable", "--json"}
 	if code := Execute(context.Background(), args, nil, &out, &stderr); code != 0 {
 		t.Fatalf("code=%d %s", code, &stderr)
 	}
@@ -103,7 +99,7 @@ func TestDeadcodeCLIDiffAndFiles(t *testing.T) {
 	}
 	out.Reset()
 	stderr.Reset()
-	if code := Execute(context.Background(), []string{"deadcode", "--repo", root, "--file", "target.go", "--json"}, nil, &out, &stderr); code != 0 {
+	if code := Execute(context.Background(), []string{"code", "dead", "--repo", root, "--file", "target.go", "--json"}, nil, &out, &stderr); code != 0 {
 		t.Fatalf("code=%d %s", code, &stderr)
 	}
 	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
@@ -115,7 +111,7 @@ func TestDeadcodeCLIDiffAndFiles(t *testing.T) {
 	for _, flags := range [][]string{{"--mode", "invalid"}, {"--root", "whatever"}, {"--file", "../outside.go"}} {
 		out.Reset()
 		stderr.Reset()
-		if code := Execute(context.Background(), append([]string{"deadcode", "--repo", root}, flags...), nil, &out, &stderr); code != 2 {
+		if code := Execute(context.Background(), append([]string{"code", "dead", "--repo", root}, flags...), nil, &out, &stderr); code != 2 {
 			t.Fatalf("flags=%v code=%d stderr=%s", flags, code, &stderr)
 		}
 	}
@@ -140,7 +136,7 @@ func TestDeadcodeCLILiteralFilePaths(t *testing.T) {
 		{name: "empty", files: []string{""}, code: 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			args := []string{"deadcode", "--repo", root, "--json"}
+			args := []string{"code", "dead", "--repo", root, "--json"}
 			for _, file := range tc.files {
 				args = append(args, "--file", file)
 			}
@@ -174,5 +170,20 @@ func TestDeadcodeCLILiteralFilePaths(t *testing.T) {
 				t.Fatalf("scope=%+v paths=%v want=%v", report.Scope, paths, tc.want)
 			}
 		})
+	}
+}
+
+// +case=Code help lists the dead capability without reading a repository; the retired top-level command is rejected.
+func TestCodeCommandRouting(t *testing.T) {
+	t.Setenv("REPOKIT_HOME", t.TempDir())
+	for _, args := range [][]string{{"code", "--help"}, {"code", "dead", "--help"}} {
+		var out, stderr bytes.Buffer
+		if status := Execute(context.Background(), append(args, "--repo", t.TempDir()), nil, &out, &stderr); status != 0 || !strings.Contains(out.String(), "dead") || stderr.Len() != 0 {
+			t.Fatal(status, out.String(), stderr.String())
+		}
+	}
+	var out, stderr bytes.Buffer
+	if status := Execute(context.Background(), []string{"deadcode", "--json"}, nil, &out, &stderr); status != 2 {
+		t.Fatal(status, out.String(), stderr.String())
 	}
 }

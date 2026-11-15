@@ -1,4 +1,4 @@
-package cli
+package code
 
 import (
 	"context"
@@ -11,21 +11,21 @@ import (
 	"github.com/spf13/cobra"
 )
 
-func newDeadcodeCommand(opts *cmdutil.Options) *cobra.Command {
+func newDeadCommand(opts *cmdutil.Options) *cobra.Command {
 	var head, base, mode string
 	var files, roots []string
 	var excludeTests, excludeEntrypoints bool
 	var staged bool
 	var maxNodes, maxRelations int
 	command := &cobra.Command{
-		Use:   "deadcode",
+		Use:   "dead",
 		Short: "Find unused declarations and deadcode affected by a diff",
 		Long: `Analyze whole-snapshot usage evidence, optionally reporting only selected files.
 With --base, use changed graph nodes in both snapshots as analysis entrypoints:
 report affected historical candidates as well as declarations that became dead.
 Unreachable mode follows declared roots and reports test-only uses separately.
 Results carry reasons and risks; they are not safe-deletion verdicts.`,
-		Example: "  repocli deadcode --json\n  repocli deadcode --base HEAD --json\n  repocli deadcode --base main --head HEAD --mode unreachable --json\n  repocli deadcode --file internal/service.go --json",
+		Example: "  repocli code dead --json\n  repocli code dead --base HEAD --json\n  repocli code dead --base main --head HEAD --mode unreachable --json\n  repocli code dead --file internal/service.go --json",
 		Args:    cobra.NoArgs,
 		PreRunE: func(_ *cobra.Command, _ []string) error {
 			if opts.Timeout <= 0 {
@@ -38,10 +38,10 @@ Results carry reasons and risks; they are not safe-deletion verdicts.`,
 			defer cancel()
 			report, err := repokit.AnalyzeDeadcode(ctx, repokit.DeadcodeRequest{InputRequest: repokit.InputRequest{Repository: opts.Repository, Head: head, Staged: staged}, MaxNodes: maxNodes, MaxRelations: maxRelations, Base: base, Files: files, Mode: mode, Roots: roots, ExcludeTests: excludeTests, ExcludeEntrypoints: excludeEntrypoints})
 			if err != nil {
-				return executionFailure(err)
+				return cmdutil.ExecutionFailure(err)
 			}
-			if err := writeDeadcode(command.OutOrStdout(), report, opts.JSON); err != nil {
-				return executionFailure(err)
+			if err := writeDead(command.OutOrStdout(), report, opts.JSON); err != nil {
+				return cmdutil.ExecutionFailure(err)
 			}
 			return nil
 		},
@@ -61,7 +61,7 @@ Results carry reasons and risks; they are not safe-deletion verdicts.`,
 	return command
 }
 
-func writeDeadcode(output io.Writer, report repokit.DeadcodeReport, asJSON bool) error {
+func writeDead(output io.Writer, report repokit.DeadcodeReport, asJSON bool) error {
 	if !asJSON {
 		cmdutil.Record(output, report)
 	}

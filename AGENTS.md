@@ -36,7 +36,8 @@ PR、Comment 与本机分散位置的 clone、branch、worktree。RepoKit / repo
 | Component / Product | Component 属于 Repository，是 lint、test、打包等工程操作的粒度；优先依据 manifest、其次 Makefile 识别。文件归最深组件，workspace 声明另行决定安装根。Product 与 Component 可以多对多，RepoKit 不从目录推断产品关系。 |
 | Snapshot / Comparison | Snapshot 标识捕获内容并报告缺口；Comparison 配对前后版本、文件变化及源码。布局、图、位置和显示源码必须属于相同版本，前后版本的证据路径不能混用。 |
 | Fragment / Unit | Fragment 表达同一对象上的实际编辑，Unit 按关系强度聚合相关 Fragment；容量和数量约束由工具包负责，评审与验证决策归调用方。 |
-| CodeGraph | 共享 CodeGraph 拥有语言声明、语法与绑定事实；RepoKit 拥有仓库上下文解析、材料准入和影响策略。Changeset、Testset、Workset 属于 RepoKit，不进入通用图模型。 |
+| CodeGraph | 共享 CodeGraph 提供语言声明、成员、命名空间、绑定关系与证据，是 Code 分析、Repository / Component 识别、Diff / Impact、View 等上层能力可复用的底层能力。RepoKit 拥有工程语义和分析策略；Component、Changeset、Testset、Workset 不进入通用图模型。 |
+| Code | 结合仓库上下文、代码事实与项目规则分析代码质量，拥有各子能力的范围、判定、诊断与版本比较。现有子能力为 deadcode；规模、耦合与架构约束是后续方向，详见 [Code](docs/code.md)。 |
 | Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见 Home 的配置小节。 |
 | State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 Home 专题。 |
 | PullRequest / Forge | PR 由目标 Repository 与仓内编号确定；源仓、分支、revision 和状态不参与身份。Forge 适配平台读写与查询，观察层维护显式启用的刷新和持久化；调用方拥有关注范围、时效要求、进程生命周期与业务动作。 |
@@ -58,7 +59,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | tree / inspect | tree 查询同版本路径、类型与已知角色；inspect 读取必要配置，解释 Repository、Component、语言与工具证据。不依赖构图，也不执行项目代码。 |
 | snapshot / diff | snapshot 捕获内容身份与完整性；diff 独立捕获前后内容、文件状态与 patch，按需派生同版本布局或形成 Unit。 |
 | impact | 从前后布局确定变更归属，独立发现 Testset；按版本建立有界 Workset 和 CodeGraph，再查询影响、投影测试候选并保留证据与缺口。 |
-| deadcode | 完整快照图提供引用证据；全仓或文件范围筛选候选，diff 前后节点作为入口追踪用途变化，区分本次变化和相关历史候选。分析规则与公开边界由消费者声明，结果不授权删除。 |
+| code dead | 完整快照图提供引用证据；全仓或文件范围筛选候选，diff 前后节点作为入口追踪用途变化，区分本次变化和相关历史候选。分析规则与公开边界由消费者声明，结果不授权删除。 |
 | view | 捕获内容和布局，构建共享代码图；图、结构上下文和源码作为一个版本展示与刷新，不经过 impact 的候选裁剪。 |
 | state / Git / Forge 操作 | 调用方提供目标与参数；state 协调 checkout 生命周期及状态更新，Git/Forge 适配执行实际动作。操作前实时核验，结果不确定时先核对事实再决定重试。 |
 | format / lint / test / validate | 仅匹配各 Component 本地 Makefile 的候选 target，缺失则跳过；显式 format 后重新规划检查。成功 Run 按组件及显式扩展输入复用，执行仍核对整轮一致性。 |
@@ -89,7 +90,8 @@ repokit/
 │   │   ├── forge/            # 平台 PR 查询、写入与观察
 │   │   └── internal/
 │   │       ├── analysis/     # 捕获、布局、构图与分析编排
-│   │       │   └── deadcode/ # deadcode 编排、候选规则与前后图比较
+│   │       ├── code/         # Code 分析领域，消费共享代码事实与仓库上下文
+│   │       │   └── dead/ # 用途、可达性、候选规则与前后版本比较
 │   │       ├── git/          # Git 底层适配：材料读取、refs、push、互斥与恢复记录
 │   │       │   ├── env/      # checkout 环境隔离
 │   │       │   ├── command/  # 命令执行、取消与不确定结果
@@ -149,7 +151,8 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [PR](docs/pr.md)：Forge 身份、读写、持续扫描和观察生命周期。
 - [Snapshot](docs/snapshot.md)：内容捕获、摘要与完整性。
 - [CodeGraph](docs/codegraph.md)：图模型、材料准入、语言解析与关系证据。
-- [Deadcode](docs/deadcode.md)：全仓、文件范围与 diff 依赖入口，候选变化、可达性及风险。
+- [Code](docs/code.md)：代码分析领域、共享事实边界与子能力组织。
+- [Deadcode](docs/code/dead.md)：全仓、文件范围与 diff 依赖入口，候选变化、可达性及风险。
 - [Impact](docs/diff.md) / [使用方式](docs/diff-usage.md)：影响范围、测试候选、缺口与 CLI 参数。
 - [Fragment 与 Unit](docs/units.md)：变更形成、关系优先级、聚合及预算。
 - [代码图浏览](docs/view.md)：viewer 的版本、展示与刷新契约。

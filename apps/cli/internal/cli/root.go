@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	codecmd "github.com/compforge/repokit/apps/cli/internal/cli/code"
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	depotcmd "github.com/compforge/repokit/apps/cli/internal/cli/depot"
 	gitcmd "github.com/compforge/repokit/apps/cli/internal/cli/git"
@@ -120,7 +121,7 @@ callers own workflow decisions.`,
 	_ = root.MarkPersistentFlagDirname("repo")
 	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
 	root.AddCommand(worktreecmd.NewCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
-	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), newDeadcodeCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
+	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), codecmd.NewCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
 	trackRepositoryCommands(root, opts)
 	return root
 }

@@ -26,7 +26,8 @@ internal/
 ├── validation/    # Makefile 规划、格式化、检查执行、输入身份与结果复用
 │   └── history/   # 执行记录、WAL、统计、清理与文件锁；不依赖 validation 父包
 ├── analysis/      # 输入选择、识别、捕获、构图与变更分析编排
-│   └── deadcode/  # deadcode 编排、候选规则、可达性、前后比较与筛选
+├── code/          # Code 分析领域，职责与方向见 ../../docs/code.md
+│   └── dead/  # 用途、可达性、候选规则、前后比较与筛选
 ├── git/           # Git 底层适配：材料读取、refs、push、互斥与恢复记录
 │   ├── env/       # Git 子进程的 checkout 环境隔离
 │   ├── command/   # 命令执行、取消、退出状态与不确定结果
@@ -39,6 +40,10 @@ internal/
 ```
 
 ## 关键约定
+
+- Code 子能力放在 `internal/code/<capability>`，复用 `internal/analysis` 的快照与构图原语及
+  共享 CodeGraph 事实；不重新提取语言语义。CodeGraph 是多个上层能力的基础，不归 Code 领域独占。
+  Code 的模型与目录约定见 [Code](../../docs/code.md)。
 
 - `internal/git` 与 `internal/git/worktree` 使用 `command`，`command` 使用 `env`；底层适配不依赖 `state` 或公开 Git 操作流程。refs、push、lease、record 按文件组织；恢复记录内容与阶段、持锁范围归调用方。
 
