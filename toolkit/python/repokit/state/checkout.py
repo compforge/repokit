@@ -18,7 +18,7 @@ def add_worktree(
 
     @spec State owns the Git mutation and publication sequence. Publication failure
     retains the successful Git outcome and never invites replay of the mutation.
-    @link component://docs/state.md
+    @link component://docs/home.md
     @case tests/test_repository_state.py
     """
     if branch is not None and detach:

@@ -58,6 +58,15 @@ type discussion struct {
 	Notes      []note `json:"notes"`
 }
 
+// root is the platform's first published user note, not a body/time heuristic.
+func (d discussion) root() string {
+	for _, n := range d.Notes {
+		if !n.System {
+			return "note:" + string(n.ID)
+		}
+	}
+	return ""
+}
 func (d discussion) resolution() comment.Resolution {
 	if d.Individual != nil && *d.Individual {
 		return comment.Unsupported
@@ -90,6 +99,9 @@ func (n note) value(key model.Key, d *discussion) (comment.Comment, error) {
 	out := comment.Comment{ID: "note:" + string(n.ID), PR: key, Body: *n.Body, Author: n.Author.Username, CreatedAt: n.CreatedAt, UpdatedAt: n.UpdatedAt, URL: n.URL, Resolution: comment.Unknown, ResolvedAt: n.ResolvedAt}
 	if d != nil {
 		out.Resolution = d.resolution()
+		if root := d.root(); root != out.ID {
+			out.ReplyToID = root
+		}
 	}
 	if n.ResolvedBy != nil {
 		out.ResolvedBy = n.ResolvedBy.Username
@@ -262,16 +274,6 @@ func (c *Comments) Reply(ctx context.Context, key model.Key, id, body string) (c
 	_, d, e := c.target(ctx, key, id)
 	if e != nil {
 		return comment.Comment{}, e
-	}
-	root := ""
-	for _, n := range d.Notes {
-		if !n.System {
-			root = "note:" + string(n.ID)
-			break
-		}
-	}
-	if root != id {
-		return comment.Comment{}, commentutil.Unsupported("GitLab cannot preserve a direct reply to a non-root comment")
 	}
 	var n note
 	e = c.Connection.Request(ctx, "POST", c.Connection.PRPath(key.Repository.Path, key.Number)+"/discussions/"+url.PathEscape(d.ID)+"/notes", map[string]any{"body": body}, &n)

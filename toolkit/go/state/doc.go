@@ -2,5 +2,5 @@
 // Git adapters read and mutate the repository; state owns freshness, publication,
 // retention and recovery. A persisted observation never authorizes a destructive action.
 //
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 package state

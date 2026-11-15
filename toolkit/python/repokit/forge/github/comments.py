@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any
 
+from .._comment_state import CommentState, observed
 from .._rest import RestClient
 from ..comment import (
     Comment,
@@ -19,7 +20,7 @@ from ..errors import ForgeUnsupported
 from ..model import ForgeError, ForgeNotFound, ForgeOutcomeUnknown
 
 
-class GitHubComments:
+class GitHubComments(CommentState):
     c: RestClient
     g: RestClient
     owner: str
@@ -150,11 +151,13 @@ class GitHubComments:
             raise ForgeError("GitHub comment inventory contains duplicate IDs")
         return sorted(result, key=lambda c: (c.created_at, c.id)), targets
 
+    @observed
     def list_comments(self, number: int) -> list[Comment]:
         return self._comment_inventory(number)[0]
 
+    @observed
     def get_comment(self, number: int, comment_id: str) -> Comment:
-        return self._find_comment(self.list_comments(number), comment_id)
+        return self._find_comment(self._comment_inventory(number)[0], comment_id)
 
     @staticmethod
     def _find_comment(comments: list[Comment], comment_id: str) -> Comment:
@@ -177,6 +180,7 @@ class GitHubComments:
                 "GitHub did not confirm comment write; read before retrying"
             ) from error
 
+    @observed
     def create_comment(
         self, number: int, body: str, *, anchor: CommentAnchor | None = None
     ) -> Comment:
@@ -204,19 +208,22 @@ class GitHubComments:
             number, self.c.post(f"pulls/{number}/comments", payload), "review", body
         )
 
+    @observed
     def reply_comment(self, number: int, comment_id: str, body: str) -> Comment:
         validate_body(number, body)
         target = self.get_comment(number, comment_id)
-        if not target.id.startswith("review:") or target.reply_to_id is not None:
-            raise ForgeUnsupported("GitHub only supports replies to root review comments")
+        if not target.id.startswith("review:"):
+            raise ForgeUnsupported("GitHub only supports replies within review comments")
+        root_id = target.reply_to_id or target.id
         row = self.c.post(
-            f"pulls/{number}/comments/{target.id.split(':')[1]}/replies", {"body": body}
+            f"pulls/{number}/comments/{root_id.split(':')[1]}/replies", {"body": body}
         )
         result = self._written_comment(number, row, "review", body)
-        if result.reply_to_id != target.id:
+        if result.reply_to_id != root_id:
             raise ForgeOutcomeUnknown("GitHub did not confirm the requested reply parent")
         return replace(result, resolution=target.resolution, resolved_by=target.resolved_by)
 
+    @observed
     def update_comment(self, number: int, comment_id: str, body: str) -> Comment:
         validate_body(number, body)
         target = self.get_comment(number, comment_id)
@@ -230,6 +237,7 @@ class GitHubComments:
         result = self._written_comment(number, row, kind, body, comment_id)
         return replace(result, resolution=target.resolution, resolved_by=target.resolved_by)
 
+    @observed
     def delete_comment(self, number: int, comment_id: str) -> DeleteResult:
         comments = self.list_comments(number)
         target = self._find_comment(comments, comment_id)
@@ -245,6 +253,7 @@ class GitHubComments:
         )
         return DeleteResult(number, comment_id, True)
 
+    @observed
     def resolve_comment(self, number: int, comment_id: str, resolved: bool = True) -> Comment:
         comments, targets = self._comment_inventory(number)
         target = self._find_comment(comments, comment_id)

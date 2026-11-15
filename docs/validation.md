@@ -257,9 +257,7 @@ CheckSpec 的 inputVersion 标识输入契约，当前为 2；不同契约的历
 父包的 `reuse.go` 解释检查结果及输入清单，判断本轮是否可复用，并衔接执行。依赖方向仅为 validation → history。
 history 原样保存检查载荷，仅解析统计和事件一致性所需字段，不依赖父包的 CheckResult、输入类型或规划策略。
 
-CLI 默认使用 `~/.repokit/repositories/<name>/`，`--history-dir` 可指定父目录。
-仓库名称由 Forge 与完整仓库路径组成，例如 `github--compforge--repokit`；路径分隔符使用 `--`，
-原名称中的分隔符及路径特殊字符转义。无远端身份时使用本地仓库名与共享 Git 元数据路径摘要。
+CLI 默认历史位于 Home 的 repository 目录，身份编码与根目录覆盖见 [Home](home.md#目录与身份)。
 同仓多个 clone/worktree 共用一个历史库和锁；checkout 路径记录在事件和输入中，不创建 checkout 子目录。
 统计汇总 repository 内的执行与复用，候选 Run 仍要求与本次 checkout 相同；不会跨 checkout 复用。
 工具包通过 `ValidationRequest.HistoryDir` 显式启用历史；空目录配置不持久化、不复用。
@@ -471,4 +469,4 @@ Python 验证实现集中在 `repokit/validation/`：`engine.py` 负责原生规
 
 ## Repository 本地信息
 
-信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](home.md)。

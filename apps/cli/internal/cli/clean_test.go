@@ -4,6 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/compforge/quality-harness/sdks/go/common"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,5 +202,77 @@ func TestCleanTimeoutDoesNotBoundRepositoryCache(t *testing.T) {
 	}
 	if code != 0 || result.Outcome != "succeeded" || len(result.Data.Errors) != 0 {
 		t.Fatal(code, out.String(), stderr.String())
+	}
+}
+
+// +case=Global clean resolves a cached PR through Home configuration without any local checkout, and only removes comments after a live merged response.
+func TestCleanMergedCommentsWithoutCheckout(t *testing.T) {
+	home := t.TempDir()
+	ctx := context.Background()
+	repository := common.Repository{Forge: common.Forge{Name: "gitlab"}, Path: "acme/repo"}
+	key := state.RepositoryKey("gitlab", "acme/repo")
+	if err := state.RecordRepositoryAccess(ctx, home, key); err != nil {
+		t.Fatal(err)
+	}
+	directory := filepath.Join(home, "repositories", key)
+	if err := state.Write(filepath.Join(directory, "repository.json"), repository, func() error { return nil }); err != nil {
+		t.Fatal(err)
+	}
+	comments := filepath.Join(directory, "prs", "7", "comments")
+	if err := os.MkdirAll(comments, 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(comments, "cached.json"), []byte("{}"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"forges":{"gitlab.com":{"provider":"gitlab","token":"fixture"}}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	merged := false
+	calls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.Method != "GET" || r.URL.EscapedPath() != "/projects/acme%2Frepo/merge_requests/7" || r.Header.Get("PRIVATE-TOKEN") != "fixture" {
+			t.Errorf("unexpected Forge request %s %s", r.Method, r.URL)
+			w.WriteHeader(400)
+			return
+		}
+		status := "opened"
+		if merged {
+			status = "merged"
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"iid": 7, "state": status, "web_url": "https://gitlab.com/acme/repo/-/merge_requests/7"})
+	}))
+	defer server.Close()
+	for _, stage := range []string{"open", "dry", "merged"} {
+		merged = stage != "open"
+		args := []string{"clean", "--home", home, "--api-host", server.URL, "--json"}
+		if stage == "dry" {
+			args = append(args, "--dry-run")
+		}
+		var out, stderr bytes.Buffer
+		code := Execute(ctx, args, nil, &out, &stderr)
+		if code != 0 {
+			t.Fatal(code, out.String(), stderr.String())
+		}
+		var result struct {
+			Outcome string
+			Data    state.CleanReport
+		}
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil {
+			t.Fatal(err)
+		}
+		action := result.Data.Actions[0]
+		expected := map[string]string{"open": "skipped", "dry": "planned", "merged": "completed"}[stage]
+		if result.Outcome != "succeeded" || action.Action != "remove_pr_comments" || action.Status != expected {
+			t.Fatal(out.String())
+		}
+		_, err := os.Stat(comments)
+		if os.IsNotExist(err) != (stage == "merged") {
+			t.Fatal(stage, err)
+		}
+	}
+	if calls != 3 {
+		t.Fatal(calls)
 	}
 }

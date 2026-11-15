@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -29,6 +31,7 @@ type fixture struct {
 	} `json:"expected"`
 }
 type backend struct {
+	home      string
 	data      fixture
 	provider  string
 	calls     []string
@@ -148,17 +151,17 @@ func (b *backend) serve(w http.ResponseWriter, r *http.Request) {
 }
 func setup(t *testing.T, provider string) (comment.Forge, model.Key, *backend) {
 	t.Helper()
-	b := &backend{provider: provider, data: fixtureFor(t, provider)}
+	b := &backend{provider: provider, data: fixtureFor(t, provider), home: t.TempDir()}
 	server := httptest.NewServer(http.HandlerFunc(b.serve))
 	t.Cleanup(server.Close)
-	c, e := forge.NewClient(forge.Config{Host: provider + ".com", APIHost: server.URL, Provider: provider, Token: "fixture", Home: t.TempDir()})
+	c, e := forge.NewClient(forge.Config{Host: provider + ".com", APIHost: server.URL, Provider: provider, Token: "fixture", Home: b.home})
 	if e != nil {
 		t.Fatal(e)
 	}
 	return c.Comments(), model.Key{Repository: c.Repository("acme/repo"), Number: 7}, b
 }
 
-// +case=Every message is counted, GitHub resource IDs cannot collide, and GitLab discussion membership never fabricates a direct reply.
+// +case=Every message is counted, GitHub resource IDs cannot collide, and GitLab discussion membership normalizes to a stable structural root.
 func TestFlatCommentContract(t *testing.T) {
 	for _, provider := range []string{"github", "gitlab"} {
 		t.Run(provider, func(t *testing.T) {
@@ -197,7 +200,7 @@ func TestFlatCommentContract(t *testing.T) {
 	}
 }
 
-// +case=CRUD returns confirmed identity/body, verifies PR membership and rejects silently retargeted replies or cascading root deletion.
+// +case=CRUD returns confirmed identity/body, verifies PR membership and normalizes reply targets and rejects cascading root deletion.
 func TestCommentCRUD(t *testing.T) {
 	for _, provider := range []string{"github", "gitlab"} {
 		t.Run(provider, func(t *testing.T) {
@@ -219,7 +222,7 @@ func TestCommentCRUD(t *testing.T) {
 			if e != nil || v.Body != "answer" {
 				t.Fatal(v, e)
 			}
-			if provider == "github" && v.ReplyToID != root || provider == "gitlab" && v.ReplyToID != "" {
+			if v.ReplyToID != root {
 				t.Fatal(v)
 			}
 			v, e = c.Update(ctx, key, target, "edited")
@@ -233,8 +236,8 @@ func TestCommentCRUD(t *testing.T) {
 			if _, e = c.Delete(ctx, key, root); e == nil {
 				t.Fatal("root deletion accepted")
 			}
-			if _, e = c.Reply(ctx, key, reply, "nested"); e == nil {
-				t.Fatal("retargeted nested reply")
+			if v, e = c.Reply(ctx, key, reply, "nested"); e != nil || v.ReplyToID != root {
+				t.Fatal("normalized nested reply", v, e)
 			}
 			if _, e = c.Get(ctx, key, "foreign:999"); e == nil {
 				t.Fatal("accepted foreign ID")
@@ -294,5 +297,77 @@ func TestCommentReadFailuresAndPagination(t *testing.T) {
 	b.data.Review[1]["in_reply_to_id"] = 999
 	if _, e = c.List(context.Background(), key); e == nil {
 		t.Fatal("orphan reply disappeared")
+	}
+}
+
+// +case=Comment identity and structure survive cache loss; corrupt records cannot authorize a write or hide a remote failure.
+func TestCommentHomeIsDisposable(t *testing.T) {
+	for _, provider := range []string{"github", "gitlab"} {
+		t.Run(provider, func(t *testing.T) {
+			c, key, b := setup(t, provider)
+			ctx := context.Background()
+			before, err := c.List(ctx, key)
+			if err != nil {
+				t.Fatal(err)
+			}
+			files, err := filepath.Glob(filepath.Join(b.home, "repositories", "*", "prs", "7", "comments", "*", "*.json"))
+			if err != nil || len(files) != 4 {
+				t.Fatal(files, err)
+			}
+			for _, path := range files {
+				var record struct {
+					Version    int
+					Connection string
+					ObservedAt string
+					Comment    comment.Comment
+				}
+				raw, err := os.ReadFile(path)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = json.Unmarshal(raw, &record); err != nil || record.Version != 1 || record.Comment.PR != key || record.ObservedAt == "" || filepath.Base(path) != record.Connection+".json" {
+					t.Fatal(string(raw), err)
+				}
+				if err = os.WriteFile(path, []byte("corrupt"), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			after, err := c.List(ctx, key)
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatal(after, err)
+			}
+			if err = os.RemoveAll(filepath.Join(b.home, "repositories")); err != nil {
+				t.Fatal(err)
+			}
+			after, err = c.List(ctx, key)
+			if err != nil || !reflect.DeepEqual(before, after) {
+				t.Fatal(after, err)
+			}
+			b.failRead = true
+			if _, err = c.Get(ctx, key, before[0].ID); err == nil {
+				t.Fatal("cached comment hid Forge failure")
+			}
+		})
+	}
+}
+
+// +case=Home publication failure preserves a successful remote write and sends it exactly once.
+func TestCommentWriteSurvivesHomeFailure(t *testing.T) {
+	c, key, b := setup(t, "gitlab")
+	if err := os.WriteFile(filepath.Join(b.home, "repositories"), []byte("not a directory"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	row, err := c.Create(context.Background(), key, "new", nil)
+	if err != nil || row.Body != "new" {
+		t.Fatal(row, err)
+	}
+	writes := 0
+	for _, call := range b.calls {
+		if strings.HasPrefix(call, "POST ") {
+			writes++
+		}
+	}
+	if writes != 1 {
+		t.Fatal(b.calls)
 	}
 }

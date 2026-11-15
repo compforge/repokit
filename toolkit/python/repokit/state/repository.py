@@ -63,7 +63,7 @@ class RepositoryState:
 
     @spec A complete read of one clone updates only that clone. Failed reads never
     imply absence. Persisted topology never authorizes a Git write or deletion.
-    @link component://docs/state.md
+    @link component://docs/home.md
     """
 
     def __init__(self, home: str | Path | None = None):

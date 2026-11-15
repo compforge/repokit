@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// +case=component://docs/state.md
+// +case=component://docs/home.md
 func TestRepositoryStateLifecycle(t *testing.T) {
 	root, git := worktreeFixture(t)
 	ctx := context.Background()

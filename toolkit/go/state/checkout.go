@@ -27,7 +27,7 @@ type AddWorktreeOptions struct {
 
 // AddWorktree creates a checkout at an explicit path. It never replaces an existing branch.
 // +spec=`State owns Git mutation and publication. A publication failure retains the successful Git outcome.`
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktreeOptions) (operation GitResult) {
 	defer func() { operation = checkoutError(operation, "state.add_worktree", path) }()
 	if options.Branch != "" && options.Detach {

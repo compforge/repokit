@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	repoconfig "github.com/compforge/repokit/toolkit/go/config"
 	"github.com/compforge/repokit/toolkit/go/errs"
@@ -46,6 +47,14 @@ func (o *Options) Context(ctx context.Context, repo string, stateRoot string) (*
 	if identity == nil {
 		return nil, ErrNoOrigin
 	}
+	client, err := o.client(identity.Forge.Name, stateRoot)
+	if err != nil {
+		return nil, err
+	}
+	return forge.NewContext(ctx, client, repo, o.Targets)
+}
+
+func (o *Options) client(host, stateRoot string) (*forge.Client, error) {
 	if !o.configurationLoaded {
 		o.configuration, o.configurationErr = repoconfig.Load(stateRoot)
 		o.configurationLoaded = true
@@ -53,12 +62,12 @@ func (o *Options) Context(ctx context.Context, repo string, stateRoot string) (*
 	if o.configurationErr != nil {
 		return nil, o.configurationErr
 	}
-	access, err := o.configuration.Forge(identity.Forge.Name)
+	access, err := o.configuration.Forge(host)
 	if err != nil {
 		return nil, err
 	}
 	if o.provider != "" && o.provider != access.Provider {
-		return nil, errs.Wrap(errors.New("provider override conflicts with configured Forge provider"), "forge.provider_mismatch", "connection", identity.Forge.Name)
+		return nil, errs.Wrap(errors.New("provider override conflicts with configured Forge provider"), "forge.provider_mismatch", "connection", host)
 	}
 	if o.apiHost != "" {
 		access.APIHost = o.apiHost
@@ -67,7 +76,7 @@ func (o *Options) Context(ctx context.Context, repo string, stateRoot string) (*
 	if err != nil {
 		return nil, err
 	}
-	return forge.NewContext(ctx, client, repo, o.Targets)
+	return client, nil
 }
 
 // WorktreePullRequests adapts the shared Forge connection for both cleanup commands.
@@ -81,4 +90,14 @@ func (o *Options) WorktreePullRequests(ctx context.Context, repo, home string) (
 		return nil, err
 	}
 	return prContext, nil
+}
+
+// MergedPR reads Forge directly; a cache record is only a resource locator.
+func (o *Options) MergedPR(ctx context.Context, repository common.Repository, number int, home string) (bool, error) {
+	client, err := o.client(repository.Forge.Name, home)
+	if err != nil {
+		return false, err
+	}
+	pr, err := client.Get(ctx, repository.Path, number)
+	return err == nil && pr.State == "merged", err
 }

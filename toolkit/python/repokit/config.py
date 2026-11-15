@@ -75,7 +75,7 @@ class Config:
 
         @spec Credentials come only from the selected host in config.json. Environment
         variables and caller configuration never supply or override credentials.
-        @link component://docs/configuration.md
+        @link component://docs/home.md#配置
         """
         host = _host(name)
         entry = self._forges.get(host, _Entry())
@@ -100,7 +100,7 @@ def load_config(home: str | Path | None = None) -> Config:
     """Load config.json without creating files or reading caller-owned configuration.
 
     @spec Missing config is empty; invalid or non-private config fails without exposing contents.
-    @link component://docs/configuration.md
+    @link component://docs/home.md#配置
     """
     root = resolve_home(home)
     path = root / "config.json"

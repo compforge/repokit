@@ -86,6 +86,7 @@ export interface ForgeReaderConfig {
 }
 export type ForgeFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export interface ForgeReaderOptions {
+  readonly home?: string;
   readonly signal?: AbortSignal;
   /** Minimum request-start spacing across one reader; default 0. */
   readonly minIntervalMs?: number;

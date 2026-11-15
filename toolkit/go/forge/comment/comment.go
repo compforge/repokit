@@ -7,6 +7,10 @@ import (
 	"github.com/compforge/repokit/toolkit/go/forge/model"
 )
 
+// ID is opaque to consumers. Within one PR it is <resource>:<native-id>;
+// adapters own the resource namespace and never derive identity from local cache state.
+type ID = string
+
 type Resolution string
 
 const (
@@ -31,13 +35,13 @@ type Anchor struct {
 }
 
 // Comment is one published message. IDs are opaque and unique within its PR.
-// +spec=List is flat and counts every reply; ReplyToID is a known direct parent, never inferred from discussion order.
+// +spec=List is flat and counts every reply; ReplyToID is the platform-recoverable structural parent; adapters normalize grouped replies to the discussion root.
 // +spec=Resolution is the containing discussion's platform state, not human acceptance or proof of a fix.
 // +link=component://docs/pr.md#pr-comments
 type Comment struct {
-	ID         string     `json:"id"`
+	ID         ID         `json:"id"`
 	PR         model.Key  `json:"pr"`
-	ReplyToID  string     `json:"replyToId,omitempty"`
+	ReplyToID  ID         `json:"replyToId,omitempty"`
 	Body       string     `json:"body"`
 	Author     string     `json:"author"`
 	CreatedAt  string     `json:"createdAt"`
@@ -51,19 +55,20 @@ type Comment struct {
 
 type DeleteResult struct {
 	PR        model.Key `json:"pr"`
-	CommentID string    `json:"commentId"`
+	CommentID ID        `json:"commentId"`
 	Deleted   bool      `json:"deleted"`
 }
 
 // Forge is the comment domain interface. Adapters own provider resources and write handles.
 // Writes are never retried automatically. Resolve may affect the whole discussion;
+// Reply appends to the target conversation; the returned parent may be its root.
 // Delete must not silently cascade. Unknown write outcomes require reconciliation.
 type Forge interface {
 	List(context.Context, model.Key) ([]Comment, error)
-	Get(context.Context, model.Key, string) (Comment, error)
+	Get(context.Context, model.Key, ID) (Comment, error)
 	Create(context.Context, model.Key, string, *Anchor) (Comment, error)
-	Reply(context.Context, model.Key, string, string) (Comment, error)
-	Update(context.Context, model.Key, string, string) (Comment, error)
-	Delete(context.Context, model.Key, string) (DeleteResult, error)
-	Resolve(context.Context, model.Key, string, bool) (Comment, error)
+	Reply(context.Context, model.Key, ID, string) (Comment, error)
+	Update(context.Context, model.Key, ID, string) (Comment, error)
+	Delete(context.Context, model.Key, ID) (DeleteResult, error)
+	Resolve(context.Context, model.Key, ID, bool) (Comment, error)
 }

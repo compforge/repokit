@@ -207,4 +207,4 @@ Python `repokit.state.default_branch(repo, forge=...)` 统一处理默认分支�
 
 ## Repository 本地信息
 
-信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](home.md)。

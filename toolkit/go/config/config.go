@@ -39,7 +39,7 @@ func (c Config) GoString() string { return c.String() }
 
 // Load does not create files or read application-owned configuration.
 // +spec=`Missing config is empty. Invalid or non-private config fails without exposing its contents.`
-// +link=component://docs/configuration.md
+// +link=component://docs/home.md#配置
 func Load(home string) (*Config, error) {
 	root, err := state.ResolveHome(home)
 	if err != nil {
@@ -183,7 +183,7 @@ func normalizeHost(host string) (string, error) {
 
 // Forge resolves access for a repository's Forge identity; it performs no network I/O.
 // +spec=`Credentials come only from the selected host in config.json. Environment variables and caller configuration never supply or override credentials.`
-// +link=component://docs/configuration.md
+// +link=component://docs/home.md#配置
 func (c *Config) Forge(name string) (forge.Config, error) {
 	host, err := normalizeHost(name)
 	if err != nil {

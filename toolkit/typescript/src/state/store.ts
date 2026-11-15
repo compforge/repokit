@@ -65,7 +65,7 @@ export class ObservationStore {
     for (const repo of await directories(this.path("repositories"))) {
       for (const number of await directories(this.path("repositories", repo, "prs"))) {
         if (/^[1-9][0-9]*$/.test(number)) {
-          paths.push(this.path("repositories", repo, "prs", number, "observations", connection+".json"));
+          paths.push(this.path("repositories", repo, "prs", number, connection+".json"));
         }
       }
     }

@@ -3,6 +3,7 @@
 from .comment import Comment as Comment
 from .comment import CommentAnchor as CommentAnchor
 from .comment import CommentForge as CommentForge
+from .comment import CommentID as CommentID
 from .comment import CommentResolution as CommentResolution
 from .comment import DeleteResult as DeleteResult
 from .connection import ForgeConnection as ForgeConnection

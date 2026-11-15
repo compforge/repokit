@@ -2,6 +2,7 @@
 
 import copy
 import json
+import shutil
 from pathlib import Path
 
 import pytest
@@ -11,6 +12,11 @@ from repokit.forge.comment import CommentResolution
 from repokit.forge.model import ForgeError, ForgeNotFound, ForgeOutcomeUnknown
 
 FIXTURE = json.loads((Path(__file__).parents[3] / "conformance/forge-comments.json").read_text())
+
+
+@pytest.fixture(autouse=True)
+def isolated_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("REPOKIT_HOME", str(tmp_path))
 
 
 class FakeTransport:
@@ -114,7 +120,7 @@ def test_flat_inventory_counts_every_message_and_preserves_facts(provider):
         assert anchored.anchor.original_revision == "base" and anchored.anchor.outdated
     else:
         assert anchored.anchor.path == "old.go" and anchored.anchor.line == 12
-        assert all(c.reply_to_id is None for c in comments)
+        assert comments[1].reply_to_id == comments[0].id
 
 
 @pytest.mark.parametrize("provider", ["github", "gitlab"])
@@ -129,7 +135,7 @@ def test_crud_returns_confirmed_comments_and_rejects_foreign_ids(provider):
     root = "review:1" if provider == "github" else "note:1"
     reply = f.reply_comment(7, root, "answer")
     assert reply.body == "answer"
-    assert reply.reply_to_id == (root if provider == "github" else None)
+    assert reply.reply_to_id == root
     target = "conversation:1" if provider == "github" else "note:2"
     assert f.update_comment(7, target, "edited").body == "edited"
     assert f.delete_comment(7, target).deleted
@@ -137,8 +143,8 @@ def test_crud_returns_confirmed_comments_and_rejects_foreign_ids(provider):
     with pytest.raises(ForgeNotFound):
         f.delete_comment(7, "foreign:900")
     assert all(call[0] == "POST" and call[1] == "" for call in t.calls[before:])
-    with pytest.raises(ForgeError):
-        f.reply_comment(7, "review:2" if provider == "github" else "note:2", "nested")
+    nested = f.reply_comment(7, "review:2" if provider == "github" else "note:2", "nested")
+    assert nested.reply_to_id == root
     with pytest.raises(ForgeError):
         f.delete_comment(7, root)
 
@@ -190,3 +196,42 @@ def domain_contracts(github: GitHubForge, gitlab: GitLabForge) -> None:
     comments: list[CommentForge] = [github, gitlab]
     prs: list[PullRequestForge] = [github, gitlab]
     assert comments and prs
+
+
+@pytest.mark.parametrize("provider", ["github", "gitlab"])
+def test_comment_home_rebuild_and_connection_isolation(provider, tmp_path):
+    f, transport = client(provider)
+    before = f.list_comments(number=7)
+    root = tmp_path / "repositories" / f"{provider}--acme--repo" / "prs" / "7" / "comments"
+    records = list(root.glob("*/*.json"))
+    assert len(records) == 4
+    for path in records:
+        value = json.loads(path.read_text())
+        assert value["version"] == 1 and value["observedAt"]
+        assert value["connection"] == path.stem
+        assert value["comment"]["pr"] == {
+            "repository": {"forge": {"name": provider}, "path": "acme/repo"},
+            "number": 7,
+        }
+        path.write_text("corrupt")
+    assert f.list_comments(7) == before
+    other, _ = client(provider)
+    other._token = "another-connection"
+    other.list_comments(7)
+    assert len(list(root.glob("*/*.json"))) == 8
+    shutil.rmtree(root)
+    assert f.list_comments(7) == before
+    shutil.rmtree(root)
+    assert f.get_comment(number=7, comment_id=before[0].id) == before[0]
+    assert len(list(root.glob("*/*.json"))) == 1
+    transport.fail = True
+    with pytest.raises(ForgeError):
+        f.get_comment(7, before[0].id)
+
+
+def test_comment_write_survives_home_failure(tmp_path, caplog):
+    f, transport = client("gitlab")
+    (tmp_path / "repositories").write_text("not a directory")
+    assert f.create_comment(7, "new").body == "new"
+    assert len(transport.calls) == 1
+    assert "comment observation publication failed" in caplog.text

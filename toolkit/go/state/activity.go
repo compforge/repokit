@@ -34,7 +34,7 @@ func maintenanceContext(ctx context.Context) context.Context {
 
 // RecordAccess records use of the selected checkout, never every checkout in an inventory.
 // +spec=Access is explicit RepoKit use, not filesystem atime, observation freshness or maintenance. Missing activity sorts oldest; identity and mutation protection remain mandatory.
-// +link=component://docs/cleanup.md
+// +link=component://docs/home.md#清理与回收
 func RecordAccess(ctx context.Context, repo, home string) (err error) {
 	defer func() { err = errs.Wrap(err, "state.access_failed", "state.record_access", repo) }()
 	if ctx.Value(maintenanceKey{}) != nil {

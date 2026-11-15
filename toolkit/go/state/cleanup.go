@@ -12,12 +12,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	"github.com/compforge/repokit/toolkit/go/errs"
 )
 
 const DefaultInactiveDays = 30
 
 type CleanOptions struct {
+	// MergedPR verifies a recorded PR against Forge, independent of local checkout availability.
+	MergedPR         func(context.Context, common.Repository, int) (bool, error)
 	Home             string
 	Repository       string // Empty selects all repositories already recorded in Home.
 	InactiveDays     int
@@ -44,7 +47,7 @@ type CleanReport struct {
 // Clean applies repository worktree retention and reclaims expired repository state. Source repositories and branch refs are never deleted.
 // +spec=Dry-run shares eligibility and deletion protections with execution. Worktree cleanup uses CleanWorktrees and its repository policy. Cleanup never renews activity; missing repository activity sorts oldest. Worktree retention and errors do not prevent expired cache removal; checkout registration survives expiry, and access and writer protections still apply.
 // +spec=Worktree timeouts retain partial results and continue to the next worktree. Repository cache reclamation has no local timeout; caller cancellation stops the sweep.
-// +link=component://docs/cleanup.md
+// +link=component://docs/home.md#清理与回收
 func Clean(ctx context.Context, options CleanOptions) (report CleanReport, err error) {
 	defer func() { err = errs.Wrap(err, "state.cleanup_failed", "state.clean", options.Home) }()
 	report = CleanReport{DryRun: options.DryRun, Actions: []CleanAction{}, Errors: []string{}}
@@ -284,6 +287,12 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 	}
 	if e != nil {
 		report.Errors = append(report.Errors, fmt.Sprintf("%s: worktree discovery or cleanup: %v", key, e))
+	}
+	if e := report.cleanComments(ctx, directory, options); e != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		report.Errors = append(report.Errors, fmt.Sprintf("%s: comment cleanup: %v", key, e))
 	}
 	// Re-read access under a fresh lease: a foreground access during Git/PR
 	// maintenance must retain the cache. Worktree outcomes do not veto expiry.

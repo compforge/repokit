@@ -215,8 +215,11 @@ func (c *Comments) Reply(ctx context.Context, key model.Key, id, body string) (c
 	if e != nil {
 		return comment.Comment{}, e
 	}
-	if !strings.HasPrefix(id, "review:") || target.ReplyToID != "" {
-		return comment.Comment{}, commentutil.Unsupported("GitHub only supports replies to root review comments")
+	if !strings.HasPrefix(id, "review:") {
+		return comment.Comment{}, commentutil.Unsupported("GitHub only supports replies within review comments")
+	}
+	if target.ReplyToID != "" {
+		id = target.ReplyToID
 	}
 	result, e := c.write(ctx, key, "POST", c.Connection.PRPath(key.Repository.Path, key.Number)+"/comments/"+strings.TrimPrefix(id, "review:")+"/replies", map[string]any{"body": body}, "review", body, "")
 	if e == nil && result.ReplyToID != id {

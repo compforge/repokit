@@ -9,7 +9,7 @@ def resolve_home(home: str | Path | None = None) -> Path:
 
     @spec Explicit home wins over REPOKIT_HOME, then ~/.repokit.
     Omission never disables persistence.
-    @link component://docs/state.md
+    @link component://docs/home.md
     """
     value = (
         home

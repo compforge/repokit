@@ -7,13 +7,19 @@ RepoKit 是 Repository 理解与操作工具包：结合仓库布局、代码、
 能力覆盖布局与组件识别、代码关系、变更与影响分析、仓库状态、Git/Forge 操作、构建及包工具约定。
 这是职责范围；各语言的实际支持以公共 API 与专题文档为准。
 
-### 三处信息与操作联动
+### Home 连接 remote 与 local
 
-RepoKit 协调远端 Forge / Git remote、本地 Repository / Checkout 与 RepoKit home
-（`~/.repokit`），提供 Git branch、PR 等对象操作，以及 validation 的规划、执行、历史查询和清理。
+RepoKit home（`~/.repokit`）是 remote 与 local 的桥梁：连接 Forge / Git remote 上的 Repository、
+PR、Comment 与本机分散位置的 clone、branch、worktree。RepoKit / repocli 结合远端事实和 Home
+中的配置、登记与辅助信息操作本地仓库，提供 Git / Forge 操作及 validation 的规划、执行、历史查询。
 
 - 远端拥有远端分支、PR、权限与默认分支等事实；本地 Git 拥有本地分支、提交、index、工作区及 worktree。
-- RepoKit home 保存访问配置、仓库登记、操作来源记录，以及可失效的观测和执行历史；缓存不替代源端事实。
+- Home 保存访问配置、仓库登记、身份关联、操作来源、观测与执行历史；各类数据按自身契约保留。
+  Forge / Git 是对应事实的权威来源。观测及辅助结构有时效、可回收；代码不得预期它们永久存在。
+- 目录表达对象身份和归属，信息直接存于对应层级；按需要选择标记文件、短文本或原子 JSON。
+  不重复建立身份映射，不机械增加 `observations/`。布局、配置、存储协议与回收统一维护在 [Home](docs/home.md)。
+- `clean` 主要清理 Home 及其登记指向的 worktree，按领域生命周期核验；缓存删除不能改变公共对象身份，
+  也不删除远端对象。Comment ID 与结构性回复关系由 Forge adapter 从远端恢复。
 - 操作按需联动三处信息：例如创建分支时核验基线、修改本地 Git、记录创建来源；push 后核验远端并更新观测。
   跨 Git、Forge 与本地记录不构成原子事务，结果必须保留已确认的效果、失败步骤与未确认状态，不能盲目重试。
 - state 管理身份关联、观测和生命周期；Git / Forge 执行各自操作，validation / Depot 管理各自领域证据。
@@ -28,8 +34,8 @@ RepoKit 协调远端 Forge / Git remote、本地 Repository / Checkout 与 RepoK
 | Snapshot / Comparison | Snapshot 标识捕获内容并报告缺口；Comparison 配对前后版本、文件变化及源码。布局、图、位置和显示源码必须属于相同版本，前后版本的证据路径不能混用。 |
 | Fragment / Unit | Fragment 表达同一对象上的实际编辑，Unit 按关系强度聚合相关 Fragment；容量和数量约束由工具包负责，评审与验证决策归调用方。 |
 | CodeGraph | 共享 CodeGraph 拥有语言声明、语法与绑定事实；RepoKit 拥有仓库上下文解析、材料准入和影响策略。Changeset、Testset、Workset 属于 RepoKit，不进入通用图模型。 |
-| Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见配置专题。 |
-| State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 state 专题。 |
+| Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见 Home 的配置小节。 |
+| State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 Home 专题。 |
 | PullRequest / Forge | PR 由目标 Repository 与仓内编号确定；源仓、分支、revision 和状态不参与身份。Forge 适配平台读写与查询，观察层维护显式启用的刷新和持久化；调用方拥有关注范围、时效要求、进程生命周期与业务动作。 |
 | Depot | common 声明 Component 的 Bin；`depot` 观察、准备依赖、管理回执及耗时，state 只提供 checkout 生命周期与 lease 协调。 |
 | Validation | 项目 Makefile 定义检查语义，工具包拥有规划、执行、输入证据、历史与复用；调用方决定依赖准备时机、检查要求和门禁，不维护第二套检查缓存。 |
@@ -134,10 +140,9 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 
 - [README.md](README.md)：判断能力边界、开始使用或接入。
 - [仓库结构识别](docs/repository.md)：tree / inspect、Component、语言与工具证据。
-- [仓库状态](docs/state.md)：state 业务边界、身份、持久化、复用与对账。
+- [Home](docs/home.md)：remote/local 桥梁、目录与身份、配置、观测、存储及清理。
 - [Commit](docs/git-commit.md)：候选 index、明确范围、原生 hooks 与提交结果核验。
 - [Git](docs/git.md) / [worktree retention](docs/worktrees.md)：查询、操作、checkout 拓扑及回收保护。
-- [用户配置](docs/configuration.md)：RepoKit home 配置、host 级凭据与 SDK 接入。
 - [PR](docs/pr.md)：Forge 身份、读写、持续扫描和观察生命周期。
 - [Snapshot](docs/snapshot.md)：内容捕获、摘要与完整性。
 - [CodeGraph](docs/codegraph.md)：图模型、材料准入、语言解析与关系证据。
@@ -149,7 +154,6 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 - [验证历史查询](docs/validation.md#验证历史查询)：保留 Run 的列表、单次证据、缺口与历史成本。
 - [SDK 错误契约](docs/errors.md)：SDK 结构化错误、cause 链及共享 JSON/text 表达。
 - [CLI 输出契约](docs/cli-output.md)：统一输出结构、结果与诊断、证据、退出状态及兼容性。
-- [闲置清理](docs/cleanup.md)：访问记录、30 天策略、磁盘回收与跨语言 lease。
 - [日志](docs/logging.md) / [统计](docs/stats.md)：执行记录、timeline、重放与只读统计。
 - [Forge Releases](docs/forge-releases.md)：远端 Release 查询、确认发布与未知结果恢复。
 - [发布](docs/release.md) / [CLI 更新](docs/upgrade.md)：模块与包版本、构建、发布和安装。
