@@ -1,5 +1,9 @@
 # CodeGraph
 
+共享 CodeGraph 是 RepoKit 各上层能力复用的底层代码事实与查询能力，可支撑
+[Code 分析](code.md)、Repository / Component 识别、Diff / Impact 与 View。
+工程 Component 的识别与质量规则由 RepoKit 结合仓库上下文判断，不进入共享图内核。
+
 本文描述 diff 消费的仓库关系投影。view 直接展示共享 CodeGraph 的完整事实，见 [代码图浏览](view.md)。
 
 CodeGraph 构建并查询带证据的局部代码关系图。RepoKit 负责仓库定位、内容捕获、材料准入与仓库上下文；

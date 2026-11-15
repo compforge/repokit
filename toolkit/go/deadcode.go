@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/compforge/repokit/toolkit/go/errs"
-	"github.com/compforge/repokit/toolkit/go/internal/analysis/deadcode"
+	"github.com/compforge/repokit/toolkit/go/internal/code/deadcode"
 )
 
 // DeadcodeRequest selects the snapshot and optional node/relation budgets.

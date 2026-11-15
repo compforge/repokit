@@ -1,5 +1,8 @@
 # Deadcode candidates
 
+Deadcode is a [Code analysis](../code.md) capability: it evaluates declaration usage
+and reachability using snapshot-bound graph evidence.
+
 `repocli deadcode` analyzes usage evidence in complete captured repository graphs.
 It can scan the repository, inspect selected documents, or follow a diff's graph
 nodes to declarations whose usefulness may have changed. It does not delete code.
@@ -158,14 +161,14 @@ command success.
 
 ## Implementation boundary
 
-`toolkit/go/internal/analysis/deadcode` owns the complete deadcode flow: request
+`toolkit/go/internal/code/deadcode` owns the complete deadcode flow: request
 validation, capture and graph-build orchestration, candidate rules, reachability,
 before/after comparison and report assembly. Graph policy consumes CodeGraph facts;
 it does not parse language syntax or execute target code.
 
-The parent `internal/analysis` package supplies shared capture and graph primitives.
+The shared `internal/analysis` package supplies capture and graph primitives.
 `CaptureDiffSnapshots` retains the comparison's exact source versions, and
 `CapturedSnapshot.Graph` builds from retained contents. The dependency points from
-`analysis/deadcode` to `analysis`; the parent does not import feature packages.
+`code/deadcode` to `analysis`; shared analysis primitives do not import Code capabilities.
 The public Go API remains in `toolkit/go/deadcode.go`, with CLI presentation in
 `apps/cli`.

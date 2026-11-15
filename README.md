@@ -121,7 +121,14 @@ component = owner(report, "server/main.py")
 Install from `toolkit/python`; see [Python setup and scope](toolkit/python/README.md).
 It requires Git on PATH, shares common identities and uses the same inspection contract.
 
-## Deadcode candidates
+## Code analysis
+
+RepoKit's [Code domain](docs/code.md) evaluates code using repository context and
+CodeGraph facts. Deadcode is the current capability; size, coupling and architecture
+analysis are planned extensions. CodeGraph also supports other RepoKit capabilities,
+including structural analysis used in repository and Component identification.
+
+### Deadcode candidates
 
 `repocli deadcode --json` builds a graph of all captured text documents and reports
 declaration nodes with no incoming usage edges. The Go API is `AnalyzeDeadcode`.
@@ -129,7 +136,7 @@ Use `--base HEAD` to follow dependencies from changed documents in both versions
 including unchanged files. The report distinguishes newly dead code from related
 historical candidates. `--file` limits candidates while keeping whole-graph callers;
 `--mode unreachable` finds dead call chains and cycles from declared roots. Results
-retain snapshot identity, graph diagnostics and risks. See [rules and limitations](docs/deadcode.md).
+retain snapshot identity, graph diagnostics and risks. See [rules and limitations](docs/code/deadcode.md).
 
 ## Usage
 
