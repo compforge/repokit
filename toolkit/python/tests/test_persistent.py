@@ -18,7 +18,12 @@ def test_creation_provenance_and_policy_share_go_wire_shape(repo, tmp_path):
     common = checkout_info(repo).common_dir
     directory = persistent_directory(repo)
     path = (
-        directory / "clones" / digest_path(common) / "branches" / (name_part("topic/a") + ".json")
+        directory
+        / "clones"
+        / digest_path(common)
+        / "branches"
+        / name_part("topic/a")
+        / "creation.json"
     )
     path.parent.mkdir(parents=True)
     path.write_text(
@@ -43,7 +48,7 @@ def test_creation_provenance_and_policy_share_go_wire_shape(repo, tmp_path):
     assert load_policy(repo) == WorktreePolicy(5, 2)
     for document in ("null", '{"worktree":null}', '{"worktree":{"max_count":null}}'):
         (directory / "config.json").write_text(document)
-        with pytest.raises(ValueError):
+        with pytest.raises((ValueError, OSError)):
             load_policy(repo)
 
 

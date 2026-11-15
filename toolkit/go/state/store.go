@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -65,18 +66,19 @@ func Write(path string, value any, owned func() error) (err error) {
 }
 
 // WithLock implements the existing Python/proper-lockfile record lease: 30s stale,
-// 10s renewal, an empty .lock directory. Network and Git work use the same deadline.
+// 10s renewal, an empty .lock directory. Acquisition is bounded; held work uses the caller context.
 // +spec=`All language implementations serialize refresh on the same record path; cancellation or lease loss forbids publication.`
 func WithLock(ctx context.Context, path string, fn func(func() error) error) (err error) {
 	defer func() { err = errs.Wrap(err, "state.lock_failed", "state.lock", path) }()
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	path = LockPath(path)
+	acquire, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return err
 	}
 	lock := path + ".lock"
 	for {
-		if err := ctx.Err(); err != nil {
+		if err := acquire.Err(); err != nil {
 			return err
 		}
 		err := os.Mkdir(lock, 0700)
@@ -91,8 +93,8 @@ func WithLock(ctx context.Context, path string, fn func(func() error) error) (er
 			_ = os.Remove(lock)
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-acquire.Done():
+			return acquire.Err()
 		case <-time.After(25 * time.Millisecond):
 		}
 	}
@@ -164,4 +166,20 @@ func WithLock(ctx context.Context, path string, fn func(func() error) error) (er
 		return err
 	}
 	return fn(owned)
+}
+
+// LockPath places repository publication leases outside the reclaimable tree.
+// +spec=All repository record publishers share one external lease with cache cleanup; deleting an object never replaces its held lock.
+// +link=component://docs/home.md#文件组织思路
+func LockPath(path string) string {
+	parts := strings.Split(filepath.Clean(path), string(filepath.Separator))
+	for i := len(parts) - 2; i >= 0; i-- {
+		if parts[i] == "repositories" && parts[i+1] != "" {
+			return filepath.Join(string(filepath.Separator)+filepath.Join(parts[:i]...), "locks", "resources", parts[i+1])
+		}
+	}
+	return path
+}
+func RepositoryLock(directory, resource string) string {
+	return LockPath(filepath.Join(directory, resource))
 }

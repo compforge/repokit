@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import logging
 import math
-import os
 import re
 import time
 from collections.abc import Callable
@@ -83,6 +82,7 @@ class RepositoryState:
         record_access(self.store, key, info)
         directory = self.store.root / "repositories" / key
         clone = digest_path(info.common_dir)
+        record_access(self.store, key, relative=("clones", clone, "branches", name_part(branch)))
         if max_age > 0:
             with self.store.locked(directory / "topology"):
                 try:
@@ -103,19 +103,23 @@ class RepositoryState:
     def _branch(
         self, directory: Path, clone: str, branch: str, source: str
     ) -> BranchObservation | None:
-        record = self.store.read(directory / "branches" / name_part(branch) / "observation.json")
+        record = self.store.read(
+            directory / "clones" / clone / "branches" / name_part(branch) / "branch.json"
+        )
         if not record:
             return None
         if record.get("version") != 1 or record.get("branch") != branch:
             raise OSError("invalid branch observation identity")
-        observed = cast(JSON, cast(JSON, record["clones"]).get(clone, {}))
-        if not observed:
+        observed = record
+        if not observed.get("head"):
             return None
         entries = []
         for checkout in cast(list[str], observed["checkouts"]):
             if not re.fullmatch(r"[0-9a-f]{32}", checkout):
                 raise OSError("invalid checkout observation key")
-            row = self.store.read(directory / "checkouts" / checkout / "observation.json")
+            row = self.store.read(
+                directory / "clones" / clone / "checkouts" / checkout / "checkout.json"
+            )
             if (
                 not row
                 or row.get("version") != 1
@@ -171,16 +175,23 @@ class RepositoryState:
             }
             previous: dict[str, JSON] = {}
             for path in (
-                (directory / "checkouts").glob("*/observation.json") if branch is None else ()
+                (directory / "clones" / clone / "checkouts").glob("*/checkout.json")
+                if branch is None
+                else ()
             ):
                 row = self.store.read(path)
                 if row and row.get("clone") == clone:
                     previous[path.parent.name] = row
             self.store.write(directory / "repository.json", identity, owned)
+            self.store.write(
+                directory / "clones" / clone / "clone.json",
+                {"version": 1, "commonDir": info.common_dir},
+                owned,
+            )
             for checkout, entry in rows.items():
-                root = directory / "checkouts" / checkout
+                root = directory / "clones" / clone / "checkouts" / checkout
                 self.store.write(
-                    root / "observation.json",
+                    root / "checkout.json",
                     {
                         "version": 1,
                         "clone": clone,
@@ -193,47 +204,42 @@ class RepositoryState:
                     },
                     owned,
                 )
-                self._link(root / "path", str(entry.path), owned)
-            known = set(previous) | set(rows)
             names = set(branches) if branch is None else {branch}
             for path in (
-                (directory / "branches").glob("*/observation.json") if branch is None else ()
+                (directory / "clones" / clone / "branches").glob("*/branch.json")
+                if branch is None
+                else ()
             ):
                 record = self.store.read(path)
-                if record and clone in cast(JSON, record.get("clones", {})):
+                if record and record.get("commonDir") == info.common_dir:
                     names.add(str(record["branch"]))
             for branch in sorted(names):
-                root = directory / "branches" / name_part(branch)
-                path = root / "observation.json"
-                record = self.store.read(path) or {"version": 1, "branch": branch, "clones": {}}
+                root = directory / "clones" / clone / "branches" / name_part(branch)
+                path = root / "branch.json"
+                record = self.store.read(path) or {"version": 1, "branch": branch}
                 if record.get("version") != 1 or record.get("branch") != branch:
                     raise OSError("branch identity collision")
-                clones = cast(JSON, record["clones"])
-                branch_known = known | set(
-                    cast(list[str], cast(JSON, clones.get(clone, {})).get("checkouts", []))
-                )
                 links = {k: e for k, e in rows.items() if e.branch == branch}
                 if branch in branches:
-                    clones[clone] = {
-                        "head": branches[branch],
-                        "commonDir": info.common_dir,
-                        "observedAt": at,
-                        "checkouts": sorted(links),
-                        "complete": all(e.path for e in entries if e.branch == branch),
-                    }
+                    record.update(
+                        {
+                            "head": branches[branch],
+                            "commonDir": info.common_dir,
+                            "observedAt": at,
+                            "checkouts": sorted(links),
+                            "complete": all(e.path for e in entries if e.branch == branch),
+                        }
+                    )
                 else:
-                    clones.pop(clone, None)
+                    record.update(
+                        head="",
+                        commonDir=info.common_dir,
+                        observedAt=at,
+                        checkouts=[],
+                        complete=True,
+                    )
                 self.store.write(path, record, owned)
-                for checkout in branch_known:
-                    if not re.fullmatch(r"[0-9a-f]{32}", checkout):
-                        raise OSError("invalid checkout observation key")
-                    link = root / "worktrees" / checkout
-                    if checkout in links:
-                        self._link(link, "../../../checkouts/" + checkout, owned)
-                    elif link.is_symlink():
-                        owned()
-                        link.unlink()
-                if reconcile and not clones:
+                if reconcile and not record.get("head"):
                     self._retire_branch(root, owned)
             if reconcile and all(entry.path for entry in entries):
                 for checkout, row in previous.items():
@@ -242,7 +248,9 @@ class RepositoryState:
                             Path(str(row["path"])).lstat()
                         except FileNotFoundError:
                             owned()
-                            self._retire_checkout(directory / "checkouts" / checkout)
+                            self._retire_checkout(
+                                directory / "clones" / clone / "checkouts" / checkout
+                            )
             logger.info(
                 "repository observed key=%s clone=%s branches=%d checkouts=%d reconcile=%s",
                 key,
@@ -254,44 +262,18 @@ class RepositoryState:
         return directory
 
     @staticmethod
-    def _link(path: Path, target: str, owned: Callable[[], None]) -> None:
-        from uuid import uuid4
-
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        if path.exists() and not path.is_symlink():
-            raise OSError(f"refusing to replace non-link {path}")
-        temporary = path.with_name(path.name + "." + uuid4().hex + ".tmp")
-        try:
-            temporary.symlink_to(target)
-            owned()
-            os.replace(temporary, path)
-        finally:
-            temporary.unlink(missing_ok=True)
-
-    @staticmethod
     def _retire_checkout(root: Path) -> None:
         if root.is_symlink():
-            raise OSError("checkout state directory must not be a symlink")
-        if any(path.name not in {"path", "observation.json"} for path in root.iterdir()):
+            raise OSError("checkout state must not be a symlink")
+        if any(path.name not in {"checkout.json", "access.json"} for path in root.iterdir()):
             raise OSError(f"unrecognized checkout state retained: {root}")
-        link = root / "path"
-        if link.is_symlink():
-            link.unlink()
-        elif link.exists():
-            raise OSError("checkout path marker is not a symlink")
-        (root / "observation.json").unlink(missing_ok=True)
+        for path in root.iterdir():
+            path.unlink()
         root.rmdir()
 
     @staticmethod
     def _retire_branch(root: Path, owned: Callable[[], None]) -> None:
-        # Association records have their own retention. Only retire an empty projection.
-        if set(p.name for p in root.iterdir()) - {"worktrees", "observation.json"}:
-            return
-        links = root / "worktrees"
-        if links.exists() and any(links.iterdir()):
-            return
         owned()
-        if links.exists():
-            links.rmdir()
-        (root / "observation.json").unlink()
-        root.rmdir()
+        (root / "branch.json").unlink(missing_ok=True)
+        if not any(root.iterdir()):
+            root.rmdir()

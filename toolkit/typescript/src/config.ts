@@ -84,7 +84,7 @@ export async function loadConfig(home?: string): Promise<RepoKitConfig> {
     try { document = JSON.parse(contents); }
     catch { throw new ConfigError(`Invalid RepoKit JSON configuration: ${path}`); }
   } finally { await file.close(); }
-  if (!object(document) || Object.keys(document).some(k => k !== "forges")) throw new ConfigError(`Expected a JSON object with a forges map: ${path}`);
+  if (!object(document) || Object.keys(document).some(k => !["forges","cleanup","worktree"].includes(k))) throw new ConfigError(`Expected a JSON object with a forges map: ${path}`);
   const raw = document.forges ?? {};
   if (!object(raw)) throw new ConfigError(`Expected a forges map: ${path}`);
   const entries = new Map<string,Entry>();

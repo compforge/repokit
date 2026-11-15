@@ -38,3 +38,10 @@ def current_budget(timeout: float) -> Budget:
         budget.deadline = min(budget.deadline, outer.deadline)
         budget.parent = outer
     return budget
+
+
+def check_cancelled() -> None:
+    """Check the caller scope without imposing a maintenance deadline."""
+    outer = _current.get()
+    if outer is not None:
+        outer.remaining()

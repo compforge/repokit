@@ -1,0 +1,11 @@
+{
+  "defaults": {"repository":100,"pr":100,"comment":5000,"branch":200,"validation":1000},
+  "cases": [
+    {"name":"inherit","home":{"cleanup":{"pr":{"max_count":4},"comment":{"max_count":7}}},"repository":{"cleanup":{"pr":{"max_count":0}}},"expected":{"repository":100,"pr":0,"comment":7,"branch":200,"validation":1000}},
+    {"name":"negative","home":{},"repository":{"cleanup":{"comment":{"max_count":-1}}},"invalid":true},
+    {"name":"null","home":{"cleanup":null},"repository":{},"invalid":true},
+    {"name":"boolean","home":{},"repository":{"cleanup":{"pr":{"max_count":false}}},"invalid":true},
+    {"name":"fraction","home":{},"repository":{"cleanup":{"branch":{"max_count":0.5}}},"invalid":true},
+    {"name":"unknown","home":{},"repository":{"cleanup":{"comment":{"max_size":1}}},"invalid":true}
+  ]
+}

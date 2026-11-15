@@ -1,44 +1,70 @@
-"""Repository activity shared with Go/TypeScript cleanup; inventory is not access."""
+"""Object-local access and checkout registration; maintenance does not renew access."""
 
 from __future__ import annotations
 
 import math
 import time
-from typing import cast
+from collections.abc import Callable
+from pathlib import Path
 
 from ..git.state import CheckoutInfo
 from .identity import digest_path
-from .store import JSON, ObservationStore
+from .store import ObservationStore
 
 
-def record_access(store: ObservationStore, key: str, checkout: CheckoutInfo | None = None) -> None:
-    """Renew only the selected checkout under the repository's external activity lease.
+def touch_access(store: ObservationStore, directory: Path, owned: Callable[[], None]) -> None:
+    record = store.read(directory / "access.json") or {"version": 1, "lastAccessAt": 0}
+    previous = record.get("lastAccessAt")
+    if (
+        record.get("version") != 1
+        or isinstance(previous, bool)
+        or not isinstance(previous, (int, float))
+        or not math.isfinite(previous)
+        or previous < 0
+    ):
+        raise ValueError("invalid resource access record")
+    store.write(
+        directory / "access.json", {"version": 1, "lastAccessAt": max(previous, time.time())}, owned
+    )
 
-    @spec Maintenance never calls this operation; missing activity sorts oldest.
-    Deletion protection remains mandatory.
-    @link component://docs/home.md#清理与回收
-    """
+
+def record_access(
+    store: ObservationStore,
+    key: str,
+    checkout: CheckoutInfo | None = None,
+    *,
+    relative: tuple[str, ...] = (),
+) -> None:
+    if (
+        not key
+        or Path(key).name != key
+        or key in (".", "..")
+        or any(not p or Path(p).name != p or p in (".", "..") for p in relative)
+    ):
+        raise ValueError("invalid resource path")
     directory = store.root / "repositories" / key
-    with store.locked(store.root / "locks" / "activity" / key) as owned:
-        record = store.read(directory / "activity.json")
-        if record is None:
-            record = {"version": 1, "lastAccessAt": 0, "checkouts": {}}
-        previous = record.get("lastAccessAt")
-        checkouts = record.get("checkouts")
-        if (
-            record.get("version") != 1
-            or not isinstance(previous, (int, float))
-            or not math.isfinite(previous)
-            or previous < 0
-            or not isinstance(checkouts, dict)
-        ):
-            raise ValueError("Invalid repository activity record")
-        now = time.time()
-        record["lastAccessAt"] = max(previous, now)
+    with (
+        store.locked(store.root / "locks" / "activity" / key),
+        store.locked(directory / "access") as owned,
+    ):
+        touch_access(store, directory, owned)
+        if len(relative) > 2 and relative[0] in ("prs", "clones"):
+            touch_access(store, directory.joinpath(*relative[:2]), owned)
+        if relative:
+            touch_access(store, directory.joinpath(*relative), owned)
         if checkout is not None:
-            cast(JSON, checkouts)[digest_path(checkout.root)] = {
-                "path": checkout.root,
-                "commonDir": checkout.common_dir,
-                "lastAccessAt": now,
-            }
-        store.write(directory / "activity.json", record, owned)
+            clone = directory / "clones" / digest_path(checkout.common_dir)
+            path = clone / "checkouts" / digest_path(checkout.root)
+            store.write(
+                clone / "clone.json", {"version": 1, "commonDir": checkout.common_dir}, owned
+            )
+            row = store.read(path / "checkout.json") or {}
+            row.update(
+                version=1,
+                clone=digest_path(checkout.common_dir),
+                commonDir=checkout.common_dir,
+                path=checkout.root,
+            )
+            store.write(path / "checkout.json", row, owned)
+            touch_access(store, clone, owned)
+            touch_access(store, path, owned)

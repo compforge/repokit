@@ -53,7 +53,7 @@ func (c *Client) Load(ctx context.Context, repository string, number int, maxAge
 	}
 	key := model.Key{Repository: c.Repository(repository), Number: number}
 	directory, path, connection := c.observationLocation(key)
-	if err := repostate.RecordRepositoryAccess(ctx, c.config.Home, filepath.Base(directory)); err != nil {
+	if err := repostate.RecordObjectAccess(ctx, c.config.Home, filepath.Base(directory), "prs", strconv.Itoa(key.Number)); err != nil {
 		return PullRequest{}, err
 	}
 	err = repostate.WithLock(ctx, path, func(owned func() error) error {
@@ -143,7 +143,7 @@ func (c *Client) writeObservation(key model.Key, pr PullRequest, previous prReco
 // +spec=`Successful writes replace cached metadata and preserve discovery membership. Storage diagnostics never authorize repeating a remote write.`
 func (c *Client) mutate(ctx context.Context, key model.Key, operation func() (PullRequest, error)) (PullRequest, error) {
 	directory, path, connection := c.observationLocation(key)
-	if err := repostate.RecordRepositoryAccess(ctx, c.config.Home, filepath.Base(directory)); err != nil {
+	if err := repostate.RecordObjectAccess(ctx, c.config.Home, filepath.Base(directory), "prs", strconv.Itoa(key.Number)); err != nil {
 		return PullRequest{}, err
 	}
 	var result PullRequest

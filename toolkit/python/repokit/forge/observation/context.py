@@ -12,7 +12,7 @@ from harness_common import Repository
 from ...budget import operation
 from ...git import state as git_state
 from ...git.remote import remote
-from ...state.identity import name_part, repository_key
+from ...state.identity import digest_path, name_part, repository_key
 from ...state.store import JSON, digest
 from ..creation import PullRequestCreation, ensure_pull_request
 from ..model import Forge, ForgeError, PullRequest
@@ -141,6 +141,8 @@ class PullRequestContext:
             observer.store.root
             / "repositories"
             / repository_key(self.source.forge.name, self.source.path)
+            / "clones"
+            / digest_path(git_state.checkout_info(self.checkout).common_dir)
             / "branches"
             / name_part(branch)
             / "associations"

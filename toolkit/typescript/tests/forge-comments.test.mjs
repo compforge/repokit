@@ -31,7 +31,7 @@ for (const provider of ["github", "gitlab"]) {
     })), data.expected);
     assert.equal(comments.length, 4);
     const root = join(home, "repositories", `${provider}--acme--repo`, "prs", "7", "comments");
-    const directories = await readdir(root);
+    const directories = (await readdir(root,{withFileTypes:true})).filter(entry=>entry.isDirectory()).map(entry=>entry.name);
     assert.equal(directories.length, 4);
     for (const directory of directories) {
       const path = join(root, directory, (await readdir(join(root, directory)))[0]);

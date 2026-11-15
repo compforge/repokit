@@ -2,3 +2,6 @@
 export { RepositoryState, type BranchObservation } from "./repository.js";
 export { resolveHome } from "./home.js";
 export { ObservationStorageError } from "./store.js";
+
+export * from "./policy.js";
+export * from "./cleanup.js";

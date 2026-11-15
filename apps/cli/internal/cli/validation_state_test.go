@@ -26,15 +26,23 @@ func TestValidationCLILeavesTopologyUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := filepath.Join(directory, "branches", "main", "observation.json")
+	branches, _ := filepath.Glob(filepath.Join(directory, "clones", "*", "branches", "main", "branch.json"))
+	if len(branches) != 1 {
+		t.Fatal(branches)
+	}
+	branch := branches[0]
 	before, err := os.ReadFile(branch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	put(t, directory, "branches/unrelated/observation.json", "broken")
+	put(t, filepath.Dir(filepath.Dir(branch)), "unrelated/branch.json", "broken")
 	for _, name := range []string{"format", "lint", "test", "validate"} {
 		t.Run(name, func(t *testing.T) {
-			activity := filepath.Join(directory, "activity.json")
+			accessPaths, _ := filepath.Glob(filepath.Join(directory, "clones", "*", "checkouts", "*", "access.json"))
+			if len(accessPaths) != 1 {
+				t.Fatal(accessPaths)
+			}
+			activity := accessPaths[0]
 			if err := os.Remove(activity); err != nil {
 				t.Fatal(err)
 			}
@@ -65,22 +73,12 @@ func TestValidationCLILeavesTopologyUntouched(t *testing.T) {
 				t.Fatal(err)
 			}
 			var access struct {
-				Checkouts map[string]struct {
-					Path         string  `json:"path"`
-					LastAccessAt float64 `json:"lastAccessAt"`
-				} `json:"checkouts"`
+				LastAccessAt float64 `json:"lastAccessAt"`
 			}
-			if err := json.Unmarshal(data, &access); err != nil {
-				t.Fatal(err)
+			if err := json.Unmarshal(data, &access); err != nil || access.LastAccessAt <= 0 {
+				t.Fatalf("wrong checkout access: %s %v", data, err)
 			}
-			if len(access.Checkouts) != 1 {
-				t.Fatalf("unexpected checkout access: %s", data)
-			}
-			for _, checkout := range access.Checkouts {
-				if checkout.Path != root || checkout.LastAccessAt <= 0 {
-					t.Fatalf("wrong checkout access: %s", data)
-				}
-			}
+
 		})
 	}
 }
@@ -120,7 +118,7 @@ func TestValidationCLIHistoryWithoutTopology(t *testing.T) {
 			t.Fatalf("missing retained evidence: %+v %v", detail, err)
 		}
 	}
-	paths, err := filepath.Glob(filepath.Join(history, "*", "branches", "*", "observation.json"))
+	paths, err := filepath.Glob(filepath.Join(history, "*", "clones", "*", "branches", "*", "branch.json"))
 	if err != nil || len(paths) != 0 {
 		t.Fatalf("validation published topology: %v %v", paths, err)
 	}

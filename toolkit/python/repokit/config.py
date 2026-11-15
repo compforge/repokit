@@ -116,7 +116,7 @@ def load_config(home: str | Path | None = None) -> Config:
             document = json.load(stream)
         except (ValueError, UnicodeError):
             raise ConfigError(f"Invalid RepoKit JSON configuration: {path}") from None
-    if not isinstance(document, dict) or document.keys() - {"forges"}:
+    if not isinstance(document, dict) or document.keys() - {"forges", "cleanup", "worktree"}:
         raise ConfigError(f"Expected a JSON object with a forges map: {path}")
     entries = document.get("forges")
     if entries is None:

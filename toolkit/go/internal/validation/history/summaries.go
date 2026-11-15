@@ -39,7 +39,7 @@ func ReadSummaries(ctx context.Context, directory string) (Summaries, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		path := filepath.Join(directory, entry.Name(), "history")
+		path := filepath.Join(directory, entry.Name(), "validation", "history")
 		info, err := os.Lstat(path)
 		if errors.Is(err, os.ErrNotExist) {
 			continue

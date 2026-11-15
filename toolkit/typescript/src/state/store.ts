@@ -1,7 +1,7 @@
 import { RepoKitError } from "../errors.js";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, open, readFile, readdir, rename, rm } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, resolve, relative, sep } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import lockfile from "proper-lockfile";
 
@@ -37,6 +37,7 @@ export class ObservationStore {
     finally { await rm(temporary, { force: true }).catch(() => {}); }
   }
   async locked<T>(path: string, signal: AbortSignal, operation: (assertOwned: () => void) => Promise<T>): Promise<T> {
+    path = this.lockPath(path);
     await mkdir(dirname(path), { recursive: true, mode: 0o700 });
     let release: (() => Promise<void>) | undefined, compromised: Error | undefined;
     const deadline = Date.now() + 30_000;
@@ -55,6 +56,10 @@ export class ObservationStore {
     const assertOwned = () => { signal.throwIfAborted(); if (compromised) throw compromised; };
     try { assertOwned(); return await operation(assertOwned); }
     finally { await release(); }
+  }
+  lockPath(path: string): string {
+    const name = relative(this.path("repositories"), path);
+    return name && name !== ".." && !name.startsWith(".."+sep) ? this.path("locks", "resources", name.split(sep)[0]!) : path;
   }
   async observations(connection: string): Promise<string[]> {
     const directories = async (path: string) => {

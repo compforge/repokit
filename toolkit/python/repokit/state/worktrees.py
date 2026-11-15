@@ -52,20 +52,16 @@ class WorktreePolicy:
 
 def load_policy(repo: str | Path, *, home: str | Path | None = None) -> WorktreePolicy:
     """Repository-local configuration shared by all its checkouts."""
-    from .persistent import persistent_directory
+    from .policy import policy_documents
+    from .repository import repository_location
 
-    path = persistent_directory(repo, home=home) / "config.json"
-    try:
-        document = json.loads(path.read_text())
-        if not isinstance(document, dict):
-            raise ValueError("repository configuration must be an object")
-        value = document.get("worktree", {})
-    except FileNotFoundError:
-        return WorktreePolicy()
-    if not isinstance(value, dict):
-        raise ValueError("worktree configuration must be an object")
-    count, prepared = value.get("max_count", 10), value.get("max_prepared", 3)
-    outputs = value.get("outputs", [])
+    value: dict[str, object] = {"max_count": 10, "max_prepared": 3, "outputs": []}
+    for document in policy_documents(home, repository_location(repo)[0]):
+        section = document.get("worktree", {})
+        if not isinstance(section, dict) or section.keys() - value.keys():
+            raise ValueError("invalid worktree policy")
+        value.update(section)
+    count, prepared, outputs = value["max_count"], value["max_prepared"], value["outputs"]
     if (
         type(count) is not int
         or type(prepared) is not int

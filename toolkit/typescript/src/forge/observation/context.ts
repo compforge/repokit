@@ -1,8 +1,8 @@
 import { resolveHome } from "../../state/home.js";
-import { repositoryKey, namePart } from "../../state/identity.js";
+import { repositoryKey, namePart, pathDigest } from "../../state/identity.js";
 import { remote, type Remote } from "../../git/remote.js";
 import type { RepositoryKey, PullRequestSnapshot } from "@compforge/harness-common";
-import { currentBranch, localBranches, listCheckouts, isAncestor, type CheckoutEntry } from "../../git/state.js";
+import { checkoutInfo, currentBranch, localBranches, listCheckouts, isAncestor, type CheckoutEntry } from "../../git/state.js";
 import { ForgeError, type PullRequestKey } from "../model.js";
 import { ObservationEngine } from "./engine.js";
 import type { ObservationReader, PullRequestObservationOptions } from "./model.js";
@@ -52,7 +52,7 @@ export class PullRequestContext {
   }
   #path(branch: string): string {
     const clean = (repo: RepositoryKey) => ({ forge: { name: repo.forge.name }, path: repo.path });
-    return this.#store.path("repositories", repositoryKey(this.options.source.forge.name,this.options.source.path),"branches",namePart(branch),"associations", `${digest([digest([this.reader.forge, this.options.connection]), clean(this.options.source), branch, this.options.targets.map(clean)])}.json`);
+    return this.#store.path("repositories", repositoryKey(this.options.source.forge.name,this.options.source.path),"clones",pathDigest(checkoutInfo(this.options.checkout).commonDir),"branches",namePart(branch),"associations", `${digest([digest([this.reader.forge, this.options.connection]), clean(this.options.source), branch, this.options.targets.map(clean)])}.json`);
   }
   async #keys(branch: string, verify: boolean, signal: AbortSignal): Promise<readonly PullRequestKey[]> {
     const { targets } = this.options;

@@ -79,6 +79,7 @@ class ObservationStore:
         No owner files: proper-lockfile releases with rmdir. The inode and last
         mtime fence this owner after a lease has been reclaimed by another process.
         """
+        path = self.lock_path(path)
         path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         lock = Path(f"{path}.lock")
         budget = current_budget(30)
@@ -140,3 +141,10 @@ class ObservationStore:
             except OSError:
                 # A reclaimed lease belongs to the next owner; never remove it.
                 pass
+
+    def lock_path(self, path: Path) -> Path:
+        try:
+            relative = path.relative_to(self.root / "repositories")
+        except ValueError:
+            return path
+        return self.root / "locks" / "resources" / relative.parts[0] if relative.parts else path

@@ -11,7 +11,7 @@ from .store import ObservationStore
 
 def persistent_directory(repo: str | Path, *, home: str | Path | None = None) -> Path:
     key, _, _ = repository_location(repo)
-    return resolve_home(home) / "repositories" / key / "persistent"
+    return resolve_home(home) / "repositories" / key
 
 
 @dataclass(frozen=True)
@@ -33,11 +33,11 @@ def branch_creation(
         store.root
         / "repositories"
         / key
-        / "persistent"
         / "clones"
         / digest_path(info.common_dir)
         / "branches"
-        / (name_part(branch) + ".json")
+        / name_part(branch)
+        / "creation.json"
     )
     value = store.read(path)
     if value is None:

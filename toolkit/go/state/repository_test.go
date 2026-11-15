@@ -2,7 +2,6 @@ package state
 
 import (
 	"context"
-	"encoding/json"
 
 	"os"
 	"path/filepath"
@@ -26,6 +25,8 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 		t.Fatalf("%+v %v", cached, err)
 	}
 	directory := filepath.Join(state, "repositories", "github--owner--project")
+	info, _ := Checkout(ctx, root)
+	cloneDirectory := filepath.Join(directory, "clones", Digest(info.CommonDir))
 	marker := filepath.Join(directory, "history", "keep")
 	os.MkdirAll(filepath.Dir(marker), 0700)
 	os.WriteFile(marker, []byte("history"), 0600)
@@ -34,7 +35,7 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	key := Digest(path)
-	recordPath := filepath.Join(directory, "checkouts", key, "observation.json")
+	recordPath := filepath.Join(cloneDirectory, "checkouts", key, "checkout.json")
 	if err := os.Remove(recordPath); err != nil {
 		t.Fatal(err)
 	}
@@ -44,13 +45,15 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	if _, err := Observe(ctx, root, state, false); err != nil {
 		t.Fatal(err)
 	}
-	if resolved, err := filepath.EvalSymlinks(filepath.Join(directory, "branches", "feature%2Fa", "worktrees", key, "path")); err != nil || resolved != path {
-		t.Fatalf("link %s %v", resolved, err)
+	var registered checkoutObservation
+	if found, err := Read(recordPath, &registered); err != nil || !found || registered.Path != path {
+		t.Fatal(registered, err)
 	}
+
 	if result := RemoveWorktree(ctx, root, path, RemoveWorktreeOptions{Home: state}); result.Err != nil {
 		t.Fatal(result.Err)
 	}
-	if _, err := os.Stat(filepath.Join(directory, "checkouts", key)); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cloneDirectory, "checkouts", key)); !os.IsNotExist(err) {
 		t.Fatalf("record not reclaimed: %v", err)
 	}
 	current, err := LoadBranch(ctx, root, "feature/a", state, 0)
@@ -64,7 +67,7 @@ func TestRepositoryStateLifecycle(t *testing.T) {
 	if _, err := Observe(ctx, root, state, true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(filepath.Join(directory, "branches", "feature%2Fa")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(cloneDirectory, "branches", "feature%2Fa", "branch.json")); !os.IsNotExist(err) {
 		t.Fatal("branch projection not retired", err)
 	}
 }
@@ -97,18 +100,21 @@ func TestRepositoryStateClonesAndIsolation(t *testing.T) {
 		}
 	}
 	directory := filepath.Join(state, "repositories", "github--owner--project")
-	data, err := os.ReadFile(filepath.Join(directory, "branches", "topic", "observation.json"))
+	info, _ := Checkout(ctx, a)
+	cloneDirectory := filepath.Join(directory, "clones", Digest(info.CommonDir))
+	data, err := os.ReadFile(filepath.Join(cloneDirectory, "branches", "topic", "branch.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	var record branchRecord
-	if err := json.Unmarshal(data, &record); err != nil || len(record.Clones) != 2 {
-		t.Fatalf("%s %v", data, err)
+	records, _ := filepath.Glob(filepath.Join(directory, "clones", "*", "branches", "topic", "branch.json"))
+	if len(records) != 2 {
+		t.Fatal(records)
 	}
+
 	if _, err := Observe(ctx, filepath.Join(b, "missing"), state, true); err == nil {
 		t.Fatal("failed read treated as absence")
 	}
-	after, _ := os.ReadFile(filepath.Join(directory, "branches", "topic", "observation.json"))
+	after, _ := os.ReadFile(filepath.Join(cloneDirectory, "branches", "topic", "branch.json"))
 	if string(data) != string(after) {
 		t.Fatal("failed read changed observations")
 	}
@@ -124,7 +130,9 @@ func TestBranchReadRepairsPartialPublicationWithoutOtherBranches(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	records, _ := filepath.Glob(filepath.Join(directory, "checkouts", "*", "observation.json"))
+	info, _ := Checkout(ctx, repo)
+	cloneDirectory := filepath.Join(directory, "clones", Digest(info.CommonDir))
+	records, _ := filepath.Glob(filepath.Join(cloneDirectory, "checkouts", "*", "checkout.json"))
 	if len(records) != 1 {
 		t.Fatal(records)
 	}
@@ -136,7 +144,7 @@ func TestBranchReadRepairsPartialPublicationWithoutOtherBranches(t *testing.T) {
 	if err := Write(records[0], row, func() error { return nil }); err != nil {
 		t.Fatal(err)
 	}
-	unrelated := filepath.Join(directory, "branches", "other", "observation.json")
+	unrelated := filepath.Join(cloneDirectory, "branches", "other", "branch.json")
 	if err := os.WriteFile(unrelated, []byte("{"), 0600); err != nil {
 		t.Fatal(err)
 	}

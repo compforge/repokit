@@ -48,7 +48,7 @@ confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不�
 
 ## Policy and ordering
 
-Configuration lives in `~/.repokit/repositories/<repo-key>/persistent/config.json`, shared by every checkout of one repository:
+Configuration lives in `~/.repokit/repositories/<repo-key>/config.json`, shared by every checkout of one repository:
 
 ```json
 {"worktree":{"max_count":10,"max_prepared":3,"outputs":[]}}

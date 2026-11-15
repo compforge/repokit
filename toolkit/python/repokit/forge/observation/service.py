@@ -211,8 +211,13 @@ class PullRequestObserver:
                 return observation
 
     def get_pull_request(self, key: PullRequestKey, *, refresh: bool = False) -> PullRequestStatus:
-        record_access(self.store, repository_key(key.repository.forge.name, key.repository.path))
-        observed = self._get(key, refresh=refresh)
+        with operation(timeout=self.timeout, cancel=self._stop):
+            record_access(
+                self.store,
+                repository_key(key.repository.forge.name, key.repository.path),
+                relative=("prs", str(key.number)),
+            )
+            observed = self._get(key, refresh=refresh)
         snapshot = cast(JSON, observed["snapshot"])
         return PullRequestStatus(
             key,

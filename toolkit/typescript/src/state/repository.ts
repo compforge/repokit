@@ -2,9 +2,8 @@ import { RepoKitError } from "../errors.js";
 import { recordAccess } from "./activity.js";
 import { resolveHome } from "./home.js";
 import { realpathSync } from "node:fs";
-import { lstat, mkdir, readdir, rename, rmdir, symlink, unlink } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { randomUUID } from "node:crypto";
+import { lstat, readdir, rmdir, unlink } from "node:fs/promises";
+import { join } from "node:path";
 import { ObservationStore } from "./store.js";
 import { localKey, namePart, pathDigest, repositoryKey } from "./identity.js";
 import { checkoutInfo, listCheckouts, localBranches, type CheckoutEntry } from "../git/state.js";
@@ -13,7 +12,7 @@ import { parseRemoteUrl } from "../git/remote.js";
 
 interface CheckoutRecord { version: 1; clone: string; commonDir: string; path: string; head: string; branch?: string | null; primary: boolean; observedAt: number }
 interface CloneBranch { complete: boolean; head: string; commonDir: string; observedAt: number; checkouts: string[] }
-interface BranchRecord { version: 1; branch: string; clones: Record<string, CloneBranch> }
+interface BranchRecord extends CloneBranch { version: 1; branch: string }
 export interface BranchObservation { complete: boolean; branch: string; head: string; checkouts: readonly CheckoutEntry[]; observedAt: number; source: "cache" | "git" }
 const missing = (error: unknown) => (error as NodeJS.ErrnoException).code === "ENOENT";
 async function children(path: string): Promise<string[]> { try { return await readdir(path); } catch(error) { if(missing(error)) return []; throw error; } }
@@ -40,16 +39,16 @@ export class RepositoryState {
     const maxAge = options.maxAgeMs ?? 0, signal = options.signal ?? new AbortController().signal;
     if (!Number.isFinite(maxAge) || maxAge < 0) throw new Error("maxAgeMs must be nonnegative and finite");
     const {key,info} = location(repo), directory = this.store.path("repositories",key), clone = pathDigest(info.commonDir);
-    await recordAccess(this.store,key,signal,info);
+    await recordAccess(this.store,key,signal,info,["clones",clone,"branches",namePart(branch)]);
     const read = (source: "cache"|"git") => this.store.locked(join(directory,"topology"),signal,async () => {
-      const record = await this.store.read<BranchRecord>(join(directory,"branches",namePart(branch),"observation.json"));
+      const record = await this.store.read<BranchRecord>(join(directory,"clones",clone,"branches",namePart(branch),"branch.json"));
       if (!record) return undefined;
       if (record.version !== 1 || record.branch !== branch) throw new Error("Invalid branch observation identity");
-      const observed = record.clones[clone]; if (!observed) return undefined;
+      const observed = record; if (!observed.head) return undefined;
       const checkouts: CheckoutEntry[] = [];
       for (const checkout of observed.checkouts) {
         if (!/^[0-9a-f]{32}$/.test(checkout)) throw new Error("Invalid checkout observation key");
-        const row = await this.store.read<CheckoutRecord>(join(directory,"checkouts",checkout,"observation.json"));
+        const row = await this.store.read<CheckoutRecord>(join(directory,"clones",clone,"checkouts",checkout,"checkout.json"));
         if (!row || row.version !== 1 || row.clone !== clone || row.branch !== branch || row.observedAt !== observed.observedAt) throw new IncompleteObservation("Incomplete checkout observation");
         checkouts.push({path:row.path,sha:row.head,branch,primary:row.primary});
       }
@@ -76,58 +75,44 @@ export class RepositoryState {
       if (location(repo).key !== key) throw new Error("Repository identity changed during observation");
       const rows = new Map<string,CheckoutRecord>(entries.filter(e => e.path && (selectedBranch === undefined || e.branch === selectedBranch)).map(e => [pathDigest(e.path!), {version:1,clone,commonDir:info.commonDir,path:e.path!,head:e.sha,branch:e.branch ?? null,primary:e.primary,observedAt:at}]));
       const previous = new Map<string,CheckoutRecord>();
-      for (const checkout of selectedBranch === undefined ? await children(join(directory,"checkouts")) : []) {
-        const row = await this.store.read<CheckoutRecord>(join(directory,"checkouts",checkout,"observation.json"));
+      for (const checkout of selectedBranch === undefined ? await children(join(directory,"clones",clone,"checkouts")) : []) {
+        const row = await this.store.read<CheckoutRecord>(join(directory,"clones",clone,"checkouts",checkout,"checkout.json"));
         if (row?.clone === clone) previous.set(checkout,row);
       }
       await this.store.write(join(directory,"repository.json"),identity,owned);
+      await this.store.write(join(directory,"clones",clone,"clone.json"),{version:1,commonDir:info.commonDir},owned);
       for (const [checkout,row] of rows) {
-        const root = join(directory,"checkouts",checkout);
-        await this.store.write(join(root,"observation.json"),row,owned);
-        await this.link(join(root,"path"),row.path,owned);
+        const root = join(directory,"clones",clone,"checkouts",checkout);
+        await this.store.write(join(root,"checkout.json"),row,owned);
       }
-      const names = new Set(selectedBranch === undefined ? branches.keys() : [selectedBranch]), known = new Set([...previous.keys(),...rows.keys()]);
-      for (const name of selectedBranch === undefined ? await children(join(directory,"branches")) : []) {
-        const record = await this.store.read<BranchRecord>(join(directory,"branches",name,"observation.json"));
-        if (record?.clones[clone]) names.add(record.branch);
+      const names = new Set(selectedBranch === undefined ? branches.keys() : [selectedBranch]);
+      for (const name of selectedBranch === undefined ? await children(join(directory,"clones",clone,"branches")) : []) {
+        const record = await this.store.read<BranchRecord>(join(directory,"clones",clone,"branches",name,"branch.json"));
+        if (record?.commonDir === info.commonDir) names.add(record.branch);
       }
       for (const branch of names) {
-        const root = join(directory,"branches",namePart(branch)), path = join(root,"observation.json");
-        const record = await this.store.read<BranchRecord>(path) ?? {version:1,branch,clones:{}};
+        const root = join(directory,"clones",clone,"branches",namePart(branch)), path = join(root,"branch.json");
+        const record = await this.store.read<BranchRecord>(path) ?? {version:1,branch,commonDir:info.commonDir,head:"",complete:true,observedAt:at,checkouts:[]};
         if (record.version !== 1 || record.branch !== branch) throw new Error("Branch identity collision");
-        const branchKnown = new Set([...known,...(record.clones[clone]?.checkouts ?? [])]);
         const checkouts = [...rows].filter(([,row])=>row.branch===branch).map(([key])=>key).sort();
-        if (branches.has(branch)) record.clones[clone] = {complete:entries.filter(e=>e.branch===branch).every(e=>e.path !== undefined),head:branches.get(branch)!,commonDir:info.commonDir,observedAt:at,checkouts};
-        else delete record.clones[clone];
+        if (branches.has(branch)) Object.assign(record, {complete:entries.filter(e=>e.branch===branch).every(e=>e.path !== undefined),head:branches.get(branch)!,commonDir:info.commonDir,observedAt:at,checkouts});
+        else Object.assign(record,{head:"",checkouts:[],observedAt:at});
         await this.store.write(path,record,owned);
-        for (const checkout of branchKnown) {
-          if(!/^[0-9a-f]{32}$/.test(checkout))throw new Error("Invalid checkout observation key");
-          const link = join(root,"worktrees",checkout);
-          if (checkouts.includes(checkout)) await this.link(link,"../../../checkouts/"+checkout,owned);
-          else { try { if ((await lstat(link)).isSymbolicLink()) { owned(); await unlink(link); } } catch(error) { if(!missing(error)) throw error; } }
-        }
-        if (options.reconcile && !Object.keys(record.clones).length && !(await children(root)).some(n=>!["worktrees","observation.json"].includes(n)) && !(await children(join(root,"worktrees"))).length) {
-          owned(); try {await rmdir(join(root,"worktrees"));} catch(error) {if(!missing(error))throw error;}
-          await unlink(path); await rmdir(root);
+        if(options.reconcile && !record.head) {
+          owned(); await unlink(path);
+          if (!(await children(root)).length) await rmdir(root);
         }
       }
       if (options.reconcile && entries.every(e=>e.path)) for (const [checkout,row] of previous) {
         if (rows.has(checkout)) continue;
         try { await lstat(row.path); continue; } catch(error) {if(!missing(error))throw error;}
-        const root = join(directory,"checkouts",checkout);
+        const root = join(directory,"clones",clone,"checkouts",checkout);
         if (!(await lstat(root)).isDirectory()) throw new Error("Checkout state is not a directory");
         const names = await children(root);
-        if (names.some(n=>!["path","observation.json"].includes(n))) throw new Error(`Unrecognized checkout state retained: ${root}`);
-        if (names.includes("path") && !(await lstat(join(root,"path"))).isSymbolicLink()) throw new Error("Checkout path marker is not a symlink");
+        if (names.some(n=>!["checkout.json","access.json"].includes(n))) throw new Error(`Unrecognized checkout state retained: ${root}`);
         owned(); for(const name of names) await unlink(join(root,name)); await rmdir(root);
       }
     });
     return directory;
-  }
-  private async link(path: string,target: string,owned:()=>void):Promise<void> {
-    await mkdir(dirname(path),{recursive:true,mode:0o700});
-    try {if(!(await lstat(path)).isSymbolicLink())throw new Error(`Refusing to replace non-link ${path}`);}catch(error){if(!missing(error))throw error;}
-    const temporary = path+"."+randomUUID()+".tmp";
-    try {await symlink(target,temporary);owned();await rename(temporary,path);}finally{try{await unlink(temporary);}catch(error){if(!missing(error))throw error;}}
   }
 }

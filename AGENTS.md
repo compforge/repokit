@@ -18,6 +18,9 @@ PR、Comment 与本机分散位置的 clone、branch、worktree。RepoKit / repo
   Forge / Git 是对应事实的权威来源。观测及辅助结构有时效、可回收；代码不得预期它们永久存在。
 - 目录表达对象身份和归属，信息直接存于对应层级；按需要选择标记文件、短文本或原子 JSON。
   不重复建立身份映射，不机械增加 `observations/`。布局、配置、存储协议与回收统一维护在 [Home](docs/home.md)。
+  布局与清理遵循 [文件组织思路](docs/home.md#文件组织思路) 和
+  [资源生命周期](docs/home.md#资源生命周期)：按归属定位对象，各领域提供可独立调用的
+  cleanup；全局 clean 协调顺序及关联资源重新判断，保留资格与实际操作由所属领域核验。
 - `clean` 主要清理 Home 及其登记指向的 worktree，按领域生命周期核验；缓存删除不能改变公共对象身份，
   也不删除远端对象。Comment ID 与结构性回复关系由 Forge adapter 从远端恢复。
 - 操作按需联动三处信息：例如创建分支时核验基线、修改本地 Git、记录创建来源；push 后核验远端并更新观测。
@@ -61,7 +64,7 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 | format / lint / test / validate | 仅匹配各 Component 本地 Makefile 的候选 target，缺失则跳过；显式 format 后重新规划检查。成功 Run 按组件及显式扩展输入复用，执行仍核对整轮一致性。 |
 | depot inspect / prepare | 按 Component 选择、按物理 Bin 聚合；只读观察或显式锁定安装，保留逐项结果和阶段耗时。validate 不触发安装。 |
 | worktree ensure | 按显式 repo、名称、分支和基线，在主 checkout 的 `.worktrees` 下创建或复用 checkout；核验身份、登记状态；显式 `--prepare` 组合依赖准备并保留逐阶段结果。 |
-| clean | 遍历已登记仓库，统一调用 worktree 清理 service 沿用现有保留策略，并按访问时间回收过期 repository 状态；维护不续期访问。 |
+| clean | 遍历已登记仓库，协调 worktree、Bin、各领域缓存与 validation 清理；数量为软上限，保护候选允许超额，维护不续期访问。 |
 | stats / upgrade | stats 只读汇总保留历史、日志与容量并报告读取缺口；upgrade 由 CLI 显式查询和安装 Release，不访问目标仓库。 |
 
 各入口按需组合输入选择、内容捕获、结构识别和代码分析，不强制经过包含全部分析的 prepare。

@@ -119,7 +119,7 @@ func TestHistoryRetentionTruncatesReferences(t *testing.T) {
 		t.Fatalf("%+v", c)
 	}
 	// Expiring everything must produce an empty log that can accept new runs.
-	if _, err := h.Maintain(context.Background(), -1); err != nil {
+	if _, err := h.maintain(context.Background(), 30, 0, false); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Append(context.Background(), testEvents(time.Now())); err != nil {
@@ -292,7 +292,7 @@ func TestHistoryRepositoryNames(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if filepath.Dir(h.dir) != base || paths[h.dir] {
+		if filepath.Dir(filepath.Dir(h.dir)) != base || paths[h.dir] {
 			t.Fatalf("unsafe or colliding directory: %s", h.dir)
 		}
 		paths[h.dir] = true
@@ -304,7 +304,7 @@ func TestHistoryRepositoryNames(t *testing.T) {
 	}
 	git("config", "remote.origin.url", "git@github.com:example/repo.git")
 	second, err := Open(ctx, base, root)
-	if err != nil || first.dir != second.dir || filepath.Base(first.dir) != "github--example--repo" {
+	if err != nil || first.dir != second.dir || filepath.Base(filepath.Dir(first.dir)) != "github--example--repo" {
 		t.Fatalf("%+v %+v %v", first, second, err)
 	}
 }

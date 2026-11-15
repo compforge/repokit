@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/compforge/repokit/toolkit/go/forge/comment"
@@ -30,7 +31,7 @@ type commentRecord struct {
 func (c *observedComments) capture(ctx context.Context, key model.Key, rows []comment.Comment, replace bool, deleted string) {
 	directory, prPath, connection := c.client.observationLocation(key)
 	root := filepath.Join(filepath.Dir(prPath), "comments")
-	err := state.RecordRepositoryAccess(ctx, c.client.config.Home, filepath.Base(directory))
+	err := state.RecordObjectAccess(ctx, c.client.config.Home, filepath.Base(directory), "prs", strconv.Itoa(key.Number), "comments")
 	if err == nil {
 		err = state.WithLock(ctx, root, func(owned func() error) error {
 			if err := state.Write(filepath.Join(directory, "repository.json"), key.Repository, owned); err != nil {

@@ -19,7 +19,7 @@ var segmentPattern = regexp.MustCompile(`^[0-9]{20}(?:\.START|\.END)?$`)
 // readRetained replays the shared JSON WAL without opening a writable wal.Log.
 // +spec=Read-only queries apply logical truncation recovery without creating, renaming or removing segments.
 // +link=component://docs/validation.md
-func (h *Store) readRetained(ctx context.Context) (*State, error) {
+func (h *Store) readRetained(ctx context.Context, visitors ...func(Event)) (*State, error) {
 	entries, err := os.ReadDir(filepath.Join(h.dir, "history"))
 	if err != nil {
 		return nil, err
@@ -69,7 +69,7 @@ func (h *Store) readRetained(ctx context.Context) (*State, error) {
 		if i > 0 && index != expected {
 			return nil, errors.New("noncontiguous validation history segments")
 		}
-		count, err := readSegment(ctx, filepath.Join(h.dir, "history", name), state)
+		count, err := readSegment(ctx, filepath.Join(h.dir, "history", name), state, visitors...)
 		if err != nil {
 			return nil, err
 		}
@@ -78,7 +78,7 @@ func (h *Store) readRetained(ctx context.Context) (*State, error) {
 	return state, nil
 }
 
-func readSegment(ctx context.Context, path string, state *State) (uint64, error) {
+func readSegment(ctx context.Context, path string, state *State, visitors ...func(Event)) (uint64, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return 0, err
@@ -124,6 +124,9 @@ func readSegment(ctx context.Context, path string, state *State) (uint64, error)
 		}
 		if err := state.apply(event); err != nil {
 			return 0, err
+		}
+		for _, visit := range visitors {
+			visit(event)
 		}
 		count++
 	}
