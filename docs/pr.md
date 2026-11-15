@@ -86,7 +86,7 @@ PullRequest 的 source_repository / target_repository 保存可确认的路径�
 | `iteratePullRequests(reader, query)` | 惰性逐项遍历，沿用单页查询；有行级 issues 时拒绝，不宣称清单完整 |
 | `getPullRequest(key)` | common `PullRequestSnapshot`，仅基本事实，不请求评审 API |
 | `getPullRequestReview(key)` | 独立 `PullRequestReviewObservation`；评审不可用则抛错 |
-| `listPullRequestComments(key)` | 普通评论及嵌套评审回复 |
+| `listComments(key)` / `getComment(key, id)` | 平铺评论（包括全部回复和 review summary）及单条查询 |
 | `scanPullRequests(query)` | 有界持续扫描，返回 snapshots、检查点及覆盖状态 |
 
 ```typescript
@@ -125,7 +125,7 @@ web_url 确认目标仓，支持 `/-/merge_requests/:iid` 和 `/merge_requests/:
 其它 mergeReadiness 来自显式的 getPullRequestReview；GitLab 基本 MR 的 detailed_merge_status 可提供
 readiness。评审结果包括 key、reviewThreadState、reviewActivityFingerprint、observedAt，以及可用的 readiness。
 指纹覆盖评审线程解决状态和完整评论活动，编辑、删除也会改变它；失败不能生成可信指纹。
-评论排除 GitLab system notes。评审/comment/discussion 最多 20 页，超限抛错。
+评论排除 GitLab system notes。评审线程查询最多 20 页；Comment 清单按独立的有界分页契约读取，超限抛错。
 
 HTTP 使用 Node 原生 fetch 及其连接复用，可注入 fetch；单请求（含正文）默认超时 10 秒，响应上限 4 MiB，
 由 timeoutMs / maxResponseBytes 调整。评论查询最多并行两个请求。401/403（排除限流）为 ForgeAuthError，
@@ -169,11 +169,8 @@ RepoKit 管请求、扫描覆盖，以及显式启用的 PR 观察、持久化�
 
 ### 仓库范围的工作流契约
 
-`RepositoryForge` 是绑定单仓库的读写接口契约，参数中的 number 均属于绑定的仓库；TS 目前不提供它的原生写实现。
-ForgeReader 是独立的跨仓只读客户端，不能互相替代。
-`ForgeComment` 表达内容事实；`RepositoryForgeComment` 在此基础上附可选 `target: ForgeCommentTarget`。
-replyRef / resolveRef 是写 adapter 提供的不透明句柄，缺失表示没有该能力；调用方不从普通 comment.id 推导它们。
-评论 resolution 可为 unsupported / unresolved / resolved，缺失表示未观察。
+PR 与 Comment 分领域提供接口。完整 Comment 契约和各语言实际支持见 [PR comments](#pr-comments)。
+TypeScript 原生 provider 实现读取；写操作必须由明确的 CommentForge 实现提供。
 
 升级映射与旧检查点处理见 [TypeScript 0.8 / Python 0.10 迁移](migrations/forge-0.8.md)。
 
@@ -415,55 +412,80 @@ See [storage, freshness and migration](state.md).
 Breaking migration: Go worktree exports moved from the module root to its `worktree` package.
 Python remains an independently usable toolkit; its former console entry point is removed.
 
-## PR discussions
+## PR comments
 
-CLI 的 PR 生命周期与讨论命令归 `apps/cli/internal/cli/pr`，根命令负责注册和统一结果封装；
-`cli/command` 提供共享选项与结果记录契约，`cli/forgeaccess` 装配 PR 和清理共用的 Forge 访问。
-工具包的讨论模型、查询与写入归 `forge/discussion`，PR 生命周期仍归 `forge`。
-两者通过 `forge/model` 共享 PR 身份，通过 `forge/internal/transport` 共享凭据、HTTP 客户端、
-响应限制和限流冷却；讨论服务由 `forge.Client` 装配，不反向依赖父包。GitHub 评论创建前复用
-PR 实时读取核验，讨论操作不触发 worktree maintenance。
+PR 与 Comment 按领域定义接口，GitHub/GitLab 实现平台协议。Go 的 `forge.Client` 装配
+`PullRequests() pr.Forge`、`Comments() comment.Forge`，共享 transport、凭据、响应限制和冷却；
+PR observation 仍由 Client 持有。Python `PullRequestForge`、`CommentForge` 是独立领域接口，
+`GitHubForge`、`GitLabForge` 组合实现，provider 目录分别组织连接和 comments。
+TypeScript `PullRequestReader`、`CommentReader` 是原生读取接口；`CommentForge` 声明写入契约，
+当前原生 TS provider 不实现写入，不能把接口声明当成运行能力。
 
-Go `forge.Client.Discussions()` 返回 `forge/discussion.Service`，提供 `List`、`Get`、
-`Create`、`Reply` 和 `Resolve`。讨论属于明确的 PR `forge/model.Key`；thread ID 与 comment ID 是不同的 opaque
-标识。GitHub review thread 使用平台 node ID，普通 conversation comment 的 thread ID 为
-`issue:<comment-id>`；GitLab 使用 discussion ID。调用方使用返回的 ID，不自行转换。
+### Comment 模型
+
+PR 下所有已发布评论平铺返回，count 包含每条回复。GitHub 同时读取 conversation comments、
+review comments 和已提交且正文非空的 review summaries；GitLab 展开 discussions 的全部用户 notes。
+人工与机器人正文均保留，不按 CCR 标记筛选；system notes 和草稿不进入评论集合。
+
+Comment 包含 `id`、`pr`、`replyToId`（Python `reply_to_id`）、`body`、`author`、`createdAt`，
+以及可获得的 `updatedAt`、`url`、`anchor`、`resolution`、`resolvedBy`、`resolvedAt`。
+Go/TS 的 pr 是完整 PR key；Python adapter 绑定 repository，pr 为仓内编号。
+ID 对消费者不透明且在 PR 内唯一；不能把普通评论、review comment 和 review summary 的裸数字 ID 混用。
+
+`replyToId` 只表达平台确认的直接回复对象，允许指向非根评论。缺失表示没有已知的直接父评论，
+不是根评论证明。GitHub 保留 `in_reply_to_id`；GitLab 的 discussion membership 不足以确认直接回复谁，
+不按顺序或共同 discussion 编造边。thread/discussion ID 与操作句柄仅在 adapter 内部使用。
+消费者需要嵌套展示时自行投影，公共模型不维护第二份 `replies` 数组。
+
+`anchor` 保留 path、revision、side、line、startLine/startSide、originalRevision、originalLine、
+originalStartLine、oldPath、outdated 中平台提供的事实。当前行缺失时不回填原始行冒充当前位置。
+GitLab originalRevision 对应 position 的 base SHA，revision 对应 head SHA；删除侧读取 old_line。
+创建定位评论必须显式提供 revision 和 side，GitLab 验证它对应 MR 的 diff version，避免偷偷改用最新 head。
+
+`resolution` 为 `unresolved / resolved / unsupported / unknown`。它可能是所属讨论的状态投影；
+resolve/unresolve 可能影响整组评论，不表示每条评论被单独认可。缺失状态保持 unknown，
+不能当成 unsupported 或 resolved；GitLab 聚合所有相关 notes 的状态。
+RepoKit 不推断 fixed、accepted、wrong、repeat；反馈判断由调用方从原始评论事后分析。
+
+### CRUD 与 CLI
+
+| Go comment.Forge | Python CommentForge | 行为 |
+|---|---|---|
+| List / Get | list_comments / get_comment | 完整列表 / 单条评论；核验 PR 归属 |
+| Create | create_comment | 普通或代码定位评论，返回确认后的 Comment |
+| Reply | reply_comment | 回复指定评论，返回新 Comment |
+| Update | update_comment | 编辑正文，返回更新后的 Comment |
+| Delete | delete_comment | 返回 PR、comment ID 和 deleted 结果 |
+| Resolve(..., bool) | resolve_comment(..., resolved) | resolve/unresolve，返回确认后的 Comment |
 
 ```sh
-repocli pr discussion list 12 --repo . --json
-repocli pr discussion show 12 <thread-id> --repo . --json
-repocli pr discussion create 12 --repo . --body-file comment.md --json
-repocli pr discussion reply 12 <thread-id> --repo . --body-file reply.md --json
-repocli pr discussion resolve 12 <thread-id> --repo . --json
+repocli pr comment list 12 --repo . --json
+repocli pr comment show 12 <comment-id> --repo . --json
+repocli pr comment create 12 --body-file comment.md --repo . --json
+repocli pr comment create 12 --body-file comment.md --anchor-file anchor.json --repo . --json
+repocli pr comment reply 12 <comment-id> --body-file reply.md --repo . --json
+repocli pr comment update 12 <comment-id> --body-file revised.md --repo . --json
+repocli pr comment delete 12 <comment-id> --repo . --json
+repocli pr comment resolve 12 <comment-id> --repo . --json
+repocli pr comment unresolve 12 <comment-id> --repo . --json
 ```
 
-沿用 `--target-repository` 选择 fork 的目标仓，访问配置来自 RepoKit home。
-`--body-file -` 从 stdin 读取完整 Markdown；空白正文拒绝写入。`create` 发布普通 conversation
-comment；GitHub 普通评论不能原生回复/resolve，GitLab 创建 discussion 后可回复。
-创建带 diff 位置的 review comment 不在这组命令的创建能力内。
+`--body-file -` 接受 stdin。anchor.json 示例：
+`{"path":"src/example.go","revision":"<reviewed-sha>","side":"LEFT","line":12}`。
+CLI 只映射公共能力，不持有平台判断。旧 `pr discussion` 与嵌套 Comment API 被替换，不维护双模型。
 
-`data` 的读取结果是 Discussion（list 为数组），包含 `pullRequest`、`id`、完整 `comments`、
-`replyable`、`resolvable` 和 `resolution`（`not_applicable` / `unknown` / `unresolved` / `resolved`）。
-`resolvable` 是 nullable boolean：`true` 表示已知支持，`false` 表示已知不支持，`null` 表示能力未知；
-文本输出将未知能力显示为 `resolvable=unknown`。GitLab 缺少 `resolvable` 时保留未知能力，
-缺少 `resolved` 时保留未知状态；两者分别表达，不能把缺字段归为不支持或已解决。
-线程中任一相关 note 明确未解决则线程未解决；只有所有可能参与解决的 note 均明确已解决，
-才报告已解决。system note 和明确不可解决的 note 不参与状态聚合。
-Comment 保留 `id`、`author`、完整 `body`、`createdAt` 与可获得的 URL、path、line；过期位置
-保留原始行号。reply 返回已确认的 `pullRequest`、`threadId` 和新 `comment`。
-文本 list 展示 ID 与能力摘要，show 展示完整正文及回复；JSON 始终保留完整内容。
+GitHub 只能原生回复 root review comment，普通 conversation comment 无原生回复/resolve，
+已提交 review summary 无删除能力。GitLab 向 discussion 添加 note，但不保留精确父评论；
+Reply 只接受讨论起始评论，不静默将对后续评论的回复改成另一个目标。返回结果仍不伪造 replyToId。
+删除包含回复的起始评论会被拒绝；必须先显式处理回复，避免隐式级联删除。
 
-读取遍历有界分页（每个集合最多 100 页、每页 100 项），system notes 不作为用户讨论。
-分页失败、容量超限及 GitHub REST/GraphQL 观察不一致都报错，不能返回不完整的成功结果。
-reply/resolve 写入前从指定 PR 重新读取 thread，核验归属和平台能力。明确不支持时拒绝写入；能力未知时允许调用方显式发起一次 resolve，
-由平台 endpoint 判定。响应仍缺少确认、状态未知或尚未解决时返回不确定结果，不自动重试；已经 resolved 的 thread
-返回当前观察，不重复写。平台 resolve 只表达讨论状态，不表示 finding 无效、代码已修复或验证通过。
-这些判断与何时执行由调用方拥有。
+所有读取有界分页；Go/TS 各集合最多 100 页，Python REST 清单沿用 transport 的 10,000 条上限。失败、超限、重复 ID、孤立回复、GitHub REST/GraphQL
+不一致均不能返回完整成功。写入只发送一次，核验响应身份和正文；无法确认的状态或写入响应返回
+outcome_unknown，调用方先读取远端核对，不盲目重试。平台权限最终由 endpoint 判定。
 
-写操作只发送一次，结果必须由平台响应确认。传输中断、5xx、无法解释的写入响应返回
-`outcome: unknown` / `error.uncertain`，并指向目标 PR/thread；调用方先重新读取讨论，核对正文、
-作者、ID 和 resolution，再决定恢复。GraphQL 查询虽然使用 POST，仍按读取处理。
-这些命令不维护讨论缓存，也不调用 worktree maintenance。
+共享语料 `conformance/forge-comments.json` 验证全部评论计数、资源 ID 隔离、直接回复关系、
+删除侧/过期锚点与 resolution；各 SDK 补充分页、写入和错误边界测试。
 
-平台协议依据：[GitHub Pull requests GraphQL](https://docs.github.com/en/graphql/reference/pulls)、
-[GitLab Discussions API](https://docs.gitlab.com/api/discussions/)。
+平台依据：[GitHub review comments](https://docs.github.com/en/rest/pulls/comments)、
+[GitHub reviews](https://docs.github.com/en/rest/pulls/reviews)、
+[GitLab discussions](https://docs.gitlab.com/api/discussions/)。

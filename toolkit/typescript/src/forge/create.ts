@@ -1,5 +1,5 @@
-import { GitHubForgeReader } from "./github.js";
-import { GitLabForgeReader } from "./gitlab.js";
+import { GitHubForgeReader } from "./github/client.js";
+import { GitLabForgeReader } from "./gitlab/client.js";
 import type { ForgeReader, ForgeReaderConfig, ForgeReaderOptions } from "./model.js";
 
 export function createForgeReader(config: ForgeReaderConfig, options: ForgeReaderOptions = {}): ForgeReader {

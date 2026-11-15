@@ -85,7 +85,9 @@ Continuations currently wrap provider page numbers, not stable keyset positions.
 Iterators load lazily, stop without prefetch, and own neither durable progress nor a cross-poll cache.
 
 `getPullRequestReview(key)` explicitly reads review state, activity fingerprint and available merge readiness.
-`listPullRequestComments(key)` returns conversation comments and nested replies. Errors propagate independently of
+`listComments(key)` returns a flat collection of conversation comments, review comments, replies and submitted review summaries.
+`getComment(key, id)` reads one PR-scoped comment. Direct reply links and resolution preserve platform facts; discussion handles stay private.
+Errors propagate independently of
 previously read snapshots. Conflict-free, ready and merged are separate facts.
 
 For bounded polling:

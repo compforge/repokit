@@ -1,3 +1,4 @@
+import type { CommentReader } from "./comment.js";
 import { RepoKitError } from "../errors.js";
 import type { RepositoryKey, RepositorySnapshot, PullRequestSnapshot, PullRequestKey, PullRequestState, PullRequestMergeReadiness } from "@compforge/harness-common";
 export type { PullRequestKey } from "@compforge/harness-common";
@@ -67,31 +68,13 @@ export interface PullRequestReviewObservation {
 }
 
 /** Read-only provider access. PullRequestObserver owns optional polling and persistence; consumers own business admission. */
-export interface ForgeReader {
+export interface ForgeReader extends PullRequestReader, CommentReader {
   readonly forge: string;
   readonly provider: string;
   /** Cooperative cancellation for a group of reads; concurrent callers must remain isolated. */
   withSignal?<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T>;
   close?(): void | Promise<void>;
   listRepositories(query?: PageQuery): Promise<Page<RepositorySnapshot>>;
-  listPullRequests(query: PullRequestQuery): Promise<Page<PullRequestKey>>;
-  scanPullRequests(query: PullRequestScanQuery): Promise<PullRequestScanResult>;
-  getPullRequest(key: PullRequestKey): Promise<PullRequestSnapshot>;
-  getPullRequestReview(key: PullRequestKey): Promise<PullRequestReviewObservation>;
-  listPullRequestComments(key: PullRequestKey): Promise<readonly ForgeComment[]>;
-}
-
-/** One provider-neutral conversation comment or diff review thread. */
-export interface ForgeComment {
-  readonly id: string;
-  readonly body: string;
-  readonly author?: string;
-  readonly replyable: boolean;
-  readonly replies: readonly ForgeComment[];
-  readonly path?: string;
-  readonly line?: number;
-  readonly createdAt: string;
-  readonly resolution?: "unsupported" | "unresolved" | "resolved";
 }
 
 /** Connection identity only. Query authors never come from credentials or connection configuration. */
@@ -131,4 +114,11 @@ export function isForgeRateLimitError(error: unknown): error is ForgeRateLimitEr
   // Installed extensions can resolve a separate copy of this package in the same process.
   return error instanceof Error && error.name === "ForgeRateLimitError" && "retryAfterMs" in error
     && typeof error.retryAfterMs === "number" && Number.isFinite(error.retryAfterMs) && error.retryAfterMs >= 0;
+}
+
+export interface PullRequestReader {
+  listPullRequests(query: PullRequestQuery): Promise<Page<PullRequestKey>>;
+  scanPullRequests(query: PullRequestScanQuery): Promise<PullRequestScanResult>;
+  getPullRequest(key: PullRequestKey): Promise<PullRequestSnapshot>;
+  getPullRequestReview(key: PullRequestKey): Promise<PullRequestReviewObservation>;
 }

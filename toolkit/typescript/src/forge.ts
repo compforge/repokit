@@ -1,27 +1,16 @@
 export type { PullRequest, PullRequestState, PullRequestSnapshot } from "@compforge/harness-common";
 import type { PullRequest } from "@compforge/harness-common";
 export * from "./forge/model.js";
-export { GitHubForgeReader } from "./forge/github.js";
-export { GitLabForgeReader } from "./forge/gitlab.js";
+export { GitHubForgeReader } from "./forge/github/client.js";
+export { GitLabForgeReader } from "./forge/gitlab/client.js";
 export { ForgeHttpClient, type ForgeHttpClientOptions } from "./forge/http.js";
 export { createPullRequestScanner } from "./forge/scan.js";
 export { createForgeReader } from "./forge/create.js";
 export { iterateRepositories } from "./forge/repositories.js";
 export { iteratePullRequests } from "./forge/pull-requests.js";
 
-import type { ForgeComment } from "./forge/model.js";
-/** Opaque handles supplied by a repository write adapter; separate from comment content. */
-export interface ForgeCommentTarget {
-  readonly replyRef?: string;
-  readonly resolveRef?: string;
-}
-
-/** Comment facts plus optional write handles from a repository-bound adapter. */
-export interface RepositoryForgeComment extends ForgeComment {
-  readonly target?: ForgeCommentTarget;
-  readonly replies: readonly RepositoryForgeComment[];
-}
-
+export * from "./forge/comment.js";
+import type { CommentForge } from "./forge/comment.js";
 export interface Release {
   readonly tag: string;
   readonly name: string;
@@ -34,7 +23,7 @@ export type { PullRequestMergeReadiness } from "@compforge/harness-common";
 import type { PullRequestMergeReadiness } from "@compforge/harness-common";
 
 /** Repository-bound Forge workflow contract. Native TypeScript adapters implement the separate read-only ForgeReader. */
-export interface RepositoryForge {
+export interface PullRequestForge {
   readonly provider: "github" | "gitlab";
   create(input: { readonly sourceBranch: string; readonly targetBranch: string; readonly title: string; readonly body?: string }): Promise<PullRequest>;
   get(number: number): Promise<PullRequest>;
@@ -43,14 +32,13 @@ export interface RepositoryForge {
   close(number: number): Promise<PullRequest>;
   pullRequestsForBranch(branch: string): Promise<readonly PullRequest[]>;
   recent(limit: number): Promise<readonly PullRequest[]>;
+  mergeReadiness(number: number): Promise<PullRequestMergeReadiness>;
+}
+
+export interface RepositoryForge extends PullRequestForge, CommentForge {
   defaultBranch(): Promise<string>;
   createRelease(input: { readonly tag: string; readonly target: string; readonly name?: string; readonly notes?: string }): Promise<Release>;
   latestRelease(): Promise<Release | undefined>;
-  comments(number: number): Promise<readonly RepositoryForgeComment[]>;
-  comment(number: number, body: string, options?: { readonly replyable?: boolean; readonly path?: string; readonly line?: number }): Promise<void>;
-  reply(number: number, target: ForgeCommentTarget, body: string): Promise<void>;
-  resolveComment(number: number, target: ForgeCommentTarget): Promise<void>;
-  mergeReadiness(number: number): Promise<PullRequestMergeReadiness>;
 }
 
 export function parsePullRequestNumber(value: string): number | undefined {

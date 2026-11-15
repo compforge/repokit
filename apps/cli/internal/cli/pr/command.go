@@ -1,4 +1,4 @@
-// Package pr adapts PR lifecycle and discussion operations to Cobra commands.
+// Package pr adapts PR lifecycle and comment operations to Cobra commands.
 package pr
 
 import (
@@ -22,7 +22,7 @@ func NewCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{Use: "pr", Short: "Create, query and update GitHub PRs or GitLab MRs"}
 	var connection forgeaccess.Options
 	connection.Flags(root)
-	root.AddCommand(newDiscussionCommand(opts, &connection))
+	root.AddCommand(newCommentCommand(opts, &connection))
 	for _, operation := range []string{"create", "show", "list", "update", "close", "merge"} {
 		var title, bodyFile, sourceBranch, targetBranch, state, expectedSHA, method string
 		var draft bool

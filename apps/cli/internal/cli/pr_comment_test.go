@@ -14,7 +14,7 @@ import (
 )
 
 // +case=The public CLI reads full discussion evidence, publishes a reply and resolves the same thread using structured results
-func TestPRDiscussionCLIWorkflow(t *testing.T) {
+func TestPRCommentCLIWorkflow(t *testing.T) {
 	repo, home := t.TempDir(), t.TempDir()
 	for _, args := range [][]string{{"init", "-q"}, {"remote", "add", "origin", "https://gitlab.com/fork/repo.git"}} {
 		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
@@ -67,7 +67,7 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 	defer server.Close()
 	run := func(input string, args ...string) (int, map[string]any, string) {
 		t.Helper()
-		args = append([]string{"pr", "discussion"}, args...)
+		args = append([]string{"pr", "comment"}, args...)
 		args = append(args, "--repo", repo, "--home", home, "--api-host", server.URL, "--target-repository", "upstream/repo", "--json")
 		var out, stderr bytes.Buffer
 		code := Execute(context.Background(), args, strings.NewReader(input), &out, &stderr)
@@ -75,7 +75,7 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 		if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 			t.Fatalf("%s %s %v", out.String(), stderr.String(), err)
 		}
-		if envelope["schemaVersion"] != "1.0" || !strings.HasPrefix(envelope["command"].(string), "repocli pr discussion ") {
+		if envelope["schemaVersion"] != "1.0" || !strings.HasPrefix(envelope["command"].(string), "repocli pr comment ") {
 			t.Fatal(envelope)
 		}
 		return code, envelope, out.String()
@@ -85,31 +85,30 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 		t.Fatal(list)
 	}
 	threadData := list["data"].([]any)[0].(map[string]any)
-	capability, present := threadData["resolvable"]
-	if !present || capability != nil || threadData["resolution"] != "unknown" {
-		t.Fatalf("missing GitLab fields must stay unknown: %v", threadData)
+	if threadData["resolution"] != "unknown" {
+		t.Fatal(threadData)
 	}
-	code, shown, raw := run("", "show", "7", "thread")
-	if code != 0 || shown["data"].(map[string]any)["comments"].([]any)[0].(map[string]any)["body"] != body {
+	code, shown, raw := run("", "show", "7", "note:1")
+	if code != 0 || shown["data"].(map[string]any)["body"] != body {
 		t.Fatal(raw)
 	}
-	code, reply, _ := run("evidence\n  exact\n", "reply", "7", "thread", "--body-file", "-")
-	if code != 0 || reply["data"].(map[string]any)["comment"].(map[string]any)["body"] != "evidence\n  exact\n" {
+	code, reply, _ := run("evidence\n  exact\n", "reply", "7", "note:1", "--body-file", "-")
+	if code != 0 || reply["data"].(map[string]any)["body"] != "evidence\n  exact\n" {
 		t.Fatal(reply)
 	}
-	code, resolved, _ := run("", "resolve", "7", "thread")
+	code, resolved, _ := run("", "resolve", "7", "note:1")
 	if code != 0 || resolved["data"].(map[string]any)["resolution"] != "resolved" {
 		t.Fatal(resolved)
 	}
-	if code, _, _ := run("", "resolve", "7", "thread"); code != 0 || writes != 2 {
+	if code, _, _ := run("", "resolve", "7", "note:1"); code != 0 || writes != 2 {
 		t.Fatal(code, writes)
 	}
 	code, created, _ := run("new note", "create", "7", "--body-file", "-")
-	if code != 0 || created["data"].(map[string]any)["id"] != "new" {
+	if code != 0 || created["data"].(map[string]any)["id"] != "note:3" {
 		t.Fatal(created)
 	}
 	failWrite = true
-	code, unknown, _ := run("another", "reply", "7", "thread", "--body-file", "-")
+	code, unknown, _ := run("another", "reply", "7", "note:1", "--body-file", "-")
 	if code != 1 || unknown["outcome"] != "unknown" || unknown["error"].(map[string]any)["uncertain"] != true || writes != 4 {
 		t.Fatal(unknown, writes)
 	}
@@ -120,10 +119,10 @@ func TestPRDiscussionCLIWorkflow(t *testing.T) {
 
 }
 
-func TestPRDiscussionArgumentsAndFullText(t *testing.T) {
-	for _, args := range [][]string{{"list", "0"}, {"create", "7"}, {"reply", "7", "thread", "--body-file", "-"}, {"show", "7"}, {"resolve", "7", ""}} {
+func TestPRCommentArgumentsAndFullText(t *testing.T) {
+	for _, args := range [][]string{{"list", "0"}, {"create", "7"}, {"reply", "7", "note:1", "--body-file", "-"}, {"show", "7"}, {"resolve", "7", ""}} {
 		var out, stderr bytes.Buffer
-		code := Execute(context.Background(), append([]string{"pr", "discussion"}, append(args, "--json")...), strings.NewReader("  \n"), &out, &stderr)
+		code := Execute(context.Background(), append([]string{"pr", "comment"}, append(args, "--json")...), strings.NewReader("  \n"), &out, &stderr)
 		if code != 2 || !strings.Contains(out.String(), `"outcome": "failed"`) {
 			t.Fatalf("%v: %d %s %s", args, code, out.String(), stderr.String())
 		}
