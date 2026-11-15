@@ -1,3 +1,4 @@
+import { CommentState } from "../comment-state.js";
 import type { Comment } from "../comment.js";
 import { readComments } from "./comments.js";
 import { ForgeNotFound } from "../model.js";
@@ -58,6 +59,7 @@ export class GitHubForgeReader implements ForgeReader {
   readonly #http: ForgeHttpClient;
   readonly #now: () => Date;
   readonly #connection: string;
+  readonly #comments: CommentState;
 
   constructor(
     config: ForgeReaderConfig,
@@ -68,6 +70,7 @@ export class GitHubForgeReader implements ForgeReader {
     }
     if (!config.token) throw new Error(`GitHub token missing for ${config.host}`);
     this.forge = config.forge;
+    this.#comments = new CommentState(config, options.home);
     this.#token = config.token;
 
     const restBase = config.host === "github.com"
@@ -192,12 +195,14 @@ export class GitHubForgeReader implements ForgeReader {
   async listComments(key: PullRequestKey): Promise<readonly Comment[]> {
     this.#assertPullRequestKey(key);
     const base = `${this.#restBase}/repos/${repositoryPath(key.repository.path)}`;
-    return readComments(key, path => this.#commentRows(`${base}/${path}`), async (query, variables) => {
+    const rows = await readComments(key, path => this.#commentRows(`${base}/${path}`), async (query, variables) => {
       const { data } = await this.#http.request("POST", this.#graphqlUrl, {
         headers: this.#headers(), body: JSON.stringify({ query, variables }),
       });
       return data;
     });
+    await this.#comments.capture(key, rows, this.#http.signal);
+    return rows;
   }
   async getComment(key: PullRequestKey, id: string): Promise<Comment> {
     const found = (await this.listComments(key)).find(c => c.id === id);

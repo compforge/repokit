@@ -1,3 +1,4 @@
+import { CommentState } from "../comment-state.js";
 import type { Comment } from "../comment.js";
 import { readComments } from "./comments.js";
 import type { PullRequestSnapshot, PullRequestConflictState, PullRequestMergeReadiness, PullRequestState } from "@compforge/harness-common";
@@ -69,6 +70,7 @@ export class GitLabForgeReader implements ForgeReader {
   readonly #http: ForgeHttpClient;
   readonly #now: () => Date;
   readonly #connection: string;
+  readonly #comments: CommentState;
 
   constructor(
     config: ForgeReaderConfig,
@@ -79,6 +81,7 @@ export class GitLabForgeReader implements ForgeReader {
     }
     if (!config.token) throw new Error(`GitLab token missing for ${config.host}`);
     this.forge = config.forge;
+    this.#comments = new CommentState(config, options.home);
     this.#token = config.token;
 
     this.#apiBase = `https://${config.host}/api/v4`;
@@ -190,7 +193,9 @@ export class GitLabForgeReader implements ForgeReader {
 
   async listComments(key: PullRequestKey): Promise<readonly Comment[]> {
     this.#assertPullRequestKey(key);
-    return readComments(key, async page => this.#http.request("GET", `${this.#projectBase(key.repository.path)}/merge_requests/${key.number}/discussions?per_page=100&page=${page}`, { headers: this.#headers() }));
+    const rows = await readComments(key, async page => this.#http.request("GET", `${this.#projectBase(key.repository.path)}/merge_requests/${key.number}/discussions?per_page=100&page=${page}`, { headers: this.#headers() }));
+    await this.#comments.capture(key, rows, this.#http.signal);
+    return rows;
   }
   async getComment(key: PullRequestKey, id: string): Promise<Comment> {
     const found = (await this.listComments(key)).find(c => c.id === id);

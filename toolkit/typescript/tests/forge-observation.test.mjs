@@ -64,7 +64,7 @@ test('concurrent observer instances share one remote refresh',async t=>{
   assert.equal(f.calls(),1);assert.deepEqual(new Set(results.map(r=>r.source)),new Set(['remote','cache']));
   const repos=await readdir(join(f.home,'repositories'));
   const dir=join(f.home,'repositories',repos[0],'prs','1');
-  assert((await readdir(join(dir,'observations'))).includes(digest(['fixture','account-a'])+'.json'));
+  assert((await readdir(dir)).includes(digest(['fixture','account-a'])+'.json'));
 });
 
 test('separate processes serialize refresh and reread the winning observation',async t=>{
@@ -94,7 +94,7 @@ test('observation write failure rejects and never advances the discovery checkpo
   const f=await fixture(t);f.setListed([key()]);
   f.reader.getPullRequest=async k=>{
     const repos=await readdir(join(f.home,'repositories'));
-    await mkdir(join(f.home,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json'));
+    await mkdir(join(f.home,'repositories',repos[0],'prs','1',digest(['fixture','account-a'])+'.json'));
     return {...k,state:'merged'};
   };
   await assert.rejects(f.observer.poll({scopes:[{kind:'repository',repository}]}),ObservationStorageError);
@@ -154,7 +154,7 @@ test('a stale lock from an exited process is recovered',async t=>{
   const {utimes}=await import('node:fs/promises');
   const f=await fixture(t);await f.observer.get(key());
   const repos=await readdir(join(f.home,'repositories'));
-  const lock=join(f.home,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json.lock');
+  const lock=join(f.home,'repositories',repos[0],'prs','1',digest(['fixture','account-a'])+'.json.lock');
   await mkdir(lock);await utimes(lock,new Date(0),new Date(0));
   assert.equal((await f.observer.get(key())).source,'cache');
   await assert.rejects(readFile(lock),{code:'ENOENT'});
@@ -169,7 +169,7 @@ test('foreground cancellation does not save a late remote result',async t=>{
   assert(release);controller.abort();await rejection;release();
   await new Promise(r=>setTimeout(r,5));
   const repos=await readdir(join(f.home,'repositories'));
-  await assert.rejects(readFile(join(f.home,'repositories',repos[0],'prs','1','observations',digest(['fixture','account-a'])+'.json')),{code:'ENOENT'});
+  await assert.rejects(readFile(join(f.home,'repositories',repos[0],'prs','1',digest(['fixture','account-a'])+'.json')),{code:'ENOENT'});
 });
 
 // Model a cooperative provider: work remains active until its scoped signal aborts.

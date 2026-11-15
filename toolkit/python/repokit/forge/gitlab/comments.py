@@ -6,6 +6,7 @@ import hashlib
 from typing import Any
 from urllib.parse import quote
 
+from .._comment_state import CommentState, observed
 from .._rest import RestClient
 from ..comment import (
     Comment,
@@ -20,7 +21,7 @@ from ..errors import ForgeUnsupported
 from ..model import ForgeError, ForgeNotFound, ForgeOutcomeUnknown
 
 
-class GitLabComments:
+class GitLabComments(CommentState):
     c: RestClient
 
     @staticmethod
@@ -69,9 +70,15 @@ class GitLabComments:
                 original_revision=pos.get("base_sha"),
                 old_path=pos.get("old_path"),
             )
+        root = (
+            next((f"note:{n['id']}" for n in discussion["notes"] if not n.get("system")), None)
+            if discussion
+            else None
+        )
         return Comment(
             id=f"note:{row['id']}",
             pr=number,
+            reply_to_id=root if root != f"note:{row['id']}" else None,
             body=row["body"],
             author=(row.get("author") or {}).get("username", ""),
             created_at=row.get("created_at") or "",
@@ -107,6 +114,7 @@ class GitLabComments:
                 targets[comment.id] = discussion
         return sorted(comments, key=lambda c: (c.created_at, c.id)), targets
 
+    @observed
     def list_comments(self, number: int) -> list[Comment]:
         return self._comment_inventory(number)[0]
 
@@ -117,6 +125,7 @@ class GitLabComments:
                 return comment, targets[comment_id]
         raise ForgeNotFound("comment not found in the specified MR")
 
+    @observed
     def get_comment(self, number: int, comment_id: str) -> Comment:
         return self._target(number, comment_id)[0]
 
@@ -139,6 +148,7 @@ class GitLabComments:
                 "GitLab did not confirm comment write; read before retrying"
             ) from error
 
+    @observed
     def create_comment(
         self, number: int, body: str, *, anchor: CommentAnchor | None = None
     ) -> Comment:
@@ -195,15 +205,13 @@ class GitLabComments:
             raise ForgeOutcomeUnknown("GitLab did not confirm a new comment")
         return self._written_comment(number, row["notes"][0], body, discussion=row)
 
+    @observed
     def reply_comment(self, number: int, comment_id: str, body: str) -> Comment:
         validate_body(number, body)
         target, discussion = self._target(number, comment_id)
-        notes = [n for n in discussion["notes"] if not n.get("system")]
-        if not notes or target.id != f"note:{notes[0]['id']}":
-            raise ForgeUnsupported("GitLab cannot preserve a direct reply to a non-root comment")
         path = f"merge_requests/{number}/discussions/{quote(str(discussion['id']), safe='')}/notes"
         row = self.c.post(path, {"body": body})
-        # No direct parent is returned by GitLab, even after an explicit reply.
+        # The platform exposes a grouped conversation; retain its structural root.
         return self._written_comment(number, row, body, discussion=discussion)
 
     def _note_path(self, number: int, comment_id: str, discussion: dict[str, Any]) -> str:
@@ -213,12 +221,14 @@ class GitLabComments:
         thread = quote(str(discussion["id"]), safe="")
         return f"merge_requests/{number}/discussions/{thread}/notes/{raw}"
 
+    @observed
     def update_comment(self, number: int, comment_id: str, body: str) -> Comment:
         validate_body(number, body)
         _, discussion = self._target(number, comment_id)
         row = self.c.put(self._note_path(number, comment_id, discussion), {"body": body})
         return self._written_comment(number, row, body, comment_id, discussion)
 
+    @observed
     def delete_comment(self, number: int, comment_id: str) -> DeleteResult:
         _, discussion = self._target(number, comment_id)
         notes = [n for n in discussion["notes"] if not n.get("system")]
@@ -229,6 +239,7 @@ class GitLabComments:
         self.c.request("DELETE", self._note_path(number, comment_id, discussion))
         return DeleteResult(number, comment_id, True)
 
+    @observed
     def resolve_comment(self, number: int, comment_id: str, resolved: bool = True) -> Comment:
         target, discussion = self._target(number, comment_id)
         if target.resolution == CommentResolution.UNSUPPORTED:

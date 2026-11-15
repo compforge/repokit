@@ -8,7 +8,7 @@ import (
 )
 
 // +spec=Local checkout registration outlives disposable repository observations and history. Save topology-only locations before removing observations; maintenance never renews access.
-// +link=component://docs/cleanup.md
+// +link=component://docs/home.md#清理与回收
 func reclaimRepositoryState(ctx context.Context, lease *activityLease, dryRun bool) (WorktreeAction, error) {
 	directory := lease.directory
 	action := WorktreeAction{Action: "remove_repository_state", Status: "planned", Reason: "inactive", Path: directory, LastAccessAt: lease.record.LastAccessAt}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/compforge/quality-harness/sdks/go/common"
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -33,7 +34,9 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			if cmd.Flags().Changed("repo") {
 				selected = opts.Repository
 			}
-			report, err := state.Clean(ctx, state.CleanOptions{Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, WorktreeTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
+			report, err := state.Clean(ctx, state.CleanOptions{MergedPR: func(ctx context.Context, repository common.Repository, number int) (bool, error) {
+				return connection.MergedPR(ctx, repository, number, opts.Home)
+			}, Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, WorktreeTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
 				return connection.WorktreePullRequests(ctx, repo, opts.Home)
 			}})
 			if opts.JSON {

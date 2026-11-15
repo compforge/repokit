@@ -47,4 +47,4 @@ JSON 与 text 均报告 lock_wait、inspect、resolve_base、save_changes、crea
 已确认 Git 动作后的记录写入失败作为 warning；调用方不应因此重做已经确认的 Git 动作。
 
 `repocli git branch show <name> --json` 返回当前 `observation` 与可选的 `creation` 来源记录。
-`status` 继续查询创建事务与恢复证据；`show` 不恢复或重放操作。来源记录的归属与生命周期见 [state](state.md)。
+`status` 继续查询创建事务与恢复证据；`show` 不恢复或重放操作。来源记录的归属与生命周期见 [state](home.md)。

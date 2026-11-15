@@ -9,6 +9,9 @@ from typing import Protocol
 
 from .errors import ForgeError, ForgeOutcomeUnknown
 
+# Stable within a PR: <resource>:<native-id>. Only provider adapters parse it.
+CommentID = str
+
 
 class CommentResolution(StrEnum):
     UNRESOLVED = "unresolved"
@@ -36,18 +39,18 @@ class CommentAnchor:
 class Comment:
     """One published comment. Count includes every reply and review summary.
 
-    reply_to_id is a provider-confirmed direct parent, never inferred from order or
-    shared discussion membership. None means no known parent, not proof of a root.
+    reply_to_id is the platform-recoverable structural parent; grouped replies
+    point to their conversation root. None means no known parent.
     Resolution is projected from the containing discussion and is not acceptance.
     IDs are opaque and unique within this repository-scoped PR.
     """
 
-    id: str
+    id: CommentID
     pr: int
     body: str
     author: str
     created_at: str
-    reply_to_id: str | None = None
+    reply_to_id: CommentID | None = None
     updated_at: str | None = None
     url: str | None = None
     anchor: CommentAnchor | None = None
@@ -59,7 +62,7 @@ class Comment:
 @dataclass(frozen=True)
 class DeleteResult:
     pr: int
-    comment_id: str
+    comment_id: CommentID
     deleted: bool
 
 
@@ -67,19 +70,22 @@ class CommentForge(Protocol):
     """Repository-scoped comment CRUD; failure never becomes an empty inventory.
 
     Writes are sent once. Unconfirmed outcomes require read-side reconciliation.
-    A reply must not silently target a different comment. Resolution can affect
+    Reply appends to the target conversation; its returned parent may be the root.
+    Resolution can affect
     the whole containing discussion. Deletion never silently cascades to replies.
     """
 
     def list_comments(self, number: int) -> list[Comment]: ...
-    def get_comment(self, number: int, comment_id: str) -> Comment: ...
+    def get_comment(self, number: int, comment_id: CommentID) -> Comment: ...
     def create_comment(
         self, number: int, body: str, *, anchor: CommentAnchor | None = None
     ) -> Comment: ...
-    def reply_comment(self, number: int, comment_id: str, body: str) -> Comment: ...
-    def update_comment(self, number: int, comment_id: str, body: str) -> Comment: ...
-    def delete_comment(self, number: int, comment_id: str) -> DeleteResult: ...
-    def resolve_comment(self, number: int, comment_id: str, resolved: bool = True) -> Comment: ...
+    def reply_comment(self, number: int, comment_id: CommentID, body: str) -> Comment: ...
+    def update_comment(self, number: int, comment_id: CommentID, body: str) -> Comment: ...
+    def delete_comment(self, number: int, comment_id: CommentID) -> DeleteResult: ...
+    def resolve_comment(
+        self, number: int, comment_id: CommentID, resolved: bool = True
+    ) -> Comment: ...
 
 
 def validate_body(number: int, body: str) -> None:

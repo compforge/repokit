@@ -34,7 +34,7 @@ def forge_client(
     """Resolve origin access; an explicit target selects another repository on that Forge.
 
     +spec=Only an absent Forge origin is inapplicable; missing access raises an error.
-    +link=component://docs/configuration.md
+    +link=component://docs/home.md#配置
     """
     access = _connection(checkout, home, timeout)
     if access is None:

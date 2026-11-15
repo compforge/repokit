@@ -16,7 +16,7 @@ def record_access(store: ObservationStore, key: str, checkout: CheckoutInfo | No
 
     @spec Maintenance never calls this operation; missing activity sorts oldest.
     Deletion protection remains mandatory.
-    @link component://docs/cleanup.md
+    @link component://docs/home.md#清理与回收
     """
     directory = store.root / "repositories" / key
     with store.locked(store.root / "locks" / "activity" / key) as owned:

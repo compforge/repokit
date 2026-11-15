@@ -118,6 +118,9 @@ func (c *Client) Repository(path string) common.Repository { return c.transport.
 
 // Comments returns the provider implementation of the comment domain interface.
 func (c *Client) Comments() comment.Forge {
+	return &observedComments{client: c, remote: c.commentProvider()}
+}
+func (c *Client) commentProvider() comment.Forge {
 	if c.config.Provider == "github" {
 		return &github.Comments{Connection: c.transport, VerifyPR: func(ctx context.Context, key model.Key) error {
 			_, e := c.Get(ctx, key.Repository.Path, key.Number)

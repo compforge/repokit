@@ -156,7 +156,7 @@ TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出�
 
 ## Repository 本地信息
 
-信息目录、read-through、freshness 与回收边界见 [Repository 状态](state.md)。
+信息目录、read-through、freshness 与回收边界见 [Repository 状态](home.md)。
 
 显式 checkout Git 操作过滤继承的 `GIT_DIR`、`GIT_WORK_TREE`、`GIT_INDEX_FILE`、object store 与
 命令级配置覆盖，避免 hook/agent 上下文把操作指向其他 checkout。认证、传输、作者配置保留；

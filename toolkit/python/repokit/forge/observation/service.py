@@ -93,7 +93,6 @@ class PullRequestObserver:
             / repository_key(self.forge, key.repository.path)
             / "prs"
             / str(key.number)
-            / "observations"
             / f"{self.connection}.json"
         )
 
@@ -242,7 +241,7 @@ class PullRequestObserver:
             raise ValueError("limit must be positive")
         due: list[tuple[float, PullRequestKey]] = []
         issues: list[str] = []
-        paths = self.store.root.glob(f"repositories/*/prs/*/observations/{self.connection}.json")
+        paths = self.store.root.glob(f"repositories/*/prs/*/{self.connection}.json")
         for path in paths:
             try:
                 record = self._stored(path)

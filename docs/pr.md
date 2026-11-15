@@ -217,8 +217,8 @@ try {
 
 TypeScript observer 默认启动维护循环；短进程设置 `background: false` 后调用 `maintain()`。
 Python observer 默认由宿主调用 `maintain()`；常驻宿主可调用 `start()`，退出时调用 `close()`。一次 get 自动把 PR 纳入后续维护；
-重启后恢复同一访问身份的本地记录。工具包要求显式 home；命令行消费方可使用上面的默认目录。
-Python 和 TypeScript 提供原生持续观察，Go CLI 不提供 Forge adapter。
+重启后恢复同一访问身份的本地记录。工具包和 CLI 共用 [Home](home.md) 解析与目录约定。
+Python 和 TypeScript 提供原生持续观察；Go 提供原生 Forge 操作与按需 PR 观察。
 可配置 scopes 自动发现仓库或账号的 PR；initialSince 只控制首次历史回看，首次另枚举开放对象。
 查询接受 AbortSignal；close 取消内部循环及协作式远端请求，不关闭调用方提供的共享 reader。
 
@@ -229,26 +229,11 @@ Python 和 TypeScript 提供原生持续观察，Go CLI 不提供 Forge adapter�
 
 ### 状态与目录
 
-```text
-<home>/
-├── repositories/
-│   └── <repository-key>/
-│       ├── repository.json
-│       └── prs/<number>/
-│           ├── observation.json
-│           └── observation.json.lock/  # 仅持有刷新锁期间存在
-└── scans/<scope-key>.json
-```
-
-repository-key 为 Forge 名称与完整目标仓库路径的摘要，repository.json 保留原始身份；
-PR 身份为目标 Repository + number，与 checkout/worktree 无关。每个 PR 一个目录；空目录不表示观察成功。
-observation.json 保存版本、访问配置摘要、最近成功 snapshot/observedAt、最近尝试时间和错误、
-下次刷新时间、连续失败次数与发现范围关联。merged 事实保留在同一记录，不维护另一份终态标记文件。
-scans 仅在启用范围发现后创建，保存绑定访问身份与查询范围的 cursor；跨仓库账号查询不归某个 Repository。
-
-connection 是调用方提供的访问身份/配置修订号，不是凭据。更换凭据或权限后必须更换该值；
-落盘只保存摘要。访问身份不匹配时不复用观察，一个 PR 的记录按最后访问身份替换；本版本不保留多账号缓存副本。
-目录 0700、状态文件 0600；状态不参与 logs 的定期清理。存储根用于可信的本地私有状态。
+PR 记录位于 `repositories/<repo-key>/prs/<number>/<connection-key>.json`，包含最近成功快照、
+观测/尝试时间、错误、下次刷新时间、失败次数和发现范围关联。merged 保留在同一记录，不另建终态标记。
+访问身份变化使用独立记录，不覆盖其它连接的观察任务。扫描 checkpoint 位于跨仓 `scans/`。
+目录身份、连接摘要、权限与存储协议统一见 [Home](home.md)。显式构造 observer 的 `connection`
+表示调用方的访问配置 revision，更改凭据或权限时应更换；使用 ForgeConnection 则统一生成身份摘要。
 
 ### 刷新与失败恢复
 
@@ -264,11 +249,7 @@ merged 是生命周期终态：可靠保存后停止常规状态刷新；其 obs
 低层 scanner 使用 cursor v3，旧格式直接拒绝；低层 tracked 每次以当前传入集合为准，移除即退出刷新。
 
 单请求默认 20 秒超时；外部 reader 应自行提供有界 I/O，并可通过 withSignal 协作取消。
-等待锁最多 30 秒，锁每 10 秒续期、30 秒失效；统一使用 proper-lockfile 的目录锁与崩溃恢复机制，
-新增该依赖是为跨进程协调，避免自建文件锁协议。相同状态目录的所有进程必须使用一致锁参数。
-进程内或跨进程的查询均在锁内重新检查状态；先取得锁的刷新保存后，后续查询可直接复用。
-
-状态通过临时文件、fsync、原子 rename 和目录 fsync 保存。失去锁或取消后不提交新状态。
+刷新在 [Home 共享 lease](home.md#持久化边界) 内重新检查状态，后续查询复用先完成的刷新。
 先逐个保存 PR 观察，再保存扫描检查点；中断允许重复读取，不允许跳过未保存事实。
 持久化完成只证明观察已保存，不表示任何调用方已完成业务消费。通知、业务基线和门禁仍由调用方拥有。
 
@@ -306,10 +287,8 @@ PR 生命周期终态与分支关联具有不同的更新周期：merged 事实�
 因此关联发现继续按自己的到期时间更新。冷历史发现默认每轮最多 20 个到期关联，并受整轮预算
 约束；已知 PR 的 `maintain` 独立刷新，不等待全部历史发现完成。
 
-关联记录位于 `<home>/associations/<scope-digest>.json`，身份包含 connection、源仓、branch
-和目标仓列表。Git topology 只在查询时读取，不作为本地资源删除的持久化授权。
-Python 与 TypeScript 共用观察和关联记录及 `.lock` 目录 lease：30 秒过期、10 秒续期、原子替换、
-文件和目录 fsync。connection 是调用方提供的访问配置 revision，磁盘只存摘要，不存 token。
+关联记录按 source repository、branch 和 scope 存于 Home，访问范围包含 connection、源仓和目标仓列表。
+Git topology 在查询时读取；目录布局与跨语言发布协议见 [Home](home.md)，不构成本地资源删除授权。
 
 ```python
 from pathlib import Path
@@ -355,7 +334,7 @@ print(result.pull_request.web_url, result.created)
 
 Python `ForgeConnection` / TypeScript `ForgeConnection` 接收显式 `host`、provider、token 与可选 API host，
 统一构造 provider client、Repository 身份和 PR context。使用 RepoKit 用户配置时，由独立
-[config 模块](configuration.md) 加载并组装连接；调用方也可直接传入凭据，目标仓始终显式选择。
+[config 模块](home.md#配置) 加载并组装连接；调用方也可直接传入凭据，目标仓始终显式选择。
 host 与 API host 按小写规范化，大小写不改变身份或缓存；逻辑 Forge 身份来自 host，
 API host 只决定传输地址。Python client 切换 repository 后仍保留逻辑身份与传输配置。
 工具包不读取应用配置，也不推断 fork parent。缺少凭据是不可用，不能解释成没有 PR。
@@ -407,7 +386,7 @@ It does not retry writes; interrupted, malformed or server-failed write response
 Go `Client.Load` owns optional read-through PR observations under `Config.Home`; `Get` remains
 a live read. `repocli pr show --max-age 0` requests a fresh observation. Connection scopes remain
 isolated across credentials and providers; cleanup uses current source-verified PR facts.
-See [storage, freshness and migration](state.md).
+See [storage, freshness and migration](home.md).
 
 Breaking migration: Go worktree exports moved from the module root to its `worktree` package.
 Python remains an independently usable toolkit; its former console entry point is removed.
@@ -430,12 +409,15 @@ review comments 和已提交且正文非空的 review summaries；GitLab 展开 
 Comment 包含 `id`、`pr`、`replyToId`（Python `reply_to_id`）、`body`、`author`、`createdAt`，
 以及可获得的 `updatedAt`、`url`、`anchor`、`resolution`、`resolvedBy`、`resolvedAt`。
 Go/TS 的 pr 是完整 PR key；Python adapter 绑定 repository，pr 为仓内编号。
-ID 对消费者不透明且在 PR 内唯一；不能把普通评论、review comment 和 review summary 的裸数字 ID 混用。
+`CommentID` 是 opaque string，`(PRKey, CommentID)` 确定对象，`replyToId` 使用同一 PR 内的 CommentID。
+内置 adapter 以 `<resource>:<native-id>` 生成稳定 ID：GitHub 的 conversation/review/summary 各自隔离，
+GitLab 使用 note。三种语言一致，不包含本地随机数、路径或缓存状态。消费者只传回 ID，不解析 native ID。
 
-`replyToId` 只表达平台确认的直接回复对象，允许指向非根评论。缺失表示没有已知的直接父评论，
-不是根评论证明。GitHub 保留 `in_reply_to_id`；GitLab 的 discussion membership 不足以确认直接回复谁，
-不按顺序或共同 discussion 编造边。thread/discussion ID 与操作句柄仅在 adapter 内部使用。
-消费者需要嵌套展示时自行投影，公共模型不维护第二份 `replies` 数组。
+`replyToId` 表达可从平台恢复的结构性父评论，允许非根父节点；它不承诺保存作者精确的对话意图。
+GitHub 保留原生 `in_reply_to_id`。GitLab 没有精确父 ID，adapter 将 discussion 中首条已发布的
+非 system note 视为根，其余用户 note 指向根；不从正文或时间邻近猜测边。根或未知父节点省略此字段。
+thread/discussion 和操作句柄留在 adapter 内部。消费者按需投影展示，不维护第二份 `replies` 数组。
+本地观测清理后，同一远端事实仍恢复相同 ID 和结构关系，存储与新鲜度见 [Home](home.md#comment-observations)。
 
 `anchor` 保留 path、revision、side、line、startLine/startSide、originalRevision、originalLine、
 originalStartLine、oldPath、outdated 中平台提供的事实。当前行缺失时不回填原始行冒充当前位置。
@@ -474,16 +456,16 @@ repocli pr comment unresolve 12 <comment-id> --repo . --json
 `{"path":"src/example.go","revision":"<reviewed-sha>","side":"LEFT","line":12}`。
 CLI 只映射公共能力，不持有平台判断。旧 `pr discussion` 与嵌套 Comment API 被替换，不维护双模型。
 
-GitHub 只能原生回复 root review comment，普通 conversation comment 无原生回复/resolve，
-已提交 review summary 无删除能力。GitLab 向 discussion 添加 note，但不保留精确父评论；
-Reply 只接受讨论起始评论，不静默将对后续评论的回复改成另一个目标。返回结果仍不伪造 replyToId。
+Reply 可指定根或非根评论。GitHub adapter 找到 root review comment 再调用原生回复入口，
+GitLab adapter 找到所属 discussion 添加 note；返回 `replyToId` 遵循平台结构，可能是根而非请求目标。
+普通 GitHub conversation comment 无原生回复/resolve，已提交 review summary 无删除能力。
 删除包含回复的起始评论会被拒绝；必须先显式处理回复，避免隐式级联删除。
 
 所有读取有界分页；Go/TS 各集合最多 100 页，Python REST 清单沿用 transport 的 10,000 条上限。失败、超限、重复 ID、孤立回复、GitHub REST/GraphQL
 不一致均不能返回完整成功。写入只发送一次，核验响应身份和正文；无法确认的状态或写入响应返回
 outcome_unknown，调用方先读取远端核对，不盲目重试。平台权限最终由 endpoint 判定。
 
-共享语料 `conformance/forge-comments.json` 验证全部评论计数、资源 ID 隔离、直接回复关系、
+共享语料 `conformance/forge-comments.json` 验证全部评论计数、资源 ID 隔离、结构性回复关系、
 删除侧/过期锚点与 resolution；各 SDK 补充分页、写入和错误边界测试。
 
 平台依据：[GitHub review comments](https://docs.github.com/en/rest/pulls/comments)、

@@ -1,4 +1,6 @@
 import type { PullRequestKey } from "./model.js";
+/** Opaque, stable PR-local identity: <resource>:<native-id>; adapters own decoding. */
+export type CommentID = string;
 export type CommentResolution = "unresolved" | "resolved" | "unsupported" | "unknown";
 export interface CommentAnchor {
   readonly path: string;
@@ -15,10 +17,10 @@ export interface CommentAnchor {
 }
 /** One published message, including replies. No inferred acceptance or fix verdicts. */
 export interface Comment {
-  readonly id: string;
+  readonly id: CommentID;
   readonly pr: PullRequestKey;
-  /** Provider-confirmed direct parent. Absence does not prove a root. */
-  readonly replyToId?: string;
+  /** Platform-recoverable structural parent; grouped replies point to their root. */
+  readonly replyToId?: CommentID;
   readonly body: string;
   readonly author?: string;
   readonly createdAt: string;
@@ -32,17 +34,17 @@ export interface Comment {
 }
 export interface CommentReader {
   listComments(pr: PullRequestKey): Promise<readonly Comment[]>;
-  getComment(pr: PullRequestKey, id: string): Promise<Comment>;
+  getComment(pr: PullRequestKey, id: CommentID): Promise<Comment>;
 }
 /** Native TS providers implement reads; writes require an explicit implementation. */
 export interface CommentForge extends CommentReader {
   createComment(pr: PullRequestKey, body: string, anchor?: CommentAnchor): Promise<Comment>;
-  replyComment(pr: PullRequestKey, id: string, body: string): Promise<Comment>;
-  updateComment(pr: PullRequestKey, id: string, body: string): Promise<Comment>;
-  deleteComment(pr: PullRequestKey, id: string): Promise<{
+  replyComment(pr: PullRequestKey, id: CommentID, body: string): Promise<Comment>;
+  updateComment(pr: PullRequestKey, id: CommentID, body: string): Promise<Comment>;
+  deleteComment(pr: PullRequestKey, id: CommentID): Promise<{
     readonly pr: PullRequestKey;
-    readonly commentId: string;
+    readonly commentId: CommentID;
     readonly deleted: boolean;
   }>;
-  resolveComment(pr: PullRequestKey, id: string, resolved: boolean): Promise<Comment>;
+  resolveComment(pr: PullRequestKey, id: CommentID, resolved: boolean): Promise<Comment>;
 }

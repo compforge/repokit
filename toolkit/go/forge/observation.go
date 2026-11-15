@@ -45,7 +45,7 @@ type prRecord struct {
 // Load reuses PR metadata within maxAge or refreshes it from the configured Forge.
 // Zero always fetches. Get stays a live read for write authorization and cleanup.
 // +spec=`Connection scope includes endpoint, provider and credentials. Failed reads never return cached data as current. Merged lifecycle cannot regress on refresh; mutable metadata can refresh.`
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func (c *Client) Load(ctx context.Context, repository string, number int, maxAge time.Duration) (result PullRequest, err error) {
 	defer func() { err = errs.Wrap(err, "forge.load_failed", "forge.load", repository) }()
 	if maxAge < 0 || number < 1 || repository == "" {
@@ -98,7 +98,7 @@ func (c *Client) observationLocation(key model.Key) (directory, path, connection
 	}
 	connection = observationDigest([]string{key.Repository.Forge.Name, observationDigest([]string{c.config.Provider, key.Repository.Forge.Name, strings.ToLower(endpoint), c.config.Token})})
 	directory = filepath.Join(c.config.Home, "repositories", repostate.RepositoryKey(key.Repository.Forge.Name, key.Repository.Path))
-	path = filepath.Join(directory, "prs", strconv.Itoa(key.Number), "observations", connection+".json")
+	path = filepath.Join(directory, "prs", strconv.Itoa(key.Number), connection+".json")
 	return
 }
 func observationDigest(value any) string {

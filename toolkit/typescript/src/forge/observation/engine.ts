@@ -44,7 +44,7 @@ export class ObservationEngine {
   }
   #time(): number { const time = this.#now().getTime(); if (!Number.isSafeInteger(time) || time < 0) throw new Error("Invalid observation clock"); return time; }
   #repo(key: PullRequestKey): string { return repositoryKey(key.repository.forge.name, key.repository.path); }
-  #path(key: PullRequestKey): string { return this.#store.path("repositories", this.#repo(key), "prs", String(key.number), "observations", this.#connection+".json"); }
+  #path(key: PullRequestKey): string { return this.#store.path("repositories", this.#repo(key), "prs", String(key.number), this.#connection+".json"); }
   #scope(scope: PullRequestScope): string { return digest([this.#connection, scopeKey(scope, this.reader.forge)]); }
   async #stored(path: string): Promise<StoredObservation | undefined> {
     const record = await this.#store.read<StoredObservation>(path);

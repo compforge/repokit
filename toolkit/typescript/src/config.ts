@@ -46,7 +46,7 @@ export class RepoKitConfig {
    * Resolve access without network I/O.
    * @spec Credentials come only from the selected host in config.json. Environment variables
    * and caller configuration never supply or override credentials.
-   * @see {@link component://docs/configuration.md}
+   * @see {@link component://docs/home.md#配置}
    */
   forge(name: string, options: { readonly timeoutMs?: number } = {}): ForgeConnection {
     const host = normalizeHost(name);
@@ -66,7 +66,7 @@ function object(value: unknown): value is Record<string,unknown> {
 /**
  * Load once per operation; no file creation or application-owned config lookup.
  * @spec Missing config is empty; invalid or non-private config fails without exposing contents.
- * @see {@link component://docs/configuration.md}
+ * @see {@link component://docs/home.md#配置}
  */
 export async function loadConfig(home?: string): Promise<RepoKitConfig> {
   const root = resolveHome(home), path = join(root,"config.json");

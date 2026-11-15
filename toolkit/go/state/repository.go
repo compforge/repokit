@@ -83,7 +83,7 @@ var errIncompleteObservation = errors.New("incomplete checkout observation")
 
 // LoadBranch uses a local observation only within maxAge; zero requests current Git facts.
 // +spec=`Missing, stale or partially published observations are refreshed for the requested branch only. Failed current reads never return stale data as current.`
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Duration) (observation *BranchObservation, err error) {
 	defer func() { err = errs.Wrap(err, "state.branch_failed", "state.load_branch", repo) }()
 	if maxAge < 0 {
@@ -158,7 +158,7 @@ func LoadBranch(ctx context.Context, repo, branch, home string, maxAge time.Dura
 // Observe persists local branch/checkout facts without claiming complete Forge inventory.
 // Reconcile retires only this clone's absent checkout records and empty branch projections.
 // +spec=`Failed inventory never means absence. Observations are not authority to delete Git resources. History survives checkout reclamation.`
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func Observe(ctx context.Context, repo, home string, reconcile bool) (directory string, err error) {
 	defer func() { err = errs.Wrap(err, "state.observe_failed", "state.observe", repo) }()
 	if err := RecordAccess(ctx, repo, home); err != nil {

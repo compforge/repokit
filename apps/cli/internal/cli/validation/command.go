@@ -17,7 +17,7 @@ import (
 
 // +spec=Validation completion publishes check evidence without refreshing repository topology.
 // +why=The CLI records checkout access separately; topology consumers own observation freshness.
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string

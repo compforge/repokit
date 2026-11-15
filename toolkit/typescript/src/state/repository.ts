@@ -31,7 +31,7 @@ class IncompleteObservation extends RepoKitError {
 /** Repository-local observations share storage with Forge facts and execution history.
  * @spec One clone never replaces another clone's branch heads or checkout records.
  * Persisted topology is not authority to mutate Git resources.
- * @see {@link component://docs/state.md}
+ * @see {@link component://docs/home.md}
  */
 export class RepositoryState {
   readonly store: ObservationStore;

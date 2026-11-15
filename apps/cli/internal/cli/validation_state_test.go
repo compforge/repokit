@@ -13,7 +13,7 @@ import (
 )
 
 // +case=Validation commands renew checkout access without refreshing topology, even with a corrupt unrelated branch projection.
-// +link=component://docs/state.md
+// +link=component://docs/home.md
 func TestValidationCLILeavesTopologyUntouched(t *testing.T) {
 	root, home := fixture(t), t.TempDir()
 	root, err := filepath.EvalSymlinks(root)

@@ -52,7 +52,7 @@ export class ForgeConnection {
     return { forge: { name: this.name }, path };
   }
   reader(options: ForgeReaderOptions = {}): ForgeReader {
-    return createForgeReader({ forge: this.name, provider: this.provider, host: this.apiHost, token: this.#token }, { timeoutMs: this.timeoutMs, ...options });
+    return createForgeReader({ forge: this.name, provider: this.provider, host: this.apiHost, token: this.#token }, { home: this.home, timeoutMs: this.timeoutMs, ...options });
   }
   pullRequestContext(checkout: string, options: { readonly source: string; readonly targets?: readonly string[]; readonly reader?: ObservationReader }): PullRequestContext {
     return new PullRequestContext(options.reader ?? this.reader(), {

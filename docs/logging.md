@@ -21,8 +21,7 @@ process may leave a start record without a terminal record.
 
 Concurrent invocations append to the same daily file. Each invocation removes
 dated regular log files older than the preceding 29 days; unrelated files,
-directories and symlinks remain untouched. New directories/files use permissions
-0700/0600. Setup or write failures warn once on the original stderr without failing
+directories and symlinks remain untouched. Directories/files follow the [Home storage permissions](home.md#持久化边界). Setup or write failures warn once on the original stderr without failing
 the command or recursively logging that warning.
 
 ## Diff history

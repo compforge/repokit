@@ -7,7 +7,7 @@ PR observations and shared validation history.
 The global `repocli clean` and `repocli worktree clean` call the same `state.CleanWorktrees`
 service entry with the policy below. Global cleanup additionally traverses recorded repositories
 and expires repository state after 30 days; that threshold does not change worktree retention.
-See [repository cleanup](cleanup.md).
+See [repository cleanup](home.md#清理与回收).
 
 ## 创建与复用
 
@@ -121,7 +121,7 @@ repocli worktree clean --repo /path/to/repository --max-count 10 --max-prepared 
 
 PR operations use the native `toolkit/go/forge` client. Both PR operations and cleanup query that
 same capability, verifying the source repository, branch and exact head. Cleanup always queries current platform facts. Go PR display can use the explicit
-[repository observation store](state.md); cached display metadata never authorizes cleanup.
+[repository observation store](home.md); cached display metadata never authorizes cleanup.
 Credentials come from `GH_TOKEN`/`GITHUB_TOKEN` or `GITLAB_TOKEN`; `--provider`, `--api-host`
 and repeatable `--target-repository owner/repo` supply explicit connection/target scope.
 No fork parent or another application's credential configuration is inferred. Without credentials,

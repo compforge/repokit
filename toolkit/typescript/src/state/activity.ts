@@ -10,7 +10,7 @@ interface Activity {
 
 /**
  * @spec Only use of the selected checkout renews its activity; inventory and maintenance do not.
- * @see {@link component://docs/cleanup.md}
+ * @see {@link component://docs/home.md#清理与回收}
  */
 export async function recordAccess(store: ObservationStore, key: string, signal: AbortSignal, checkout?: CheckoutInfo): Promise<void> {
   await store.locked(store.path("locks", "activity", key), signal, async owned => {

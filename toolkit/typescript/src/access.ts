@@ -6,7 +6,7 @@ import type { ObservationReader } from "./forge/observation/model.js";
 /**
  * Native checkout-to-Forge assembly; callers select targets and own the observer.
  * @spec Absent Forge origin is inapplicable; missing access remains an error.
- * @see {@link component://docs/configuration.md}
+ * @see {@link component://docs/home.md#配置}
  */
 export async function pullRequestContext(checkout: string, options: {
   readonly home?: string;

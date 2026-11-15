@@ -26,7 +26,7 @@ export async function readComments(key: PullRequestKey, page: (page: number) => 
         const p = object(n.position), start = object(object(p.line_range).start);
         const side = p.new_line != null ? "RIGHT" : p.old_line != null ? "LEFT" : undefined;
         result.push({
-          id: `note:${n.id}`, pr: key, body: n.body, author: text(object(n.author).username), createdAt: text(n.created_at) ?? "", updatedAt: text(n.updated_at), url: text(n.url), resolution, resolvedBy: text(object(n.resolved_by).username), resolvedAt: text(n.resolved_at), anchor: n.position ? {
+          id: `note:${n.id}`, pr: key, replyToId: n.id !== notes[0]?.id ? `note:${notes[0]?.id}` : undefined, body: n.body, author: text(object(n.author).username), createdAt: text(n.created_at) ?? "", updatedAt: text(n.updated_at), url: text(n.url), resolution, resolvedBy: text(object(n.resolved_by).username), resolvedAt: text(n.resolved_at), anchor: n.position ? {
             path: text(p.new_path) || text(p.old_path) || "", oldPath: text(p.old_path), revision: text(p.head_sha) ?? "", originalRevision: text(p.base_sha), side, line: line(side === "RIGHT" ? p.new_line : p.old_line), startLine: line(start.type === "new" ? start.new_line : start.old_line), startSide: start.type === "new" ? "RIGHT" : start.type === "old" ? "LEFT" : undefined
           } : undefined
         });

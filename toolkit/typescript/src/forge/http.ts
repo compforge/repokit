@@ -38,6 +38,9 @@ export class ForgeHttpClient {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 1) throw new Error("Forge aggregate timeout must be a positive safe integer");
     return this.#deadline.run(Math.min(this.#deadline.getStore() ?? Infinity, Date.now() + timeoutMs), operation);
   }
+  get signal(): AbortSignal {
+    return AbortSignal.any([this.#abort.signal, ...(this.#signal ? [this.#signal] : []), ...(this.#calls.getStore() ? [this.#calls.getStore()!] : [])]);
+  }
   withSignal<T>(signal: AbortSignal, operation: () => Promise<T>): Promise<T> {
     const parent = this.#calls.getStore();
     return this.#calls.run(parent ? AbortSignal.any([parent, signal]) : signal, operation);
