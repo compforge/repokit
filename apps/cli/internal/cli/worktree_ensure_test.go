@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/compforge/repokit/toolkit/go/worktree"
 	"os"
 	"os/exec"
@@ -28,7 +29,7 @@ func TestWorktreeEnsureCLI(t *testing.T) {
 		}
 		var envelope commandResult
 		_ = json.Unmarshal(out.Bytes(), &envelope)
-		if code != 0 || !r.Confirmed || r.Name != "topic" || r.Checkout != target || r.Action != want || len(envelope.Cost.Phases) == 0 || stderr.Len() != 0 {
+		if code != 0 || !r.Confirmed || r.Name != "topic" || r.Checkout != target || r.Action != want || r.Maintenance == nil || len(envelope.Cost.Phases) == 0 || stderr.Len() != 0 {
 			t.Fatal(code, out.String(), stderr.String())
 		}
 	}
@@ -105,5 +106,55 @@ func TestWorktreeEnsureRequiresRepository(t *testing.T) {
 		if code := Execute(context.Background(), args, nil, &out, &stderr); code != 2 {
 			t.Fatal(code, out.String(), stderr.String())
 		}
+	}
+}
+
+// +case=An invalid maintenance policy emits warnings while ensure remains successful and confirmed.
+func TestWorktreeEnsureMaintenanceWarning(t *testing.T) {
+	root := fixture(t)
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"worktree":{"max_count":-1}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"worktree", "ensure", "topic", "--branch", "topic", "--base", "HEAD", "--repo", root, "--json"}, nil, &out, &stderr)
+	var envelope commandResult
+	if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
+		t.Fatal(err, out.String())
+	}
+	var report worktree.EnsureReport
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || envelope.Outcome != "succeeded" || !report.Confirmed || len(envelope.Diagnostics) != 1 || envelope.Diagnostics[0].Severity != "warning" {
+		t.Fatal(code, out.String(), stderr.String())
+	}
+}
+
+// +case=Selecting the primary repository from an older linked checkout still protects the invoking checkout.
+func TestWorktreeEnsureProtectsInvokingCheckout(t *testing.T) {
+	root := fixture(t)
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	old, err := worktree.Ensure(context.Background(), root, "old", worktree.EnsureOptions{EnsureWorktreeOptions: state.EnsureWorktreeOptions{Branch: "old", Base: "HEAD"}})
+	if err != nil || !old.Confirmed {
+		t.Fatal(old, err)
+	}
+	t.Chdir(old.Checkout)
+	if err := os.WriteFile(filepath.Join(home, "config.json"), []byte(`{"worktree":{"max_count":0,"max_prepared":0}}`), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var out, stderr bytes.Buffer
+	code := Execute(context.Background(), []string{"worktree", "ensure", "new", "--branch", "new", "--base", "HEAD", "--repo", root, "--json"}, nil, &out, &stderr)
+	var report worktree.EnsureReport
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &report); err != nil {
+		t.Fatal(err)
+	}
+	if code != 0 || !report.Confirmed || report.Maintenance == nil || report.Maintenance.RemainingCount != 2 {
+		t.Fatal(code, out.String(), stderr.String())
+	}
+	if _, err := os.Stat(old.Checkout); err != nil {
+		t.Fatal("invoking checkout removed", err)
 	}
 }

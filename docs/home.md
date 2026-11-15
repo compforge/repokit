@@ -186,7 +186,8 @@ Go `state.Observe`、Python/TS `RepositoryState.observe` 记录本地事实；Gi
 checkout 消失连带删除历史。仓库根保留信息不会触发全量 Forge 扫描或后台实时同步。
 
 Python/Go worktree 创建、移除和清理接受显式 state directory，并在成功操作后观察/对账。
-CLI 的 `worktree clean` 和 PR context 成功写入后的 maintenance 使用同一入口。Python/TS PR context
+CLI 的 `worktree ensure` 在确认创建/复用及可选依赖准备后，同步调用 worktree cleanup，
+只维护所属 clone 的数量预算；`worktree clean` 和全局 `clean` 保留显式清理语义。PR 操作不触发文件系统清理。Python/TS PR context
 查询 branch PR 时使用 Git 当前 inventory，不把 topology 发布作为读取前置条件。
 CLI 的 `validate`、`lint`、`test`、`format` 在完成检查、输入核验和历史保存后返回，不刷新 branch/checkout 拓扑。
 CLI 统一记录所选 checkout 的访问；访问时间不代表拓扑的新鲜度。拓扑由按需分支查询、worktree 生命周期操作
