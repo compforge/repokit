@@ -376,3 +376,50 @@ func TestCleanupDiscardsContentsWithoutEnvironmentInventory(t *testing.T) {
 		}
 	}
 }
+
+// +case=A protected newest checkout participates in both retention windows; old environments can be released without deleting retained checkouts.
+func TestRetentionProtectedNewestKeepsCreationOrder(t *testing.T) {
+	root, create := retentionFixture(t)
+	old := create("old", true)
+	middle := create("middle", true)
+	newest := create("newest", true)
+	policy := WorktreePolicy{MaxCount: 2, MaxPrepared: 1}
+	report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &policy, ProtectedPaths: []string{newest}, SkipBusy: true})
+	if err != nil || len(report.Errors) > 0 || report.RemainingCount != 2 || report.RemainingPrepared == nil || *report.RemainingPrepared != 1 {
+		t.Fatalf("%+v %v", report, err)
+	}
+	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("old checkout retained", err)
+	}
+	if _, err := os.Stat(filepath.Join(middle, "node_modules")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("old environment retained", err)
+	}
+	if _, err := os.Stat(filepath.Join(newest, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// +case=Automatic cleanup does not wait behind a lifecycle lease or remove anything while it is held.
+func TestRetentionSkipBusy(t *testing.T) {
+	root, create := retentionFixture(t)
+	path := create("topic", false)
+	info, err := Checkout(context.Background(), root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := repositoryLease(context.Background(), filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	policy := WorktreePolicy{}
+	report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{Policy: &policy, SkipBusy: true})
+	if err == nil || ctx.Err() != nil || len(report.Actions) != 0 {
+		t.Fatalf("%+v %v", report, err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatal(err)
+	}
+}

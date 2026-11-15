@@ -1,9 +1,10 @@
 package worktree
 
 import (
-	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go/state"
@@ -14,7 +15,7 @@ import (
 func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 	var branch, base, remote string
 	var prepare bool
-	cmd := &cobra.Command{Use: "ensure <name>", Short: "Create or reuse a named worktree under the primary checkout", Long: "Create or reuse <primary-checkout>/.worktrees/<name>. --repo is required and resolves the owning repository even from a linked checkout or symlink. The name is a single directory name, independent of --branch; paths are not accepted.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "ensure <name>", Short: "Create or reuse a named worktree under the primary checkout", Long: "Create or reuse <primary-checkout>/.worktrees/<name>. --repo is required and resolves the owning repository even from a linked checkout or symlink. The name is a single directory name, independent of --branch; paths are not accepted. After confirmation and optional preparation, synchronously maintain this clone's worktree capacity; maintenance warnings do not undo creation.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !cmd.Flag("repo").Changed || opts.Repository == "" {
 			return errors.New("--repo is required")
 		}
@@ -25,9 +26,14 @@ func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 		if err != nil {
 			return cmdutil.ExecutionFailure(err)
 		}
-		ctx, cancel := context.WithTimeout(cmd.Context(), opts.Timeout)
-		defer cancel()
-		report, err := worktree.Ensure(ctx, opts.Repository, args[0], worktree.EnsureOptions{EnsureWorktreeOptions: state.EnsureWorktreeOptions{Branch: branch, Base: base, Remote: remote, Home: home}, Prepare: prepare})
+		current, err := os.Getwd()
+		if err == nil {
+			current, err = filepath.EvalSymlinks(current)
+		}
+		if err != nil {
+			return cmdutil.ExecutionFailure(err)
+		}
+		report, err := worktree.Ensure(cmd.Context(), opts.Repository, args[0], worktree.EnsureOptions{EnsureWorktreeOptions: state.EnsureWorktreeOptions{Branch: branch, Base: base, Remote: remote, Home: home}, Prepare: prepare, Timeout: opts.Timeout, ProtectedPaths: []string{current}})
 		if opts.JSON {
 			if e := cmdutil.JSON(cmd.OutOrStdout(), report); e != nil {
 				return e
@@ -39,6 +45,12 @@ func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 				fmt.Fprintf(cmd.OutOrStdout(), "Dependencies ready=%t; complete=%t\n", report.Ready, report.Preparation.Complete)
 				for _, bin := range report.Preparation.Bins {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s %s\n", bin.Path, bin.Status, bin.Action, bin.Reason)
+				}
+			}
+			if report.Maintenance != nil {
+				fmt.Fprintf(cmd.OutOrStdout(), "Maintenance: %d actions; %d errors\n", len(report.Maintenance.Actions), len(report.Maintenance.Errors))
+				for _, a := range report.Maintenance.Actions {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s (%s)\n", a.Path, a.Action, a.Status, a.Reason)
 				}
 			}
 			for _, d := range report.Diagnostics {

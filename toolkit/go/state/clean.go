@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
 	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
@@ -107,6 +108,8 @@ type WorktreeCleanOptions struct {
 	PullRequests   WorktreePullRequests
 	Home           string
 	ProtectedPaths []string
+	// SkipBusy avoids waiting for a concurrent Git lifecycle operation.
+	SkipBusy bool
 }
 
 type retentionEntry struct {
@@ -149,7 +152,11 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if err != nil {
 		return report, err
 	}
-	unlock, err := repositoryLease(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
+	acquire := repositoryLease
+	if options.SkipBusy {
+		acquire = repogit.TryAcquireLease
+	}
+	unlock, err := acquire(ctx, filepath.Join(info.CommonDir, "repokit-worktrees.lock"))
 	if err != nil {
 		return report, err
 	}
@@ -223,10 +230,10 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				}
 			}
 			if e.excluded {
-				known = false
 				action(e, "retain", "skipped", "current_checkout", 0)
-				return
 			}
+			// Protected paths still participate in the newest retention window.
+			// Read their creation time before deciding which older entries exceed it.
 			reason, observeErr := protectionInInventory(ctx, info.Root, entry, entries)
 			if observeErr != nil {
 				known = false

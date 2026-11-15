@@ -54,7 +54,7 @@ Configuration lives in `~/.repokit/repositories/<repo-key>/config.json`, shared 
 {"worktree":{"max_count":10,"max_prepared":3,"outputs":[]}}
 ```
 
-`0 <= max_prepared <= max_count`. Primary checkouts are excluded from both counts. Each run:
+`0 <= max_prepared <= max_count`. Primary checkouts are excluded from both counts. Each explicit cleanup run:
 
 1. Removes eligible checkouts of verified **merged** PRs, even below the count limits.
 2. Removes the oldest remaining linked checkouts until `max_count` is reached.
@@ -63,7 +63,7 @@ Configuration lives in `~/.repokit/repositories/<repo-key>/config.json`, shared 
 
 The newest retained set provides a buffer for concurrent development sessions, which are
 expected to work in recently created checkouts. Cleanup does not discover Codex or other
-Harness sessions. Merged checkouts are finished work and are reclaimed independently of this
+Harness sessions. Explicit cleanup treats merged checkouts as finished work and reclaims them independently of this
 buffer; callers must start a new worktree for subsequent work. Dirty contents do not extend
 retention beyond the count policy. Use an explicit Git worktree lock to pin a checkout.
 
@@ -97,7 +97,7 @@ declarations assert that their contents are regenerable; they must not contain t
 symlinked installation roots or nested Git repositories. Unmanaged dependency environments count
 toward the prepared limit but are retained. Shared package-manager caches are never removed.
 Preparation and cleanup share a repository process lease; preparation waits within its deadline
-and Python cleanup skips a busy repository. Go cleanup waits until the caller cancels. Explicit Git worktree locks
+and Python cleanup skips a busy repository. Go explicit cleanup waits until the caller cancels; automatic ensure maintenance skips a busy lease. Explicit Git worktree locks
 are the interoperable way to pin an otherwise clean checkout during use by another process.
 Arbitrary external editors/installers do not participate in RepoKit's lease.
 
@@ -110,6 +110,8 @@ at the mutation boundary. Partial environment deletion is reported and can be re
 The native Python cleanup operation is `repokit.state.clean_worktrees`. PR writes refresh only
 the affected observations and never trigger filesystem maintenance. Choose cleanup explicitly
 with `repocli clean` or `repocli worktree clean`; both share the same reclamation service.
+`worktree ensure` also calls that service automatically for clone-local capacity maintenance,
+without merged-PR removal (see below).
 
 The Go implementation lives in `toolkit/go/state`; the CLI directly calls this package.
 Python provides a toolkit only: the `repokit-worktree` console entry point has been removed.
@@ -145,8 +147,8 @@ protected; recovery never authorizes deleting a replacement directory.
 
 `repocli worktree ensure <name> --repo <repository> --branch <branch> --base <ref> --prepare --json` composes
 checkout confirmation and Depot preparation in `toolkit/go/worktree.Ensure`. State owns checkout
-lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepare`, ensure only
-confirms the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed
+lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepare`, ensure skips
+installation and still maintains capacity after confirming the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed
 lockfiles; `depot inspect` is a query, never a mandatory preflight before preparation.
 
 The flat checkout report remains available together with `preparation` and `ready`. If creation
@@ -163,3 +165,23 @@ release share that worktree's budget; processing other checkouts does not consum
 A timed-out worktree is reported individually and does not stop the next one. Repository cache
 reclamation has no local time budget. Caller cancellation stops the entire sweep and preserves
 confirmed actions. Dry-run uses the same budget as execution.
+
+## Automatic capacity maintenance
+
+After a confirmed `worktree ensure` creation or reuse and optional preparation, Go `worktree.Ensure`
+synchronously calls the existing worktree cleanup owner for that clone. It fixes the newest
+`max_count` / `max_prepared` retention windows and only considers older entries. It supplies no PR
+resolver: a merged PR cannot make a worktree inside the window eligible. The source checkout,
+ensured checkout and CLI's invoking directory remain protected, including their environments.
+Other clones, PR/comment caches and validation history are not swept; removed checkout registrations
+are reconciled normally. Explicit `worktree clean` and global `clean` retain their existing behavior.
+
+Creation and preparation release their leases before maintenance acquires the same lifecycle lock.
+A busy lifecycle lock skips maintenance immediately. The command's `--timeout` bounds creation and
+preparation together, then applies independently to each worktree during maintenance. Caller
+cancellation still stops the operation. No background task or scheduling state is created.
+
+The ensure report includes `maintenance`, its actions and errors, plus a maintenance cost phase.
+Maintenance failure adds warning diagnostics without changing confirmed checkout or preparation
+results. Soft limits can remain exceeded when older candidates are protected or cannot be cleaned;
+creation does not fail merely because capacity maintenance is incomplete.
