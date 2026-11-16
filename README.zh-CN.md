@@ -11,6 +11,11 @@ Go 使用 `github.com/compforge/repokit/toolkit/go`（包名 `repokit`），Node
 各语言已支持能力不同，包括布局识别、内容身份、工具证据、变更分析、代码图和 Git/Forge 操作。
 CLI 暴露其中的能力并提供本地代码图浏览；业务流程与决策由调用方负责。
 
+RepoKit [Home](docs/home.md) 将远端 Repository、PR 与本地 clone、branch、worktree 关联起来，
+在 `~/.repokit` 中保存访问配置、身份关联与执行记录。
+
+![repocli 的操作能力，以及 Remote、Home 与 Local 的关系](docs/assets/repocli-overview.svg)
+
 测试推荐采用 best-effort 方式：有目标的推测关系参与推荐，解释路径保留置信度；未知目标不记录。
 空测试列表不证明没有测试受影响。
 
