@@ -14,6 +14,11 @@ Git state and operations, and build/package tools and manifests. Available capab
 the libraries currently provide layout discovery, content identity, tool evidence, change analysis, code graphs,
 and Git/Forge operations. The CLI exposes selected capabilities and a local graph browser; callers own workflow decisions.
 
+RepoKit [Home](docs/home.md) connects remote repositories and PRs with local clones, branches and worktrees,
+keeping access configuration, associations and execution records in `~/.repokit`.
+
+![repocli capabilities and Remote, Home and Local relationships (Chinese labels)](docs/assets/repocli-overview.svg)
+
 The `repocli` application exposes repository queries and explicit validation:
 
 | Command | Use it to |
