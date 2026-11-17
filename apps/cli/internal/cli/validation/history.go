@@ -112,8 +112,8 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 			return nil
 		}}
-	list.Flags().String("output", "", "atomically save the complete command result")
-	show.Flags().String("output", "", "atomically save the complete command result")
+	list.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
+	show.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	root.AddCommand(list, show)
 	return root
 }

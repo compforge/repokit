@@ -121,6 +121,7 @@ func (o *resultOutput) finish(command string, err error, code int, stderr io.Wri
 	}
 	o.applyError(err)
 	var data []byte
+	var exportedPath string
 	if o.exportPath != "" {
 		path, exportErr := filepath.Abs(o.exportPath)
 		if exportErr == nil {
@@ -128,6 +129,9 @@ func (o *resultOutput) finish(command string, err error, code int, stderr io.Wri
 			data, exportErr = encodeResult(r)
 			if exportErr == nil {
 				exportErr = writeResultFile(path, data)
+				if exportErr == nil {
+					exportedPath = path
+				}
 			}
 			if exportErr != nil {
 				r.Artifacts = r.Artifacts[:len(r.Artifacts)-1]
@@ -161,7 +165,10 @@ func (o *resultOutput) finish(command string, err error, code int, stderr io.Wri
 				}
 			}
 		}
-		return code, err
+		if exportedPath == "" {
+			return code, err
+		}
+		data = []byte(fmt.Sprintf("Result saved: %s\n", exportedPath))
 	}
 	// +spec=Output delivery failure does not imply the underlying action failed or may be safely retried
 	var deliveryErr error
@@ -230,23 +237,18 @@ func requestedJSON(root *cobra.Command, args []string) bool {
 		cmd.Flags().VisitAll(collect)
 		cmd.PersistentFlags().VisitAll(collect)
 	}
-	enabled := map[string]bool{"--json": false}
-	for _, name := range strings.Split(command.Annotations["result-json-flags"], ",") {
-		if name != "" {
-			enabled["--"+name] = false
-		}
-	}
+	enabled := false
 	for i := 0; i < len(args); i++ {
 		arg := args[i]
 		if arg == "--" {
 			break
 		}
 		name, value, assigned := strings.Cut(arg, "=")
-		if _, known := enabled[name]; known {
+		if name == "--json" {
 			if !assigned {
-				enabled[name] = true
+				enabled = true
 			} else if v, e := strconv.ParseBool(value); e == nil {
-				enabled[name] = v
+				enabled = v
 			}
 			continue
 		}
@@ -254,12 +256,7 @@ func requestedJSON(root *cobra.Command, args []string) bool {
 			i++
 		}
 	}
-	for _, active := range enabled {
-		if active {
-			return true
-		}
-	}
-	return false
+	return enabled
 }
 
 func (o *resultOutput) RecordDiagnostic(d command.Diagnostic) {

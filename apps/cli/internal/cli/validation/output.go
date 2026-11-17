@@ -109,6 +109,9 @@ func WriteText(w io.Writer, report repokit.ValidationReport) error {
 				}
 				cost := currentCheckCost(group.Component.Root, check, "")
 				fmt.Fprintf(&b, "%s %s: %s (%s, execute=%.3fs lookup=%.3fs) — %s; %s\n", group.Component.Root, check.Check, status, check.Scope, cost.ExecutionSeconds, cost.LookupSeconds, check.Reason, check.ReuseReason)
+				if check.RunID != "" {
+					fmt.Fprintf(&b, "  Run: %s (validate history show %s)\n", check.RunID, check.RunID)
+				}
 				writeTestTimings(&b, check)
 				if check.Status != "passed" && check.Status != "skipped" {
 					for _, stream := range []struct{ name, text string }{{"stdout", check.Stdout}, {"stderr", check.Stderr}} {
@@ -125,7 +128,7 @@ func WriteText(w io.Writer, report repokit.ValidationReport) error {
 			}
 		}
 	}
-	fmt.Fprintln(&b, "Use --json or --output <path> for the report and captured check output.")
+	fmt.Fprintln(&b, "Use --json to parse result fields; --output <path> saves full JSON evidence with this text summary.")
 	_, err := io.WriteString(w, b.String())
 	return err
 }

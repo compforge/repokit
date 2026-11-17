@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	validationcmd "github.com/compforge/repokit/apps/cli/internal/cli/validation"
@@ -45,7 +48,7 @@ func resultData(t *testing.T, b []byte) json.RawMessage {
 
 // +case=Malformed arguments still produce one structured failure even when --json follows the offending argument
 func TestJSONUsageFailures(t *testing.T) {
-	for _, args := range [][]string{{"unknown", "--json"}, {"pr", "create", "--draft", "--json"}, {"impact", "--unknown", "--json"}, {"impact", "--timeout", "bad", "--json"}, {"impact", "--timeout", "0s", "--json"}, {"view", "--json"}, {"validate", "--plan", "--unknown"}, {"validate", "--history", "--timeout", "0s"}, {"validate", "--unknown", "--plan"}} {
+	for _, args := range [][]string{{"unknown", "--json"}, {"pr", "create", "--draft", "--json"}, {"impact", "--unknown", "--json"}, {"impact", "--timeout", "bad", "--json"}, {"impact", "--timeout", "0s", "--json"}, {"view", "--json"}, {"validate", "--plan", "--unknown", "--json"}, {"validate", "--history", "--timeout", "0s", "--json"}, {"validate", "--unknown", "--plan", "--json"}} {
 		var out, stderr bytes.Buffer
 		if code := Execute(context.Background(), args, nil, &out, &stderr); code != 2 || stderr.Len() != 0 {
 			t.Fatalf("%v: code=%d stdout=%s stderr=%s", args, code, &out, &stderr)
@@ -68,6 +71,9 @@ func TestJSONFlagIntentRespectsValuesAndDelimiter(t *testing.T) {
 		{[]string{"impact", "--", "--json"}, false},
 		{[]string{"--json", "impact", "--json=false"}, false},
 		{[]string{"impact", "--json=true"}, true},
+		{[]string{"validate", "--plan"}, false},
+		{[]string{"validate", "--history"}, false},
+		{[]string{"validate", "--plan", "--json=false"}, false},
 	} {
 		if got := requestedJSON(newRootCommand(&cmdutil.Options{}), tc.args); got != tc.want {
 			t.Fatalf("%v: %t", tc.args, got)
@@ -279,5 +285,27 @@ func TestCLIUsesToolkitErrorRepresentation(t *testing.T) {
 	result := &resultOutput{Writer: &out}
 	if code, _ := result.finish("fixture", original, 1, &text); code != 1 || text.String() != "repocli: "+original.Text()+"\n" {
 		t.Fatal(text.String())
+	}
+}
+
+// +case=A failed text export receipt preserves the saved result and reports delivery failure without implying safe retry.
+func TestTextExportReceiptDeliveryFailure(t *testing.T) {
+	for _, writer := range []io.Writer{failedWriter{}, shortWriter{}} {
+		path := filepath.Join(t.TempDir(), "result.json")
+		output := &resultOutput{Writer: writer, started: time.Now(), exportPath: path}
+		output.RecordResult(map[string]bool{"created": true})
+		var stderr bytes.Buffer
+		code, err := output.finish("fixture", nil, 0, &stderr)
+		if code != 1 || err == nil || !strings.Contains(stderr.String(), "output.write_failed") || !strings.Contains(stderr.String(), "outcome=succeeded") {
+			t.Fatalf("code=%d err=%v stderr=%s", code, err, &stderr)
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var result commandResult
+		if err := json.Unmarshal(data, &result); err != nil || result.Outcome != "succeeded" || len(result.Artifacts) != 1 {
+			t.Fatalf("lost saved evidence: %v %s", err, data)
+		}
 	}
 }
