@@ -13,7 +13,7 @@ import (
 // +case=Depot CLI preserves failed Bin evidence and phase costs in one JSON envelope; present is a warning, not ready.
 func TestDepotCLIReport(t *testing.T) {
 	repo := fixture(t)
-	if e := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"name":"fixture"}`), 0644); e != nil {
+	if e := os.WriteFile(filepath.Join(repo, "package.json"), []byte(`{"name":"fixture","devDependencies":{"fixture":"1.0.0"}}`), 0644); e != nil {
 		t.Fatal(e)
 	}
 	t.Setenv("REPOKIT_HOME", t.TempDir())
