@@ -86,7 +86,7 @@ validation 还提供 `cost.phases[]` 和 `cost.validation`：
 |---|---|
 | `phases[].name=planning` | 仅 `--plan` 的规划调用；不执行检查。 |
 | `phases[].name=validation` | 普通执行的整个工具包验证调用，包含内部规划、format 后重规划、检查、复核及历史读写。 |
-| `phases[].name=observation` | 验证后的仓库状态观察。 |
+| `phases[].name=validation.*` | 工具包本次调用的顺序子阶段：规划、输入核对、检查调度与历史读写；显式 format 使用 `validation.format.*`。 |
 | `phases[].durationSeconds` | 该阶段的实测墙钟耗时；未进入的阶段不出现。 |
 | `validation.executionSeconds` | 本轮检查执行调用的耗时之和，包含启动准备及失败尝试。 |
 | `validation.lookupSeconds` | 本轮各检查复用查询耗时之和。 |
@@ -97,12 +97,13 @@ validation 还提供 `cost.phases[]` 和 `cost.validation`：
 不能把 0 秒解释为已成功执行。`--history` 查询中的累计统计归 `data`，不计入本次执行成本。
 
 检查可能并发，因此累计 execution/lookup 与 wall 不能相减推算“CLI 开销”，也不能将父阶段与子检查
-相加当成总耗时。目前没有把 validation 内部规划、锁等待、扫描等进一步拆开；缺少测量不报告为 0。
+相加当成总耗时。子阶段边界及 API 组合规则见 [验证阶段耗时](validation.md#验证阶段耗时)。
+`checks` 子阶段是含调度和复用查询的整组墙钟耗时；历史阶段包含其内部锁等待，不单独推算未测量部分。
 
 文本验证结果先展示判定和成本，再列出每个 Component/check 的 scope、执行/复用及耗时。
-有 Go JSON 事件时，检查的 `testTimings[]` 额外提供 package/test/subtest 耗时，文本展示有界的慢项。
+有 Go JSON 事件或可识别的 Bun console 输出时，检查的 `testTimings[]` 额外提供测试耗时，文本展示有界的慢项。
 它们是可重叠的 runner 观测，不能累加到 command/check 成本；Go `cached` 与整轮检查 `reused`
-分别标记历史来源。字段和提取边界见 [测试耗时](validation.md#本仓-go-测试选择与耗时)。
+分别标记历史来源。字段和提取边界见 [测试耗时](validation.md#测试选择与耗时)。
 只展示失败检查日志的尾部，每个 stdout/stderr 最多 20 行、2000 字符；展示截断有明确标记。
 JSON stdout 与 `--output` 导出结果的 `data` 均保留已捕获的检查输出；
 执行器自身的输出预算与超限语义见 [验证契约](validation.md#执行与预算)。

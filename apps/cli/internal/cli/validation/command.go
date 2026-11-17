@@ -103,6 +103,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				finishPhase := cmdutil.MeasurePhase(cmd.OutOrStdout(), "planning")
 				plan, err := repokit.PlanValidation(ctx, request)
 				finishPhase()
+				recordPhases(cmd.OutOrStdout(), plan.Phases)
 				if err != nil {
 					return cmdutil.ExecutionFailure(err)
 				}
@@ -111,6 +112,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 			finishPhase := cmdutil.MeasurePhase(cmd.OutOrStdout(), "validation")
 			report, err := repokit.Validate(ctx, request)
 			finishPhase()
+			recordPhases(cmd.OutOrStdout(), report.Phases)
 			// Preserve available check evidence even if final capture or bookkeeping fails.
 			if report.SchemaVersion != 0 {
 				cmdutil.Record(cmd.OutOrStdout(), report)

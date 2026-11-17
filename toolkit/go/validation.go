@@ -7,6 +7,9 @@ import (
 	"github.com/compforge/repokit/toolkit/go/internal/validation"
 )
 
+// ValidationPhase reports current-invocation wall time at a validation stage boundary.
+type ValidationPhase = validation.Phase
+
 // ValidationRequest selects Makefile checks and their Component/file scope.
 type ValidationRequest = validation.ValidationRequest
 
