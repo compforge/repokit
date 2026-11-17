@@ -202,7 +202,7 @@ func TestSnapshotDetectsChangesBetweenObservations(t *testing.T) {
 	}
 	bin := t.TempDir()
 	wrapper := `#!/bin/sh
-if [ "$*" = "--no-pager ls-files -z --cached" ]; then
+if [ "$*" = "--no-pager ls-files --stage -z" ]; then
  if [ -f "$SNAPSHOT_TEST_MARKER" ]; then
   printf 'changed during capture' > "$SNAPSHOT_TEST_REPO/source file.ts"
  else

@@ -242,10 +242,6 @@ func (r *Repository) readBlobs(ctx context.Context, s Snapshot, blobs []blob, ha
 
 func (r *Repository) Working(ctx context.Context) (Snapshot, []string, error) {
 	s := newSnapshot()
-	tracked, err := r.run(ctx, "ls-files", "-z", "--cached")
-	if err != nil {
-		return s, nil, err
-	}
 	untracked, err := r.run(ctx, "ls-files", "-z", "--others", "--exclude-standard")
 	if err != nil {
 		return s, nil, err
@@ -255,6 +251,8 @@ func (r *Repository) Working(ctx context.Context) (Snapshot, []string, error) {
 		return s, nil, err
 	}
 	modules := map[string]string{}
+	names := map[string]bool{}
+	// +why=The stage catalog already supplies tracked paths and modes; a second index listing adds no snapshot evidence.
 	for _, line := range strings.Split(string(entries), "\x00") {
 		if line == "" {
 			continue
@@ -267,17 +265,12 @@ func (r *Repository) Working(ctx context.Context) (Snapshot, []string, error) {
 		if fields[2] != "0" {
 			return s, nil, fmt.Errorf("unmerged index entry: %s", name)
 		}
+		names[name] = true
 		if fields[0] == "160000" {
 			modules[name] = fields[1]
 		}
 	}
-	names := map[string]bool{}
 	var added []string
-	for _, name := range strings.Split(string(tracked), "\x00") {
-		if name != "" {
-			names[name] = true
-		}
-	}
 	for _, name := range strings.Split(string(untracked), "\x00") {
 		// Without --directory, ls-files emits trailing slashes for untracked
 		// embedded repositories, including linked worktrees. They belong to
