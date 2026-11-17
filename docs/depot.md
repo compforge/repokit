@@ -16,7 +16,9 @@ Go、Python、TypeScript 使用同一组 conformance 用例，inspect、diff、v
 
 当前原生规则：
 
-- Node package.json 对应安装根下的 node_modules。
+- Node package.json 在安装根存在非空依赖声明、lockfile 或 workspace 成员模式时对应 node_modules。
+  独立的无依赖 package.json（例如仅用 Node 内置能力的 scripts）不声明 dependency Bin；
+  dependencies、devDependencies、optionalDependencies、peerDependencies 与 bundledDependencies / bundleDependencies 均属于依赖证据。
 - uv 项目的 pyproject.toml 与安装根 uv.lock 对应 .venv。普通 Python manifest 不猜测虚拟环境。
 - npm/Yarn package.json workspaces、pnpm-workspace.yaml packages、tool.uv.workspace members/exclude
   决定安装根。仅有父级 lockfile 不构成 workspace 成员关系。

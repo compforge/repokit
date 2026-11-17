@@ -63,14 +63,6 @@
           },
           "name": "server/nested",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "server/nested/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "server/nested/package.json"
           ],
@@ -307,14 +299,6 @@
           },
           "name": "sub",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "sub/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "sub/package.json"
           ],
@@ -931,14 +915,6 @@
           },
           "name": "web",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "web/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "web/package.json"
           ],
@@ -1160,14 +1136,6 @@
           },
           "name": "tools/api/embedded",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "tools/api/embedded/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "tools/api/embedded/package.json"
           ],
@@ -1396,14 +1364,6 @@
           },
           "name": "sdks/typescript/toolbox",
           "language": "typescript",
-          "depot": {
-            "bins": [
-              {
-                "path": "sdks/typescript/toolbox/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "sdks/typescript/toolbox/package.json"
           ],
@@ -1459,14 +1419,6 @@
           },
           "name": "other",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "other/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "other/package.json"
           ],
@@ -1482,14 +1434,6 @@
           },
           "name": "packages/separate",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "packages/separate/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "packages/separate/package.json"
           ],
@@ -1675,14 +1619,6 @@
           },
           "name": "packages/separate",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "packages/separate/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "packages/separate/package.json"
           ],
@@ -1746,10 +1682,6 @@
             "bins": [
               {
                 "path": ".venv",
-                "kind": "dependencies"
-              },
-              {
-                "path": "node_modules",
                 "kind": "dependencies"
               }
             ]
@@ -1878,14 +1810,6 @@
           },
           "name": "packages/web",
           "language": "javascript",
-          "depot": {
-            "bins": [
-              {
-                "path": "packages/web/node_modules",
-                "kind": "dependencies"
-              }
-            ]
-          },
           "manifests": [
             "packages/web/package.json"
           ],
@@ -1936,6 +1860,445 @@
             "a/package.json"
           ],
           "root": "a",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-script-only-no-depot",
+    "files": {
+      "package.json": "{\"name\": \"builtin-tests\", \"scripts\": {\"test\": \"node --test\"}}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-empty-dependencies-no-depot",
+    "files": {
+      "package.json": "{\"dependencies\": {}, \"devDependencies\": {}, \"optionalDependencies\": {}, \"peerDependencies\": {}, \"bundledDependencies\": []}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-dependency-without-lock",
+    "files": {
+      "package.json": "{\"dependencies\": {\"fixture\": \"1\"}}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-dev-dependency-without-lock",
+    "files": {
+      "package.json": "{\"devDependencies\": {\"fixture\": \"1\"}}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-optional-dependency-without-lock",
+    "files": {
+      "package.json": "{\"optionalDependencies\": {\"fixture\": \"1\"}}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-peer-dependency-without-lock",
+    "files": {
+      "package.json": "{\"peerDependencies\": {\"fixture\": \"1\"}}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-bundled-dependency-without-lock",
+    "files": {
+      "package.json": "{\"bundledDependencies\": [\"fixture\"]}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-bundle-alias-without-lock",
+    "files": {
+      "package.json": "{\"bundleDependencies\": [\"fixture\"]}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-lock-without-dependency-declaration",
+    "files": {
+      "package-lock.json": "{}",
+      "package.json": "{}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "tools": [
+            {
+              "name": "npm"
+            }
+          ],
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": [],
+          "toolEvidence": {
+            "npm": [
+              "package-lock.json"
+            ]
+          }
+        }
+      ]
+    }
+  },
+  {
+    "name": "node-workspace-without-external-dependencies",
+    "files": {
+      "package.json": "{\"workspaces\": [\"packages/*\"]}",
+      "packages/member/package.json": "{}"
+    },
+    "origin": "https://github.com/example/no-deps.git",
+    "owners": {},
+    "error": false,
+    "expected": {
+      "repository": {
+        "forge": {
+          "name": "github"
+        },
+        "path": "example/no-deps"
+      },
+      "components": [
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": ".",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "package.json"
+          ],
+          "root": ".",
+          "products": []
+        },
+        {
+          "repository": {
+            "forge": {
+              "name": "github"
+            },
+            "path": "example/no-deps"
+          },
+          "name": "packages/member",
+          "language": "javascript",
+          "depot": {
+            "bins": [
+              {
+                "path": "node_modules",
+                "kind": "dependencies"
+              }
+            ]
+          },
+          "manifests": [
+            "packages/member/package.json"
+          ],
+          "root": "packages/member",
           "products": []
         }
       ]

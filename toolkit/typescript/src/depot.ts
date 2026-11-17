@@ -61,6 +61,17 @@ function installationRoot(files: Catalog, component: string, python: boolean): s
     if (ancestor === ".") return selected;
   }
 }
+/** @spec Standalone Node packages without dependency, lockfile or workspace evidence need no Bin. */
+function nodeInstallationRequired(files: Catalog, root: string): boolean {
+  if (["npm-shrinkwrap.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "bun.lock", "bun.lockb"].some(name => files.has(posix.join(root, name)))) return true;
+  if (patterns(files, root, false).length) return true;
+  const metadata = object(JSON.parse(files.get(posix.join(root, "package.json"))!.toString()) ?? {});
+  return ["dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "bundledDependencies", "bundleDependencies"].some(name => {
+    const value: unknown = metadata[name];
+    return value != null && (typeof value !== "object" || Object.keys(value).length > 0);
+  });
+}
+
 /**
  * @spec Each Component has at most one logical Depot; workspace members may share Bin paths.
  * @rule Discovery never inspects generated directories or authorizes their deletion.
@@ -75,6 +86,7 @@ export function discoverDepot(files: Catalog, component: string): Depot | undefi
       if (python) {
         if (!files.has(posix.join(root, "uv.lock"))) continue;
       } else {
+        if (!nodeInstallationRequired(files, root)) continue;
         if (files.has(posix.join(root, ".pnp.cjs"))) continue;
         if (files.has(posix.join(root, ".yarnrc.yml"))) {
           const config = object(yaml(files.get(posix.join(root, ".yarnrc.yml"))?.toString() ?? "") ?? {});

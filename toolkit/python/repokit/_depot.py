@@ -93,6 +93,37 @@ def _root(files: Mapping[str, bytes | None], component: str, python: bool) -> st
         ancestor = posixpath.dirname(ancestor) or "."
 
 
+def _node_installation_required(files: Mapping[str, bytes | None], root: str) -> bool:
+    """@spec Node packages need a Bin only with dependency, lockfile or workspace evidence."""
+    if any(
+        posixpath.normpath(posixpath.join(root, name)) in files
+        for name in (
+            "npm-shrinkwrap.json",
+            "package-lock.json",
+            "pnpm-lock.yaml",
+            "yarn.lock",
+            "bun.lock",
+            "bun.lockb",
+        )
+    ) or _patterns(files, root, False):
+        return True
+    metadata = _object(
+        json.loads(files[posixpath.normpath(posixpath.join(root, "package.json"))] or b"null") or {}
+    )
+    for name in (
+        "dependencies",
+        "devDependencies",
+        "optionalDependencies",
+        "peerDependencies",
+        "bundledDependencies",
+        "bundleDependencies",
+    ):
+        value = metadata.get(name)
+        if value is not None and (not isinstance(value, (dict, list)) or len(value) > 0):
+            return True
+    return False
+
+
 def discover_depot(files: Mapping[str, bytes | None], component: str) -> Depot | None:
     """One logical Depot per Component; shared workspace bins retain the same path.
 
@@ -116,6 +147,8 @@ def discover_depot(files: Mapping[str, bytes | None], component: str) -> Depot |
                 if name("uv.lock") not in files:
                     continue
             else:
+                if not _node_installation_required(files, root):
+                    continue
                 if name(".pnp.cjs") in files:
                     continue
                 if name(".yarnrc.yml") in files:
