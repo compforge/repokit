@@ -25,7 +25,6 @@ func NewCommand(opts *cmdutil.Options) *cobra.Command {
 	root.AddCommand(newCommentCommand(opts, &connection))
 	for _, operation := range []string{"create", "show", "list", "update", "close", "merge"} {
 		var title, bodyFile, sourceBranch, targetBranch, state, expectedSHA, method string
-		var draft bool
 		var maxAge time.Duration
 		command := &cobra.Command{Use: operation, Args: cobra.NoArgs}
 		if operation == "show" || operation == "update" || operation == "close" || operation == "merge" {
@@ -111,7 +110,7 @@ func NewCommand(opts *cmdutil.Options) *cobra.Command {
 				if body != nil {
 					description = *body
 				}
-				result, err = prContext.Ensure(ctx, forge.CreateRequest{SourceBranch: sourceBranch, TargetRepository: target, TargetBranch: targetBranch, Title: title, Body: description, Draft: draft})
+				result, err = prContext.Ensure(ctx, forge.CreateRequest{SourceBranch: sourceBranch, TargetRepository: target, TargetBranch: targetBranch, Title: title, Body: description})
 			case "update":
 				request := forge.UpdateRequest{Body: body}
 				if cmd.Flags().Changed("title") {
@@ -161,9 +160,6 @@ func NewCommand(opts *cmdutil.Options) *cobra.Command {
 			flags.StringVar(&title, "title", "", "PR title")
 			flags.StringVar(&bodyFile, "body-file", "", "file containing the PR description")
 			flags.StringVar(&targetBranch, "base", "", "target branch")
-		}
-		if operation == "create" {
-			flags.BoolVar(&draft, "draft", false, "create a draft PR")
 		}
 		if operation == "create" || operation == "list" {
 			flags.StringVar(&sourceBranch, "head", "", "source branch (current branch for create)")
