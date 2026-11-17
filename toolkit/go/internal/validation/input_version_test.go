@@ -9,14 +9,14 @@ import (
 
 // +case=Evidence from an earlier input contract cannot authorize Component-scoped reuse.
 func TestReuseRequiresMatchingInputContract(t *testing.T) {
-	spec := CheckSpec{InputVersion: 2, Check: "test", Scope: "full"}
+	spec := CheckSpec{InputVersion: 3, Check: "test", Scope: "full"}
 	manifest := inputManifest{Checkout: "repo", Files: map[string]inputEntry{}}
 	s := historySession{
 		manifest:  manifest,
 		manifests: map[string]inputManifest{"inputs": manifest},
 		state:     &history.State{Runs: map[string]*history.Run{}, Order: []string{"current", "old"}},
 	}
-	for id, version := range map[string]int{"old": 0, "current": 2} {
+	for id, version := range map[string]int{"old": 2, "current": 3} {
 		check := CheckResult{CheckSpec: spec, Status: "passed"}
 		check.InputVersion = version
 		data, err := json.Marshal(check)

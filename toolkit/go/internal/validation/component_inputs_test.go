@@ -78,22 +78,36 @@ func TestValidationDefaultComponentInputs(t *testing.T) {
 	run(false)
 }
 
-func TestValidationSymlinkDoesNotWidenComponentInputs(t *testing.T) {
+// +case=A cross-Component file alias imports only the linked content, reuses unchanged checks, and invalidates when that content changes.
+func TestValidationSymlinkFileInputs(t *testing.T) {
 	root := validationRepo(t, "test:\n\t@true\n")
-	validationChild(t, root, "child", "test:\n\t@true\n")
-	writeValidationFile(t, root, "shared.py", "pass\n")
+	validationChild(t, root, "child", "test:\n\t@cat linked.py > result.out\n")
+	writeValidationFile(t, root, "shared.py", "one\n")
+	writeValidationFile(t, root, "unrelated.py", "unrelated\n")
 	if err := os.Symlink("../shared.py", filepath.Join(root, "child/linked.py")); err != nil {
 		t.Fatal(err)
 	}
 	req := repokit.ValidationRequest{Repository: root, Components: []string{"child"}, Checks: []string{"test"}, HistoryDir: t.TempDir()}
-	for range 2 {
+	run := func(wantReuse bool, want string) {
+		t.Helper()
 		report, err := repokit.Validate(context.Background(), req)
-		if err != nil || !report.Passed {
+		if err != nil || !report.Passed || !report.InputsConsistent {
 			t.Fatalf("%+v %v", report, err)
 		}
 		check := report.Components[0].Checks[0]
-		if check.Reused || check.ReuseReason != "symlink input content is not captured" || slices.Contains(check.InputFiles, "shared.py") {
+		if check.Reused != wantReuse || !slices.Contains(check.InputFiles, "shared.py") || slices.Contains(check.InputFiles, "unrelated.py") || len(check.DepotWitnesses) != 0 {
 			t.Fatal(check)
 		}
+		got, err := os.ReadFile(filepath.Join(root, "child/result.out"))
+		if err != nil || string(got) != want {
+			t.Fatalf("%q %v", got, err)
+		}
 	}
+	run(false, "one\n")
+	run(true, "one\n")
+	writeValidationFile(t, root, "unrelated.py", "unrelated edit\n")
+	run(true, "one\n")
+	writeValidationFile(t, root, "shared.py", "two\n")
+	run(false, "two\n")
+	run(true, "two\n")
 }

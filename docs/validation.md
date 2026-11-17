@@ -239,7 +239,8 @@ Check 表达本次任务；Run 表达真实执行；Reuse 表达本次请求采�
 不再生成每个 Check 的总 fingerprint；原 Previous API、fingerprint 字段和 `--reuse` 参数移除，旧报告不能
 提供复用证据。完整 snapshot 仍用于规划和执行前后的一致性核对。
 
-复用只忽略 CodeGraph 分类为 VersionTag 的 Document，包括显式声明的输入，不提供例外配置。
+复用忽略 CodeGraph 分类为 VersionTag、且未被文件软链接引用的普通文件，包括显式声明的输入。
+链接 payload 与被链接内容始终参与比较，不受路径上的 version 标签影响。
 新增、删除和内容变化均按两轮路径集合比较；执行范围仍由 affected 规则决定，未命中历史不会扩大 scope。
 版本文件在规划后或执行期间变化仍使本轮输入一致性失效。
 
@@ -259,10 +260,17 @@ components 同时纳入该组件源码及其依赖 Bin；paths 仅添加仓库�
 输出和缓存不参与输入，缺失或无回执的相关依赖 Bin 仍阻止历史复用。inputReason 解释输入来源。
 
 witnesses 是显式给出的依赖回执文件，报告只保存路径和摘要；规划和执行边界均核对。
-没有可信依赖凭据的调用方可设置 disableReuse，真实检查仍执行。选中符号链接不会扩大到全仓输入；
-因目标内容未捕获而不复用历史，并在 reuseReason 中说明。声明不自动证明依赖闭包，外部服务结果不在摘要中。
+没有可信依赖凭据的调用方可设置 disableReuse，真实检查仍执行。
 
-CheckSpec 的 inputVersion 标识输入契约，当前为 2；不同契约的历史检查不参与复用。
+文件 symlink 是正常的输入依赖：`filea → file2` 将捕获到的链接链和最终文件加入该检查的 inputFiles，
+分别比较链接文本与目标内容摘要。链接本身及被链接内容（包括 VERSION）不享受版本文件的复用豁免。目标可位于另一个 Component，但不会因此纳入整个组件或其 Bin。
+链接、目标与其余输入满足相同匹配规则时可复用；目标修改、链接改向或链路变化使对应输入失效。
+解析只使用本轮捕获，不读取外部目标；外部、循环、缺失或忽略目标仍由快照报告不完整。
+目录别名、穿过目录别名的路径，或不能解析为捕获文件的 symlink 不授予复用，reuseReason 标明具体链接路径。
+gitlink 继续仅以子仓库 OID 表达身份，不展开子仓库文件，也不把 symlink 目标当作 gitlink。
+声明不自动证明依赖闭包，外部服务结果不在摘要中。
+
+CheckSpec 的 inputVersion 标识输入契约，当前为 3；不同契约的历史检查不参与复用。
 完整 snapshot 继续用于整轮执行前后的一致性核对，Component 复用范围不改变这项约束。
 
 验证器先匹配同一输入契约版本、checkout、Component/check、命令、scope、文件集合、输入声明、逐文件内容、

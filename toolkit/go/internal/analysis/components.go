@@ -37,7 +37,7 @@ func (b *impactBucket) count(name string, snapshot git.Snapshot) {
 	if b.tags[name] == nil {
 		b.tags[name] = map[cg.Tag]bool{}
 	}
-	for _, tag := range project.FileTags(name, snapshot.Modules[name]) {
+	for _, tag := range project.FileTags(cg.Document{Path: name, Gitlink: snapshot.Modules[name], Symlink: snapshot.Links[name]}) {
 		if !b.tags[name][tag] {
 			b.tags[name][tag] = true
 			b.summary.AffectedFileCounts[tag]++

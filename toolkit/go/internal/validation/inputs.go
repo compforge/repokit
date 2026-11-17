@@ -34,6 +34,7 @@ type inputEntry struct {
 	Version bool   `json:"version,omitempty"`
 }
 type inputManifest struct {
+	linkInputs    map[string][]string   // Derived from the live capture; history stores the selected paths and their digests.
 	SchemaVersion int                   `json:"schemaVersion"`
 	Checkout      string                `json:"checkout"`
 	Snapshot      string                `json:"snapshot"`
@@ -45,7 +46,9 @@ type inputManifest struct {
 func captureInputs(captured *analysis.CapturedSnapshot) inputManifest {
 	m := inputManifest{SchemaVersion: 1, Checkout: captured.Report.Checkout, Snapshot: captured.Report.Snapshot, Files: map[string]inputEntry{}}
 	put := func(path, kind string, data []byte) {
-		m.Files[path] = inputEntry{Kind: kind, Digest: fmt.Sprintf("%x", sha256.Sum256(data)), Version: slices.Contains(project.FileTags(path, captured.Contents.Modules[path]), cg.VersionTag)}
+		document := cg.Document{Path: path, Gitlink: captured.Contents.Modules[path], Symlink: captured.Contents.Links[path]}
+		version := (kind == "file" || kind == "opaque") && slices.Contains(project.FileTags(document), cg.VersionTag)
+		m.Files[path] = inputEntry{Kind: kind, Digest: fmt.Sprintf("%x", sha256.Sum256(data)), Version: version}
 	}
 	for path, data := range captured.Contents.Files {
 		put(path, "file", data)
@@ -53,6 +56,16 @@ func captureInputs(captured *analysis.CapturedSnapshot) inputManifest {
 	for kind, entries := range map[string]map[string]string{"symlink": captured.Contents.Links, "gitlink": captured.Contents.Modules, "opaque": captured.Contents.Opaque} {
 		for path, value := range entries {
 			put(path, kind, []byte(value))
+		}
+	}
+	m.linkInputs = capturedLinkInputs(m.Files, captured.Contents.Links)
+	// A link makes its target a content dependency, including VERSION files.
+	// Persist that distinction with the digest so history applies the same rule.
+	for _, names := range m.linkInputs {
+		for _, name := range names {
+			entry := m.Files[name]
+			entry.Version = false
+			m.Files[name] = entry
 		}
 	}
 	return m
@@ -103,12 +116,23 @@ func selectInputs(m inputManifest, layout project.Layout, component string, d Ch
 		reason += "; explicit Component and shared-path inputs"
 	}
 
+	// A file link declares a content dependency, not an entire Component or Bin.
+	linked := false
+	for _, name := range slices.Clone(selected) {
+		if inputs := m.linkInputs[name]; len(inputs) > 0 {
+			linked = true
+			selected = append(selected, inputs...)
+		}
+	}
+	if linked {
+		reason += "; captured file symlink targets"
+	}
 	slices.Sort(selected)
-	return selected, reason
+	return slices.Compact(selected), reason
 }
 
 // Compare both path sets so additions, removals and scope changes invalidate runs.
-// +spec=VersionTag changes between rounds do not invalidate check history
+// +spec=Unreferenced VersionTag files may change between rounds; link payloads and linked content always participate in reuse identity.
 func sameInputs(before inputManifest, previous []string, after inputManifest, current []string) bool {
 	entries := func(m inputManifest, paths []string) (map[string]inputEntry, bool) {
 		result := map[string]inputEntry{}

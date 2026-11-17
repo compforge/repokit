@@ -285,7 +285,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 			return ValidationPlan{}, err
 		}
 		for _, check := range checks {
-			spec := CheckSpec{InputVersion: 2, Check: check, RequestedComponents: []string{component.Root}, Scope: "full", Command: []string{}, Files: []string{}, Reason: "full Component check", Environment: hex.EncodeToString(digest[:])}
+			spec := CheckSpec{InputVersion: 3, Check: check, RequestedComponents: []string{component.Root}, Scope: "full", Command: []string{}, Files: []string{}, Reason: "full Component check", Environment: hex.EncodeToString(digest[:])}
 			candidates := slices.Clone(filesByComponent[component.Root])
 			if req.Impact != nil {
 				var impact *project.ComponentImpact
