@@ -145,7 +145,7 @@ func CaptureDiff(ctx context.Context, req Request) (report DiffReport, err error
 		if ch.IsDeleted {
 			snapshot = c.before
 		}
-		ch.Tags = tags.DocumentTags(cg.Document{Path: ch.Path(), Gitlink: snapshot.Modules[ch.Path()]})
+		ch.Tags = tags.DocumentTags(cg.Document{Path: ch.Path(), Gitlink: snapshot.Modules[ch.Path()], Symlink: snapshot.Links[ch.Path()]})
 		for _, h := range d.Hunks {
 			ch.Insertions += int64(h.New.Count)
 			ch.Deletions += int64(h.Old.Count)

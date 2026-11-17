@@ -9,9 +9,9 @@ import (
 
 var materialTags, _ = cg.NewTagMatcher(nil)
 
-// FileTags classifies a snapshot entry without parsing content. Gitlinks skip format tags.
-func FileTags(name, gitlink string) []cg.Tag {
-	return materialTags.DocumentTags(cg.Document{Path: name, Gitlink: gitlink})
+// FileTags classifies a snapshot entry without parsing content. Links skip format tags.
+func FileTags(document cg.Document) []cg.Tag {
+	return materialTags.DocumentTags(document)
 }
 
 // ManifestEcosystem classifies a regular file, not whether discovery selects its directory.

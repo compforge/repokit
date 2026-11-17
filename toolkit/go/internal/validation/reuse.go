@@ -143,8 +143,8 @@ func (s *historySession) reuse(ctx context.Context, root string, spec CheckSpec)
 		return nil, "dependency Bin evidence unavailable"
 	}
 	for _, name := range spec.InputFiles {
-		if entry := s.manifest.Files[name]; entry.Kind == "symlink" {
-			return nil, "symlink input content is not captured"
+		if entry := s.manifest.Files[name]; entry.Kind == "symlink" && len(s.manifest.linkInputs[name]) == 0 {
+			return nil, "symlink target is not a captured file: " + name
 		}
 	}
 	if spec.Inputs.DisableReuse {

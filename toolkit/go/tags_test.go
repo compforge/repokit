@@ -210,3 +210,33 @@ func TestDiffUsesCompleteDocumentTags(t *testing.T) {
 		}
 	}
 }
+
+// +case=Diff classifies symlink material from its own snapshot while retaining link text as content.
+func TestDiffSymlinkTags(t *testing.T) {
+	root := fixture(t)
+	put(t, root, "target.py", "pass\n")
+	if err := os.Symlink("target.py", filepath.Join(root, "alias.go")); err != nil {
+		t.Fatal(err)
+	}
+	for _, deleted := range []bool{false, true} {
+		if deleted {
+			git(t, root, "add", ".")
+			git(t, root, "commit", "-qm", "link fixture")
+			if err := os.Remove(filepath.Join(root, "alias.go")); err != nil {
+				t.Fatal(err)
+			}
+		}
+		report, err := repokit.Diff(context.Background(), repokit.DiffRequest{Repository: root})
+		if err != nil {
+			t.Fatal(err)
+		}
+		selected := report.Select("alias.go")
+		if len(selected.Changes) != 1 {
+			t.Fatal(selected.Changes)
+		}
+		change := selected.Changes[0]
+		if !slices.Equal(change.Tags, []cg.Tag{cg.SymlinkTag}) || change.IsDeleted != deleted {
+			t.Fatal(change)
+		}
+	}
+}

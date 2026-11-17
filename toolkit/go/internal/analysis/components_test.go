@@ -81,8 +81,11 @@ func TestComponentAffectedFileCountsDeduplicatePathsAndPreserveVersionOwnership(
 		{Path: "same/work_test.go", Status: "modified"},
 		{Path: "same/guide.md", OldPath: "same/original.go", Status: "renamed"},
 		{Path: "same/link.go", Status: "modified"},
+		{Path: "same/alias.go", Status: "modified"},
 	}}
 	// A gitlink becoming a regular source retains both classifications, once each.
+	c.before.Links = map[string]string{"same/alias.go": "original.go"}
+	c.after.Links = map[string]string{"same/alias.go": "work_test.go"}
 	c.before.Modules = map[string]string{"same/link.go": "revision"}
 	result := impact.Result{AffectedFiles: []impact.FileImpact{
 		{Path: "same/work_test.go", Version: "before"},
@@ -94,7 +97,7 @@ func TestComponentAffectedFileCountsDeduplicatePathsAndPreserveVersionOwnership(
 	want := map[string]map[cg.Tag]int{
 		"old":  {cg.SourceTag: 1},
 		"new":  {cg.DocumentationTag: 1, cg.SourceTag: 1, cg.UnknownTag: 1},
-		"same": {cg.SourceTag: 4, cg.TestTag: 1, cg.DocumentationTag: 1, cg.GitlinkTag: 1, cg.UnknownTag: 1},
+		"same": {cg.SourceTag: 4, cg.TestTag: 1, cg.DocumentationTag: 1, cg.GitlinkTag: 1, cg.SymlinkTag: 1, cg.UnknownTag: 1},
 	}
 	groups, _ := componentResults(before, after, c, result, nil)
 	if len(groups) != len(want) {
