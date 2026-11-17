@@ -14,6 +14,8 @@ TypeScript `PullRequestObserver.getPullRequest(key)` 提供生命周期状态查
 `ForgeReader` 提供基本事实、评论、评审与扫描的直接读取；Python `repokit.forge` 提供 GitHub/GitLab 读写。
 原始平台读取、持续观察及业务消费分别拥有自己的完成边界，保存观察不代表调用方已消费它。
 
+CLI `pr create` 不提供 `--draft`，创建请求使用默认的非 draft 模式；Go 工具包仍保留显式创建 draft 的能力。
+
 ## Python Forge 读写与请求协调
 
 Forge 的合并状态表示平台观察；哪些状态需要提醒、等待或阻断开发流程，由消费方决定。

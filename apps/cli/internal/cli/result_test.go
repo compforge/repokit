@@ -45,7 +45,7 @@ func resultData(t *testing.T, b []byte) json.RawMessage {
 
 // +case=Malformed arguments still produce one structured failure even when --json follows the offending argument
 func TestJSONUsageFailures(t *testing.T) {
-	for _, args := range [][]string{{"unknown", "--json"}, {"impact", "--unknown", "--json"}, {"impact", "--timeout", "bad", "--json"}, {"impact", "--timeout", "0s", "--json"}, {"view", "--json"}, {"validate", "--plan", "--unknown"}, {"validate", "--history", "--timeout", "0s"}, {"validate", "--unknown", "--plan"}} {
+	for _, args := range [][]string{{"unknown", "--json"}, {"pr", "create", "--draft", "--json"}, {"impact", "--unknown", "--json"}, {"impact", "--timeout", "bad", "--json"}, {"impact", "--timeout", "0s", "--json"}, {"view", "--json"}, {"validate", "--plan", "--unknown"}, {"validate", "--history", "--timeout", "0s"}, {"validate", "--unknown", "--plan"}} {
 		var out, stderr bytes.Buffer
 		if code := Execute(context.Background(), args, nil, &out, &stderr); code != 2 || stderr.Len() != 0 {
 			t.Fatalf("%v: code=%d stdout=%s stderr=%s", args, code, &out, &stderr)
