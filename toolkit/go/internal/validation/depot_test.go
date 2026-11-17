@@ -12,7 +12,7 @@ import (
 // +case:id=reclaimed_dependency_reuse,desc=`A successful check loses its ignored dependency Bin`,expect=`Real execution fails instead of reusing the prior pass`
 func TestValidationDepotReclamation(t *testing.T) {
 	for _, fixture := range []struct{ name, directory, manifest, content, manager string }{
-		{"node", "node_modules", "package.json", "{}", "npm"},
+		{"node", "node_modules", "package.json", `{"devDependencies":{"fixture":"1.0.0"}}`, "npm"},
 		{"uv", ".venv", "pyproject.toml", "[project]", "uv"},
 	} {
 		t.Run(fixture.name, func(t *testing.T) {
@@ -107,5 +107,27 @@ func TestValidationSharedDepotAndFrozenPlan(t *testing.T) {
 	report, err = repokit.ExecuteValidation(context.Background(), plan)
 	if err != nil || report.Passed || report.InputsConsistent || len(report.Components) > 0 {
 		t.Fatalf("stale plan ran: %+v %v", report, err)
+	}
+}
+
+// +case:id=dependency_free_node_reuse,desc=`A script-only Node package has no node_modules`,expect=`A matching pass is reusable, but declaring a dependency blocks reuse until its Bin has evidence`
+func TestValidationDependencyFreeNodeReuse(t *testing.T) {
+	root := validationRepo(t, "test:\n\t@echo run >> runs.out\n")
+	writeValidationFile(t, root, "package.json", `{"scripts":{"test":"node --test"}}`)
+	request := repokit.ValidationRequest{Repository: root, Checks: []string{"test"}, HistoryDir: t.TempDir()}
+	for i := 0; i < 2; i++ {
+		report, err := repokit.Validate(context.Background(), request)
+		if err != nil || !report.Passed || !report.InputsConsistent {
+			t.Fatalf("%+v %v", report, err)
+		}
+		check := report.Components[0].Checks[0]
+		if check.Reused != (i == 1) || len(check.DepotWitnesses) != 0 {
+			t.Fatalf("unexpected dependency-free check: %+v", check)
+		}
+	}
+	writeValidationFile(t, root, "package.json", `{"devDependencies":{"fixture":"1.0.0"}}`)
+	report, err := repokit.Validate(context.Background(), request)
+	if err != nil || !report.Passed || report.Components[0].Checks[0].Reused || report.Components[0].Checks[0].DepotWitnesses["node_modules"] != "missing" {
+		t.Fatalf("declared dependency bypassed evidence: %+v %v", report, err)
 	}
 }

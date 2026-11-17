@@ -35,6 +35,9 @@ func discoverDepot(files map[string][]byte, component string) *common.Depot {
 				continue
 			}
 		} else {
+			if !nodeInstallationRequired(files, root) {
+				continue
+			}
 			if _, ok := files[path.Join(root, ".pnp.cjs")]; ok {
 				continue
 			}
@@ -54,6 +57,42 @@ func discoverDepot(files map[string][]byte, component string) *common.Depot {
 	}
 	slices.SortFunc(bins, func(a, b common.Bin) int { return strings.Compare(a.Path, b.Path) })
 	return &common.Depot{Bins: bins}
+}
+
+// +spec=Standalone Node packages without dependencies, lockfiles or workspace members need no dependency Bin.
+// +why=A package.json containing only scripts can run on Node itself; a nonexistent node_modules must not block validation reuse.
+func nodeInstallationRequired(files map[string][]byte, root string) bool {
+	for _, locks := range NodeLockfiles() {
+		for _, name := range locks {
+			if _, exists := files[path.Join(root, name)]; exists {
+				return true
+			}
+		}
+	}
+	patterns, ok := workspacePatterns(files, root, false)
+	if !ok || len(patterns) > 0 {
+		return true
+	}
+	var metadata map[string]json.RawMessage
+	if json.Unmarshal(files[path.Join(root, "package.json")], &metadata) != nil {
+		return true
+	}
+	for _, name := range []string{"dependencies", "devDependencies", "optionalDependencies", "peerDependencies", "bundledDependencies", "bundleDependencies"} {
+		value, exists := metadata[name]
+		if !exists || string(value) == "null" {
+			continue
+		}
+		var object map[string]json.RawMessage
+		if json.Unmarshal(value, &object) == nil && len(object) == 0 {
+			continue
+		}
+		var list []json.RawMessage
+		if json.Unmarshal(value, &list) == nil && len(list) == 0 {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 func installationRoot(files map[string][]byte, component string, python bool) (string, bool) {
