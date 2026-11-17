@@ -10,7 +10,7 @@ require (
 
 require (
 	github.com/alitto/pond/v2 v2.7.1
-	github.com/compforge/codegraph v0.15.4-0.20261111031621-4601507fd431
+	github.com/compforge/codegraph v0.15.4-0.20261117121741-342505748967
 	github.com/compforge/go-stdx v0.1.1-0.20261010101953-ebb567922ec3
 	github.com/compforge/quality-harness/sdks/go v0.0.0-20261105122955-dd898d2b95fc
 	github.com/pelletier/go-toml/v2 v2.4.3

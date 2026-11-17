@@ -182,7 +182,8 @@ source files as well as tests. Ownership follows the version that supplied the e
 
 `affectedFileCounts` counts distinct affected repository-relative paths per CodeGraph document tag:
 owned direct changes plus dependency-reachable files. It combines format classification and
-builtin path rules, including `unknown` when neither classifies a document. Counts deduplicate
+builtin path rules, including `gitlink` for submodule entries and `unknown` when no material,
+format, or path rule classifies a document. Counts deduplicate
 paths per tag across both snapshots and all dependency routes. Multiple tags overlap, so their
 sum is not a total file count. Renames count both old and new paths in their respective owners;
 deletions retain before-side tags. A path changing from a gitlink to a regular file can contribute

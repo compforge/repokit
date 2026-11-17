@@ -94,7 +94,7 @@ func TestComponentAffectedFileCountsDeduplicatePathsAndPreserveVersionOwnership(
 	want := map[string]map[cg.Tag]int{
 		"old":  {cg.SourceTag: 1},
 		"new":  {cg.DocumentationTag: 1, cg.SourceTag: 1, cg.UnknownTag: 1},
-		"same": {cg.SourceTag: 4, cg.TestTag: 1, cg.DocumentationTag: 1, cg.UnknownTag: 2},
+		"same": {cg.SourceTag: 4, cg.TestTag: 1, cg.DocumentationTag: 1, cg.GitlinkTag: 1, cg.UnknownTag: 1},
 	}
 	groups, _ := componentResults(before, after, c, result, nil)
 	if len(groups) != len(want) {
