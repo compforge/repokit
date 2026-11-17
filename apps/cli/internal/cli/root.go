@@ -109,14 +109,18 @@ with local clones, branches and worktrees. It stores configuration,
 registrations, cached observations and execution history.
 
 Git and the forge remain authoritative for their respective state;
-callers own workflow decisions.`,
+callers own workflow decisions.
+
+Output defaults to readable text, including when piped or used by an agent.
+Use --json when a program needs to parse result fields. Validation --output
+saves the complete JSON result without changing the stdout format.`,
 		SilenceErrors: true,
 		SilenceUsage:  true,
 	}
 	flags := root.PersistentFlags()
 	flags.StringVar(&opts.Home, "home", "", "RepoKit user home (REPOKIT_HOME or ~/.repokit)")
 	flags.StringVar(&opts.Repository, "repo", ".", "repository directory")
-	flags.BoolVar(&opts.JSON, "json", false, "write structured JSON to stdout")
+	flags.BoolVar(&opts.JSON, "json", false, "write one final JSON result for field parsing (default: readable text)")
 	flags.DurationVar(&opts.Timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
 	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))

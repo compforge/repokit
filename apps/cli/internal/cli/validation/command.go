@@ -26,11 +26,10 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var inputsFile, historyDir string
 	var changed, checks []string
 	command := &cobra.Command{
-		Use:         name,
-		Annotations: map[string]string{"result-json-flags": "plan,history"},
-		Short:       "Run Makefile-defined Component " + name + " checks",
-		Long:        "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.",
-		Args:        cobra.NoArgs,
+		Use:   name,
+		Short: "Run Makefile-defined Component " + name + " checks",
+		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
+		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0 || cmd.Flags().Changed("lint-workers") || cmd.Flags().Changed("test-workers")) {
 				return errors.New("--history cannot be combined with check execution options")
@@ -82,7 +81,11 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				if err != nil {
 					return cmdutil.ExecutionFailure(err)
 				}
-				return cmdutil.JSON(cmd.OutOrStdout(), history)
+				if opts.JSON {
+					return cmdutil.JSON(cmd.OutOrStdout(), history)
+				}
+				cmdutil.Record(cmd.OutOrStdout(), history)
+				return writeHistorySummaryText(cmd.OutOrStdout(), history)
 			}
 			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, LintWorkers: lintWorkers, TestWorkers: testWorkers, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
@@ -107,7 +110,11 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				if err != nil {
 					return cmdutil.ExecutionFailure(err)
 				}
-				return cmdutil.JSON(cmd.OutOrStdout(), plan)
+				if opts.JSON {
+					return cmdutil.JSON(cmd.OutOrStdout(), plan)
+				}
+				cmdutil.Record(cmd.OutOrStdout(), plan)
+				return writePlanText(cmd.OutOrStdout(), plan)
 			}
 			finishPhase := cmdutil.MeasurePhase(cmd.OutOrStdout(), "validation")
 			report, err := repokit.Validate(ctx, request)
@@ -135,7 +142,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringSliceVar(&components, "component", nil, "Component boundary; default: file owners with --file, otherwise all Components")
 	command.Flags().StringArrayVar(&files, "file", nil, "repository-relative file selecting its owning Component (repeatable)")
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
-	command.Flags().BoolVar(&planOnly, "plan", false, "print the plan as JSON without running checks")
+	command.Flags().BoolVar(&planOnly, "plan", false, "preview the plan without running checks (text by default; --json for parsing)")
 	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")
 	if name == "validate" || name == "lint" {
 		command.Flags().IntVar(&lintWorkers, "lint-workers", 0, "positive LINT_WORKERS override for lint targets; omitted uses project default")
@@ -148,7 +155,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().BoolVar(&force, "force", false, "execute checks even when successful history matches")
 	command.Flags().BoolVar(&showHistory, "history", false, "show retained execution and reuse statistics without running checks")
 	command.Flags().StringArrayVar(&changed, "changed-file", nil, "restrict impact seeds to a changed repository-relative path")
-	command.Flags().String("output", "", "atomically save the complete command result to this file")
+	command.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	if name == "validate" {
 		command.AddCommand(newValidationHistoryCommand(opts))
 		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test); format runs first, default lint,test")

@@ -7,6 +7,27 @@ RepoCLI 的 JSON 输出遵循本文的 `schemaVersion: "1.0"` 契约。
 领域组件拥有结果与诊断事实；CLI 拥有输出格式、呈现和退出码映射；调用方拥有门禁与恢复决策。
 执行日志的记录和保留见 [日志](logging.md)，不替代命令结果。
 
+## 格式选择与文件导出
+
+按消费方式选择格式。人或 AI 直接阅读时默认使用 text，结论、范围、缺口和下一步所需的证据应足以
+支持判断；程序需要解析字段、过滤或分支判断时显式使用 `--json`。不以 AI 身份或非 TTY 推断 JSON，
+管道和重定向也不改变默认格式。`--plan`、`--history` 选择查询内容，遵循相同的格式选择规则。
+
+文件导出与 stdout 格式独立。validation 的 `--output <file>` 原子保存完整 JSON 结果，包含失败、
+诊断、捕获输出和成本；不必再加 `--json`。text 模式保留摘要并在导出成功后显示文件绝对路径，
+JSON 模式通过 `artifacts` 提供位置。导出失败使用非零退出码，不宣称文件已保存。
+
+```bash
+repocli validate --component apps/cli                 # 直接阅读摘要
+repocli validate --component apps/cli --json          # 程序解析字段
+repocli validate --component apps/cli --output result.json  # 阅读摘要并留存完整证据
+repocli validate --component apps/cli --json > result.json  # 仅通过 shell 保存 JSON
+```
+
+为同一份完整结果选择一种保存方式：`--output` 或 shell 重定向。不要用 `--json --output result.json`
+再将 stdout 重定向到另一份同内容文件；更不能重定向到同一路径。只在确实有两个消费方时同时使用
+`--json --output`，例如 stdout 交给字段解析器，文件保留完整证据。
+
 ## 输出通道与格式
 
 - 普通命令的 JSON 模式向 stdout 输出一个最终结果对象，成功、失败和部分结果使用同一入口；
@@ -130,7 +151,7 @@ validation 要求整轮完整通过且输入一致；stats 要求统计完整；
 ## 稳定性与验收
 
 JSON 结果只有一种结构；`version --json` 的版本位于 `data.version`。
-validation 的 `--plan`、`--history` 默认使用 JSON，参数错误和前置执行错误也遵循同一结构。
+validation 的执行、`--plan` 和 `--history` 均默认使用 text；显式 `--json` 时，参数错误和前置执行错误也遵循同一 JSON 结构。
 `view` 不提供最终 JSON 模式，传入 `--json` 返回结构化参数错误。
 `--output` 保存最终结果，不提供另一套原生报告导出格式。SDK 返回领域对象，领域对象不依赖 CLI envelope。
 

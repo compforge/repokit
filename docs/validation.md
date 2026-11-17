@@ -489,7 +489,7 @@ repocli validate --base HEAD --plan
 repocli validate --base origin/main --json --timeout 10m
 ```
 
-`--plan` 输出 JSON envelope，计划位于 `data`，不执行 Makefile。`--base` 显式请求先分析 working-tree impact；
+`--plan` 默认展示 text 计划，不执行 Makefile；显式 `--json` 时计划位于 envelope 的 `data`。`--base` 显式请求先分析 working-tree impact；
 不传该参数时，不隐式分析 diff。`--file` 可重复，不能与 --base 混用。
 `--check` 只用于 validate；步骤顺序不影响 format 先完成这一约束。`--changed-file` 在 --base 下限定初始影响分析种子；format 实际改变的路径会加入后续分析，避免漏掉生成内容。
 `--output` 原子写入完整命令结果，与 JSON stdout 相同；目录必须存在且应处于 Git 忽略的本地状态中。`--history` 查询历史统计；`--force` 禁用本次复用。

@@ -25,7 +25,7 @@ func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 	for _, name := range []string{"lint", "test", "validate"} {
 		t.Run(name, func(t *testing.T) {
 			var out, stderr bytes.Buffer
-			if code := Execute(context.Background(), []string{name, "--repo", root, "--plan"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(context.Background(), []string{name, "--repo", root, "--plan", "--json"}, nil, &out, &stderr); code != 0 {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var plan repokit.ValidationPlan
@@ -263,7 +263,7 @@ func TestValidationCLIWithoutHome(t *testing.T) {
 		})
 	}
 	var out, stderr bytes.Buffer
-	if code := Execute(context.Background(), []string{"validate", "--repo", root, "--history"}, nil, &out, &stderr); code != 1 || !strings.Contains(out.String(), "--history-dir") || string(resultData(t, out.Bytes())) != "null" {
+	if code := Execute(context.Background(), []string{"validate", "--repo", root, "--history", "--json"}, nil, &out, &stderr); code != 1 || !strings.Contains(out.String(), "--history-dir") || string(resultData(t, out.Bytes())) != "null" {
 		t.Fatalf("query exit=%d: stdout=%s stderr=%s", code, &out, &stderr)
 	}
 	history := t.TempDir()
@@ -354,5 +354,80 @@ func TestValidationExportsFinalResult(t *testing.T) {
 				t.Fatalf("missing final metadata: %s", data)
 			}
 		})
+	}
+}
+
+// +case=Default text and explicit JSON use the same validation evidence; exporting does not select stdout encoding.
+func TestValidationTextWithJSONExport(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	for _, tc := range []struct {
+		name     string
+		flags    []string
+		code     int
+		outcome  string
+		readOnly bool
+	}{
+		{"plan", []string{"--plan"}, 0, "succeeded", true},
+		{"plan-explicit-text", []string{"--plan", "--json=false"}, 0, "succeeded", true},
+		{"history", []string{"--history"}, 0, "succeeded", true},
+		{"execution", nil, 0, "succeeded", false},
+		{"failed-check", nil, 1, "failed", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			if output, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+				t.Fatalf("%v: %s", err, output)
+			}
+			put(t, root, "pyproject.toml", "[project]\nname='fixture'\nversion='0.1.0'\n")
+			put(t, root, ".gitignore", "*.out\n")
+			recipe := "test:\n\t@echo ran >> runs.out\n\t@echo captured-check-output\n"
+			if tc.code != 0 {
+				recipe += "\t@false\n"
+			}
+			put(t, root, "Makefile", recipe)
+			path := filepath.Join(t.TempDir(), "result.json")
+			args := append([]string{"test", "--repo", root, "--history-dir", t.TempDir(), "--output", path}, tc.flags...)
+			var out, stderr bytes.Buffer
+			if code := Execute(context.Background(), args, nil, &out, &stderr); code != tc.code {
+				t.Fatalf("code=%d stdout=%s stderr=%s", code, &out, &stderr)
+			}
+			if json.Valid(out.Bytes()) || !strings.Contains(out.String(), "Result saved: "+path) {
+				t.Fatalf("missing text export receipt: %s", &out)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			resultData(t, data)
+			var result commandResult
+			if err := json.Unmarshal(data, &result); err != nil {
+				t.Fatal(err)
+			}
+			if result.Outcome != tc.outcome || len(result.Artifacts) != 1 || result.Artifacts[0].Path != path {
+				t.Fatalf("incorrect evidence: %s", data)
+			}
+			if tc.readOnly {
+				if _, err := os.Stat(filepath.Join(root, "runs.out")); !os.IsNotExist(err) || !strings.Contains(strings.ToLower(out.String()), "no checks executed") {
+					t.Fatalf("query executed checks or omitted its scope: %v %s", err, &out)
+				}
+			} else {
+				var report repokit.ValidationReport
+				if err := json.Unmarshal(resultData(t, data), &report); err != nil {
+					t.Fatal(err)
+				}
+				if report.Passed != (tc.code == 0) || !report.Complete || !report.InputsConsistent || !strings.Contains(report.Components[0].Checks[0].Stdout, "captured-check-output") {
+					t.Fatalf("incomplete evidence: %s", data)
+				}
+			}
+		})
+	}
+}
+
+func TestValidationQueriesDefaultToTextErrors(t *testing.T) {
+	for _, flag := range []string{"--plan", "--history"} {
+		var out, stderr bytes.Buffer
+		if code := Execute(context.Background(), []string{"validate", flag, "--unknown"}, nil, &out, &stderr); code != 2 || out.Len() != 0 || !strings.Contains(stderr.String(), "usage.invalid_argument") {
+			t.Fatalf("%s: code=%d stdout=%s stderr=%s", flag, code, &out, &stderr)
+		}
 	}
 }
