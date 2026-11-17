@@ -7,8 +7,9 @@ import (
 )
 
 // TestTiming is elapsed time reported by a test runner, not an additive portion
-// of check wall time. An empty Test identifies a package; subtests retain their
-// slash-separated names. Cached marks Go's replayed result, independently of
+// of check wall time. Package identifies a Go package or a Bun test file. An empty
+// Test identifies a package; runner-reported test names retain their hierarchy.
+// Cached marks Go's replayed result, independently of
 // CheckResult.Reused, which reuses the entire historical check.
 type TestTiming struct {
 	Package         string  `json:"package"`

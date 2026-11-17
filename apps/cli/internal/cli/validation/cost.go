@@ -1,6 +1,19 @@
 package validation
 
-import "github.com/compforge/repokit/toolkit/go"
+import (
+	"io"
+
+	"github.com/compforge/repokit/apps/cli/internal/cli/command"
+	"github.com/compforge/repokit/toolkit/go"
+)
+
+func recordPhases(w io.Writer, phases []repokit.ValidationPhase) {
+	if output, ok := w.(interface{ RecordPhase(command.Phase) }); ok {
+		for _, phase := range phases {
+			output.RecordPhase(command.Phase{Name: "validation." + phase.Name, DurationSeconds: phase.DurationSeconds})
+		}
+	}
+}
 
 type Cost struct {
 	ExecutionSeconds float64     `json:"executionSeconds"`

@@ -66,7 +66,7 @@ test:
 不能从一个返回 0 的空 recipe 证明实际检查发生。
 依赖安装应在验证前完成；Python 调用方可使用已有的 `inspect_dependencies` / `prepare_dependencies`。
 
-### 本仓 Go 测试选择与耗时
+### 测试选择与耗时
 
 `toolkit/go` 和 `apps/cli` 的 Makefile 接入 `TEST_FILES`：Go 文件按所属 package 去重后执行，
 保留同包 helper、fixture 和其它测试文件；不把 `go test file_test.go` 当成文件过滤。
@@ -85,8 +85,8 @@ repocli test --repo . --component toolkit/go --file toolkit/go/state/clean_test.
 
 | 字段 | 含义 |
 |---|---|
-| `package` | Go package import path |
-| `test` | Test/Example/Benchmark 名称；保留 subtest 的斜线层级；省略表示 package |
+| `package` | Go package import path，或 Bun 输出中的测试文件路径（相对于 runner 工作目录） |
+| `test` | runner 报告的测试名称；保留 Go subtest 的斜线或 Bun describe 的 ` > ` 层级；省略表示 package |
 | `status` | `passed` / `failed` / `skipped` |
 | `durationSeconds` | runner 报告的 elapsed，单位秒 |
 | `cached` | Go 自身缓存重放；与整个 Check 的 `reused` 分开 |
@@ -98,7 +98,37 @@ repocli test --repo . --component toolkit/go --file toolkit/go/state/clean_test.
 runner 分解的部分仍包含在 check 的总耗时内，不以相减方式伪造这些阶段的耗时。
 
 检查完成日志包含 `duration_seconds` 与提取的 `test_timings` 条数；明细在命令完成后随报告输出。
-事件格式以 [Go test2json 契约](https://pkg.go.dev/cmd/test2json) 为准。
+Go 事件格式以 [test2json 契约](https://pkg.go.dev/cmd/test2json) 为准。
+
+Go 执行器也识别 [Bun 默认 console reporter](https://bun.com/docs/test/reporters)：stdout/stderr 中
+必须出现 `bun test v...` 标识，按各流的测试文件标题提取带显式 `[Nms]` / `[Ns]` 的终态行，
+支持无色和彩色输出。Bun 常把 banner 放在 stdout、测试结果放在 stderr；两条流分别保持文件上下文。
+测试名沿用原输出，不合并重试/重复执行。缺少时间的快速测试、skip/todo、dots 输出及 suite 汇总
+不会生成明细；取消或截断时只保留完整的已观测行。console 输出是尽力提取的观测，测试自身日志
+可能与 reporter 格式相似，不能作为成功或覆盖证据。工具包不修改项目命令或自动注入 reporter，
+也不另读未声明的报告文件。原始捕获预算与退出状态判定保持不变。
+
+### 验证阶段耗时
+
+Go 的 ValidationPlan / ValidationReport 用 `phases[]` 返回本次 API 调用的顺序阶段墙钟耗时；
+CLI 映射到 `cost.phases[]`，名称加 `validation.` 前缀。规划和执行分开调用时，ExecuteValidation
+只返回本次执行阶段，不重复计入先前的规划耗时；Validate 则按实际调用顺序组合 format、规划与执行。
+计时不进入计划完整性 seal、检查输入或历史复用身份，也不替代日志或检查结果。
+
+| 阶段 | 边界 |
+|---|---|
+| `planning.impact` | 显式 Base 的影响分析；不用 Base 时省略 |
+| `planning.snapshot` / `planning.layout` | 规划快照捕获 / Component 布局识别 |
+| `planning.checks` / `planning.inputs` | 检查与文件选择 / 输入与依赖凭据、计划封存 |
+| `inputs.before` / `inputs.after` | 执行前计划及输入核对 / 执行后输入复核 |
+| `history.open` / `history.finish` | 打开历史上下文 / 终态写入与统计 |
+| `checks` | 整组检查的墙钟时间，包括调度等待、复用查询及执行；并发检查不相加 |
+| `format.*` | 显式 format 的规划、前后捕获及执行，沿用对应阶段名 |
+
+提前失败也保留已进入阶段的耗时，未进入的阶段省略。CLI 的外层 `planning` / `validation` 包含这些
+子阶段，不能把父子阶段相加；各检查的累计 execution/lookup 与阶段墙钟也不能混加。锁等待目前
+包含在对应历史操作中，没有独立测量就不推算锁等待或扫描成本。详细 CLI 成本契约见
+[CLI 输出](cli-output.md#耗时与-validation-成本)。
 
 `validate --check format,lint,test` 显式先运行 format，再重新分析和规划 lint/test。缺少可选 format 不阻止后续检查；
 format 失败或中断时不启动检查。独立 `format` 缺少目标时也返回 skipped。验证不隐式安装依赖。
@@ -456,7 +486,7 @@ repocli validate --base origin/main --json --timeout 10m
 `--check` 只用于 validate；步骤顺序不影响 format 先完成这一约束。`--changed-file` 在 --base 下限定初始影响分析种子；format 实际改变的路径会加入后续分析，避免漏掉生成内容。
 `--output` 原子写入完整命令结果，与 JSON stdout 相同；目录必须存在且应处于 Git 忽略的本地状态中。`--history` 查询历史统计；`--force` 禁用本次复用。
 JSON 使用[统一输出契约](cli-output.md)，报告或历史统计位于 `data`，目标 stdout/stderr 作为单项结果字段保存。
-`cost` 提供本次总耗时、validation/observation 阶段耗时，以及各 Component/check 的执行和查询耗时。
+`cost` 提供本次总耗时、validation 及其内部阶段耗时，以及各 Component/check 的执行和查询耗时。
 reuse 只计算本次查询成本，不重复计算历史执行时长；并发检查的累计耗时与总墙钟耗时分别解释。
 文本模式展示判定、耗时和失败日志摘要；JSON stdout 与文件导出均保留捕获日志。
 退出码为 0（完整通过）、1（检查失败或验证不完整）、2（CLI 参数错误）。

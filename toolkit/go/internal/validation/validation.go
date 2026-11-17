@@ -73,6 +73,7 @@ type ComponentValidationPlan struct {
 // ValidationPlan is a live, content-bound plan. JSON is an observation, not an
 // executable artifact: runtime environment and the integrity seal are private.
 type ValidationPlan struct {
+	Phases        []Phase                   `json:"phases,omitempty"`
 	Impact        *analysis.Report          `json:"impact,omitempty"`
 	Checkout      string                    `json:"checkout"`
 	Snapshot      string                    `json:"snapshot"`
@@ -115,6 +116,7 @@ type ComponentValidationResult struct {
 // Complete means every selected check reached a known terminal state.
 // InputsConsistent independently guards evidence; unavailable is never Passed.
 type ValidationReport struct {
+	Phases           []Phase                     `json:"phases,omitempty"`
 	InputID          string                      `json:"inputID"`
 	History          *ValidationHistory          `json:"history,omitempty"`
 	Impact           *analysis.Report            `json:"impact,omitempty"`
@@ -140,7 +142,12 @@ var makeFilePath = regexp.MustCompile(`^[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*$`)
 // +spec=Recorded inputs bind execution evidence and never decide affected-file selection
 // +spec=Worker overrides bind only the corresponding lint/test command and its reuse identity; omitted budgets preserve project defaults
 // +link=component://docs/validation.md
-func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan, error) {
+func PlanValidation(ctx context.Context, req ValidationRequest) (result ValidationPlan, err error) {
+	phases := phaseRecorder{ctx: ctx}
+	defer func() {
+		phases.finish()
+		result.Phases = phases.phases
+	}()
 	if req.LintWorkers < 0 || req.TestWorkers < 0 {
 		return ValidationPlan{}, errors.New("validation worker budgets must be positive when supplied (zero uses project defaults)")
 	}
@@ -148,12 +155,14 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 		if req.Impact != nil {
 			return ValidationPlan{}, errors.New("base and impact are alternative selections")
 		}
+		phases.start("planning.impact")
 		impact, err := analysis.Analyze(ctx, analysis.Request{Repository: req.Repository, Base: req.Base, ChangedFiles: req.ChangedFiles})
 		if err != nil {
 			return ValidationPlan{}, err
 		}
 		req.Impact = &impact
 	}
+	phases.start("planning.snapshot")
 	captured, err := analysis.Capture(ctx, analysis.InputRequest{Repository: req.Repository})
 	if err != nil {
 		return ValidationPlan{}, err
@@ -162,6 +171,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 	if !observed.Complete {
 		return ValidationPlan{}, errors.New("validation snapshot is incomplete")
 	}
+	phases.start("planning.layout")
 	layout, err := analysis.Inspect(ctx, analysis.InputRequest{Repository: observed.Checkout})
 	if err != nil {
 		return ValidationPlan{}, err
@@ -169,6 +179,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 	if !layout.Complete {
 		return ValidationPlan{}, errors.New("validation layout is incomplete")
 	}
+	phases.start("planning.checks")
 	checks := req.Checks
 	if checks == nil {
 		checks = []string{"lint", "test"}
@@ -367,6 +378,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (ValidationPlan,
 			return ValidationPlan{}, fmt.Errorf("unknown Component %q", root)
 		}
 	}
+	phases.start("planning.inputs")
 	sort.Slice(plan.Components, func(i, j int) bool { return plan.Components[i].Component.Root < plan.Components[j].Component.Root })
 	for i := range plan.Components {
 		group := &plan.Components[i]
@@ -424,6 +436,7 @@ func validationFiles(root, component string, layout project.Layout, candidates [
 }
 
 func planSeal(plan ValidationPlan) string {
+	plan.Phases = nil // Timing is an observation, not an executable input.
 	encoded, _ := json.Marshal(plan)
 	sum := sha256.Sum256(encoded)
 	return hex.EncodeToString(sum[:])
@@ -434,8 +447,14 @@ func planSeal(plan ValidationPlan) string {
 // +spec=Planning mismatch prevents execution; final input changes invalidate passing evidence without erasing terminal results
 // +spec=The executor never recalculates the scope of a frozen command
 // +link=component://docs/validation.md
-func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationReport, error) {
-	report := ValidationReport{Impact: plan.Impact, SchemaVersion: 2, InputID: plan.InputID, Checkout: plan.Checkout, Snapshot: plan.Snapshot, Components: []ComponentValidationResult{}, Diagnostics: []string{}}
+func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report ValidationReport, err error) {
+	phases := phaseRecorder{ctx: ctx}
+	phases.start("inputs.before")
+	defer func() {
+		phases.finish()
+		report.Phases = phases.phases
+	}()
+	report = ValidationReport{Impact: plan.Impact, SchemaVersion: 2, InputID: plan.InputID, Checkout: plan.Checkout, Snapshot: plan.Snapshot, Components: []ComponentValidationResult{}, Diagnostics: []string{}}
 	if plan.seal == "" || plan.seal != planSeal(plan) {
 		return report, errors.New("validation plan was modified or deserialized; plan again")
 	}
@@ -454,7 +473,9 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationRepo
 		report.Diagnostics = append(report.Diagnostics, "inputs changed after planning; no checks executed")
 		return report, nil
 	}
+	phases.start("history.open")
 	history := beginHistory(ctx, plan)
+	phases.start("checks")
 	type job struct{ group, check int }
 	jobs := make(chan job)
 	for _, component := range plan.Components {
@@ -512,6 +533,7 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationRepo
 			}
 		}
 	}
+	phases.start("inputs.after")
 	after, err := analysis.CaptureSnapshot(ctx, analysis.InputRequest{Repository: plan.Checkout})
 	report.InputsConsistent = err == nil && after.Complete && after.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
 	if !report.InputsConsistent {
@@ -522,6 +544,7 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (ValidationRepo
 		}
 		report.Diagnostics = append(report.Diagnostics, message)
 	}
+	phases.start("history.finish")
 	// Preserve terminal records even when execution exhausted its deadline.
 	historyCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 	defer cancel()
@@ -537,6 +560,7 @@ func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, err
 		}
 	}
 	var preparation []ComponentValidationResult
+	var phases []Phase
 	if req.Impact != nil && slices.Contains(req.Checks, "format") {
 		return ValidationReport{}, errors.New("combined format requires Base or full selection; supplied impact cannot be refreshed after edits")
 	}
@@ -546,6 +570,7 @@ func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, err
 			return formatted, err
 		}
 		preparation = formatted.Preparation
+		phases = formatted.Phases
 		if len(req.ChangedFiles) > 0 {
 			req.ChangedFiles = append(slices.Clone(req.ChangedFiles), changed...)
 		}
@@ -565,10 +590,12 @@ func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, err
 		}
 	}
 	plan, err := PlanValidation(ctx, req)
+	phases = append(phases, plan.Phases...)
 	if err != nil {
-		return ValidationReport{}, err
+		return ValidationReport{Preparation: preparation, Phases: phases}, err
 	}
 	report, err := ExecuteValidation(ctx, plan)
+	report.Phases = append(phases, report.Phases...)
 	report.Preparation = preparation
 	return report, err
 }

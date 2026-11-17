@@ -21,14 +21,24 @@ func Format(ctx context.Context, req ValidationRequest) (ValidationReport, error
 	return report, err
 }
 
-func formatValidation(ctx context.Context, req ValidationRequest) (ValidationReport, []string, error) {
+func formatValidation(ctx context.Context, req ValidationRequest) (report ValidationReport, changed []string, err error) {
+	phases := phaseRecorder{ctx: ctx}
+	defer func() {
+		phases.finish()
+		report.Phases = phases.phases
+	}()
 	req.Checks = []string{"format"}
 	req.Inputs, req.HistoryDir = nil, ""
 	plan, err := PlanValidation(ctx, req)
+	for _, phase := range plan.Phases {
+		phase.Name = "format." + phase.Name
+		phases.phases = append(phases.phases, phase)
+	}
 	if err != nil {
 		return ValidationReport{}, nil, err
 	}
-	report := ValidationReport{SchemaVersion: 2, Checkout: plan.Checkout, Snapshot: plan.Snapshot, Components: []ComponentValidationResult{}, Preparation: []ComponentValidationResult{}, Diagnostics: []string{}, Complete: true, Passed: true}
+	report = ValidationReport{SchemaVersion: 2, Checkout: plan.Checkout, Snapshot: plan.Snapshot, Components: []ComponentValidationResult{}, Preparation: []ComponentValidationResult{}, Diagnostics: []string{}, Complete: true, Passed: true}
+	phases.start("format.inputs.before")
 	before, err := analysis.Capture(ctx, analysis.InputRequest{Repository: plan.Checkout})
 	if err != nil {
 		return report, nil, err
@@ -36,6 +46,7 @@ func formatValidation(ctx context.Context, req ValidationRequest) (ValidationRep
 	if !before.Report.Complete || before.Report.Snapshot != plan.Snapshot {
 		return report, nil, errors.New("contents changed before format")
 	}
+	phases.start("format.checks")
 	for _, group := range plan.Components {
 		spec := group.Checks[0]
 		result := CheckResult{CheckSpec: spec, Status: spec.Scope, CheckedAt: time.Now().UTC()}
@@ -53,6 +64,7 @@ func formatValidation(ctx context.Context, req ValidationRequest) (ValidationRep
 			break
 		}
 	}
+	phases.start("format.inputs.after")
 	after, err := analysis.Capture(ctx, analysis.InputRequest{Repository: plan.Checkout})
 	if err != nil {
 		return report, nil, err

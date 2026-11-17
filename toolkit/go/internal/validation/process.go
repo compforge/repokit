@@ -83,7 +83,7 @@ func executeMakeStarted(ctx context.Context, cwd string, spec CheckSpec, environ
 	result.Stdout = out.String()
 	result.Stderr = stderr.String()
 	if spec.Check == "test" {
-		result.TestTimings = goTestTimings(result.Stdout)
+		result.TestTimings = testTimings(result.Stdout, result.Stderr)
 	}
 	switch {
 	case cmd.Process == nil:

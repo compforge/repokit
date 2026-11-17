@@ -112,6 +112,21 @@ func TestValidationCLIFormatCompositionAndReuseReport(t *testing.T) {
 		if result.Cost.WallSeconds <= 0 || result.Cost.Validation == nil || len(result.Cost.Phases) == 0 || result.Cost.Phases[0].Name != "validation" {
 			t.Fatalf("missing measured cost: %s", &out)
 		}
+
+		if len(result.Cost.Phases) != len(report.Phases)+1 {
+			t.Fatalf("missing validation phase evidence: %s", &out)
+		}
+		total := 0.0
+		for i, phase := range report.Phases {
+			cost := result.Cost.Phases[i+1]
+			if cost.Name != "validation."+phase.Name || cost.DurationSeconds != phase.DurationSeconds {
+				t.Fatalf("phase mapping mismatch: %+v %+v", cost, phase)
+			}
+			total += cost.DurationSeconds
+		}
+		if total > result.Cost.Phases[0].DurationSeconds {
+			t.Fatalf("phase costs overlap: %s", &out)
+		}
 		for _, step := range result.Cost.Validation.Steps {
 			if step.Reused && step.ExecutionSeconds != 0 {
 				t.Fatalf("charged historical execution: %+v", step)
@@ -295,7 +310,7 @@ func TestValidationExportFailurePreservesReport(t *testing.T) {
 	if code != 1 || stderr.Len() != 0 || !report.Passed || result.Error == nil || result.Error.Op != "export" || len(result.Artifacts) != 0 {
 		t.Fatalf("code=%d result=%s stderr=%s", code, &out, &stderr)
 	}
-	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) != 1 || result.Cost.Phases[0].Name != "validation" {
+	if result.Cost.Validation == nil || result.Cost.Validation.ExecutionSeconds <= 0 || len(result.Cost.Phases) < 2 || result.Cost.Phases[0].Name != "validation" {
 		t.Fatalf("lost cost: %s", &out)
 	}
 }
