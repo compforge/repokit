@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
 	"github.com/compforge/repokit/toolkit/go"
@@ -22,23 +23,31 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
 	var planOnly, force, showHistory bool
-	var concurrency, lintWorkers, testWorkers int
+	var concurrency int
+	var formatWorkers, lintWorkers, testWorkers, buildWorkers int
+	workers := []struct {
+		check string
+		value *int
+	}{{"format", &formatWorkers}, {"lint", &lintWorkers}, {"test", &testWorkers}, {"build", &buildWorkers}}
 	var inputsFile, historyDir string
 	var changed, checks []string
 	command := &cobra.Command{
 		Use:   name,
 		Short: "Run Makefile-defined Component " + name + " checks",
-		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. LINT_FILES/TEST_FILES require the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
+		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. File and worker parameters follow the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Add build to execute each selected Component's literal build target after successful checks. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
-			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0 || cmd.Flags().Changed("lint-workers") || cmd.Flags().Changed("test-workers")) {
+			for _, worker := range workers {
+				flag := worker.check + "-workers"
+				if cmd.Flags().Changed(flag) && *worker.value <= 0 {
+					return fmt.Errorf("--%s must be positive", flag)
+				}
+				if showHistory && cmd.Flags().Changed(flag) {
+					return errors.New("--history cannot be combined with check execution options")
+				}
+			}
+			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
 				return errors.New("--history cannot be combined with check execution options")
-			}
-			if cmd.Flags().Changed("lint-workers") && lintWorkers <= 0 {
-				return errors.New("--lint-workers must be positive")
-			}
-			if cmd.Flags().Changed("test-workers") && testWorkers <= 0 {
-				return errors.New("--test-workers must be positive")
 			}
 			if opts.Timeout <= 0 {
 				return errors.New("--timeout must be positive")
@@ -87,7 +96,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				cmdutil.Record(cmd.OutOrStdout(), history)
 				return writeHistorySummaryText(cmd.OutOrStdout(), history)
 			}
-			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, LintWorkers: lintWorkers, TestWorkers: testWorkers, Checks: checks, Base: base, ChangedFiles: changed}
+			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, FormatWorkers: formatWorkers, LintWorkers: lintWorkers, TestWorkers: testWorkers, BuildWorkers: buildWorkers, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
@@ -144,11 +153,10 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
 	command.Flags().BoolVar(&planOnly, "plan", false, "preview the plan without running checks (text by default; --json for parsing)")
 	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")
-	if name == "validate" || name == "lint" {
-		command.Flags().IntVar(&lintWorkers, "lint-workers", 0, "positive LINT_WORKERS override for lint targets; omitted uses project default")
-	}
-	if name == "validate" || name == "test" {
-		command.Flags().IntVar(&testWorkers, "test-workers", 0, "positive TEST_WORKERS override for test targets; omitted uses project default")
+	for _, worker := range workers {
+		if name == "validate" || name == worker.check {
+			command.Flags().IntVar(worker.value, worker.check+"-workers", 0, "positive "+strings.ToUpper(worker.check)+"_WORKERS override; omitted uses project default")
+		}
 	}
 	command.Flags().StringVar(&inputsFile, "inputs", "", "JSON Component/check input declarations and receipt paths")
 	command.Flags().StringVar(&historyDir, "history-dir", "", "validation history root (default ~/.repokit/repositories)")
@@ -158,7 +166,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	if name == "validate" {
 		command.AddCommand(newValidationHistoryCommand(opts))
-		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test); format runs first, default lint,test")
+		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test,build); format first, optional Component build last; default lint,test")
 	}
 	return command
 }

@@ -39,7 +39,7 @@ def _decode(payload: str, repo: str, checks: Iterable[str]) -> dict[str, Any]:
         raise ValueError("ValidationReport results missing")
     requested = set(checks)
     selected = requested - {"format"}
-    if not selected <= {"lint", "test"}:
+    if not selected <= {"lint", "test", "build"}:
         raise ValueError("invalid requested validation checks")
     seen: set[tuple[str, str]] = set()
     coverage: dict[str, set[str]] = {}
@@ -125,7 +125,7 @@ def _decode(payload: str, repo: str, checks: Iterable[str]) -> dict[str, Any]:
                 raise ValueError("invalid ValidationReport preparation status")
             prepared.append(check["status"])
     if data["components"] and any(
-        status in {"failed", "cancelled", "uncertain"} for status in prepared
+        status in {"failed", "unavailable", "cancelled", "uncertain"} for status in prepared
     ):
         raise ValueError("ValidationReport checks follow unsuccessful preparation")
     # ExecuteValidation can reject a stale plan before producing any check results.
@@ -140,7 +140,11 @@ def _decode(payload: str, repo: str, checks: Iterable[str]) -> dict[str, Any]:
     preparation_only = (
         not data["components"]
         and "format" in requested
-        and (not selected or not data["complete"] or any(status == "failed" for status in prepared))
+        and (
+            not selected
+            or not data["complete"]
+            or any(status in {"failed", "unavailable"} for status in prepared)
+        )
     )
     outcomes = prepared if preparation_only else statuses
     complete = all(status in {"passed", "failed", "skipped", "unavailable"} for status in outcomes)

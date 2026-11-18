@@ -135,8 +135,8 @@ func ListValidationRuns(ctx context.Context, q ValidationRunQuery) (ValidationRu
 	if report.Limit < 1 || report.Limit > 100 || q.Offset < 0 {
 		return report, &errs.Error{Code: "validation.invalid_query", Message: "limit must be 1–100 and offset must be nonnegative"}
 	}
-	if q.Check != "" && q.Check != "lint" && q.Check != "test" {
-		return report, &errs.Error{Code: "validation.invalid_query", Message: "check must be lint or test"}
+	if q.Check != "" && q.Check != "lint" && q.Check != "test" && q.Check != "build" {
+		return report, &errs.Error{Code: "validation.invalid_query", Message: "check must be lint, test or build"}
 	}
 	if q.Status != "" && !slices.Contains([]string{"passed", "failed", "cancelled", "uncertain", "unfinished"}, q.Status) {
 		return report, &errs.Error{Code: "validation.invalid_query", Message: "invalid run status"}

@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	gitenv "github.com/compforge/repokit/toolkit/go/internal/git/env"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -21,6 +20,7 @@ import (
 
 	cg "github.com/compforge/codegraph"
 	"github.com/compforge/repokit/toolkit/go/internal/analysis"
+	gitenv "github.com/compforge/repokit/toolkit/go/internal/git/env"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
@@ -38,6 +38,8 @@ type ValidationRequest struct {
 	Impact               *analysis.Report
 	Tags                 []string
 	Concurrency          int // zero defaults to two concurrent checks.
+	FormatWorkers        int // optional FORMAT_WORKERS override.
+	BuildWorkers         int // optional BUILD_WORKERS override.
 	LintWorkers          int // zero preserves the project default; positive overrides LINT_WORKERS for lint only.
 	TestWorkers          int // zero preserves the project default; positive overrides TEST_WORKERS for test only.
 	Inputs               map[string]map[string]CheckInputDeclaration
@@ -131,6 +133,8 @@ type ValidationReport struct {
 	Diagnostics      []string                    `json:"diagnostics"`
 }
 
+var checkOrder = []string{"format", "lint", "test", "build"}
+
 var makeFilePath = regexp.MustCompile(`^[A-Za-z0-9_./@+][A-Za-z0-9_./@+:-]*$`)
 
 // PlanValidation only reads the checkout. Preparation/formatting must precede it.
@@ -148,8 +152,11 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 		phases.finish()
 		result.Phases = phases.phases
 	}()
-	if req.LintWorkers < 0 || req.TestWorkers < 0 {
-		return ValidationPlan{}, errors.New("validation worker budgets must be positive when supplied (zero uses project defaults)")
+	budgets := map[string]int{"format": req.FormatWorkers, "lint": req.LintWorkers, "test": req.TestWorkers, "build": req.BuildWorkers}
+	for _, workers := range budgets {
+		if workers < 0 {
+			return ValidationPlan{}, errors.New("validation worker budgets must be positive when supplied (zero uses project defaults)")
+		}
 	}
 	if req.Base != "" {
 		if req.Impact != nil {
@@ -185,10 +192,10 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 		checks = []string{"lint", "test"}
 	}
 	checks = slices.Clone(checks)
-	sort.Strings(checks)
+	sort.Slice(checks, func(i, j int) bool { return slices.Index(checkOrder, checks[i]) < slices.Index(checkOrder, checks[j]) })
 	checks = slices.Compact(checks)
 	for _, check := range checks {
-		if check != "lint" && check != "test" && check != "format" {
+		if !slices.Contains(checkOrder, check) {
 			return ValidationPlan{}, fmt.Errorf("unsupported check %q", check)
 		}
 	}
@@ -211,7 +218,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 			return ValidationPlan{}, errors.New("invalid execution environment")
 		}
 		switch key {
-		case "_", "SHLVL", "PWD", "OLDPWD", "MAKEFILES", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "GNUMAKEFLAGS", "MAKELEVEL", "LINT_FILES", "TEST_FILES":
+		case "_", "SHLVL", "PWD", "OLDPWD", "MAKEFILES", "MAKEFLAGS", "MFLAGS", "MAKEOVERRIDES", "GNUMAKEFLAGS", "MAKELEVEL", "LINT_FILES", "TEST_FILES", "FORMAT_FILES", "BUILD_FILES":
 			continue
 		}
 		if req.Environment == nil && key == "CODEX_TOOL_CALL_ID" {
@@ -313,9 +320,15 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 						relevant = true
 					}
 				}
+				if check == "build" {
+					relevant = req.Components != nil || impact.Affected
+				}
 				if !relevant {
 					spec.Scope = "skipped"
 					spec.Reason = "no selected validation tags"
+					if check == "build" {
+						spec.Reason = "Component unaffected by selected changes"
+					}
 					appendValidationCheck(&plan, component, spec)
 					continue
 				}
@@ -336,8 +349,13 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				appendValidationCheck(&plan, component, spec)
 				continue
 			}
+			// Impact selects which artifacts to verify. Only an explicit file request may
+			// narrow a build, and only if the project consumes BUILD_FILES.
+			if check == "build" && req.Impact != nil {
+				candidates = nil
+			}
 			variable := strings.ToUpper(check) + "_FILES"
-			if check == "format" {
+			if check == "format" && !contract.variables[variable] {
 				variable = "LINT_FILES"
 			}
 			files, reason := validationFiles(plan.Checkout, component.Root, layout.Layout, candidates)
@@ -352,21 +370,19 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 					spec.Reason = "selected files under Makefile " + variable + " contract"
 				}
 			}
-			spec.Command = []string{"make", "-f", "Makefile", target, "LINT_FILES=", "TEST_FILES="}
-			if spec.Scope == "focused" {
-				idx := 4
-				if check == "test" {
-					idx = 5
+			spec.Command = []string{"make", "-f", "Makefile", target}
+			fileVariables := []string{"LINT_FILES", "TEST_FILES"}
+			if !slices.Contains(fileVariables, variable) && contract.variables[variable] {
+				fileVariables = append(fileVariables, variable)
+			}
+			for _, name := range fileVariables {
+				value := ""
+				if name == variable {
+					value = strings.Join(spec.Files, " ")
 				}
-				spec.Command[idx] = variable + "=" + strings.Join(spec.Files, " ")
+				spec.Command = append(spec.Command, name+"="+value)
 			}
-			workers := 0
-			if check == "lint" {
-				workers = req.LintWorkers
-			} else if check == "test" {
-				workers = req.TestWorkers
-			}
-			if workers > 0 {
+			if workers := budgets[check]; workers > 0 {
 				spec.Command = append(spec.Command, fmt.Sprintf("%s_WORKERS=%d", strings.ToUpper(check), workers))
 				slog.DebugContext(ctx, "validation worker budget selected", "component", component.Root, "check", check, "workers", workers)
 			}
@@ -382,7 +398,6 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 	sort.Slice(plan.Components, func(i, j int) bool { return plan.Components[i].Component.Root < plan.Components[j].Component.Root })
 	for i := range plan.Components {
 		group := &plan.Components[i]
-		sort.Slice(group.Checks, func(i, j int) bool { return group.Checks[i].Check < group.Checks[j].Check })
 		for j := range group.Checks {
 			spec := &group.Checks[j]
 			if spec.Scope == "skipped" || spec.Scope == "unavailable" {
@@ -442,8 +457,7 @@ func planSeal(plan ValidationPlan) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ExecuteValidation consumes only the frozen plan. Two round-level captures,
-// independent of the number of Components/checks, guard all returned evidence.
+// ExecuteValidation consumes only the frozen plan. Round-level captures guard evidence across checks and before a combined build.
 // +spec=Planning mismatch prevents execution; final input changes invalidate passing evidence without erasing terminal results
 // +spec=The executor never recalculates the scope of a frozen command
 // +link=component://docs/validation.md
@@ -476,52 +490,72 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 	phases.start("history.open")
 	history := beginHistory(ctx, plan)
 	phases.start("checks")
-	type job struct{ group, check int }
-	jobs := make(chan job)
+	// Build recipes may consume generated artifacts and run expensive packaging tools.
+	// Finish the requested lint/test round before starting any of them.
+	type job struct {
+		root   string
+		result *CheckResult
+	}
+	var checks, builds []job
 	for _, component := range plan.Components {
-		report.Components = append(report.Components, ComponentValidationResult{Component: component.Component, Checks: make([]CheckResult, len(component.Checks))})
-	}
-	var workers sync.WaitGroup
-	for range plan.Concurrency {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for item := range jobs {
-				component := plan.Components[item.group]
-				spec := component.Checks[item.check]
-				result := CheckResult{CheckSpec: spec, Status: spec.Scope, CheckedAt: time.Now().UTC()}
-				if spec.Scope != "skipped" && spec.Scope != "unavailable" {
-					requested := time.Now().UTC()
-					lookup := time.Now()
-					previous, reason := history.reuse(ctx, component.Component.Root, spec)
-					lookupSeconds := time.Since(lookup).Seconds()
-					if previous != nil {
-						result = *previous
-						result.CheckSpec = spec
-						result.Reused = true
-						result.ReuseReason = reason
-						slog.InfoContext(ctx, "validation check reused", "component", component.Component.Root, "check", spec.Check, "run", result.RunID)
-					} else {
-						slog.DebugContext(ctx, "validation check reuse missed", "checkout", plan.Checkout, "component", component.Component.Root, "check", spec.Check, "reason", reason)
-						started := time.Now()
-						result = executeMakeStarted(ctx, filepath.Join(plan.Checkout, component.Component.Root), spec, plan.environment, func() string { return history.started(ctx, component.Component.Root, spec) })
-						result.DurationSeconds = time.Since(started).Seconds()
-						result.CheckedAt = time.Now().UTC()
-						result.ReuseReason = reason
-					}
-					result.RequestedAt, result.LookupSeconds = requested, lookupSeconds
-				}
-				report.Components[item.group].Checks[item.check] = result
+		results := make([]CheckResult, len(component.Checks))
+		report.Components = append(report.Components, ComponentValidationResult{Component: component.Component, Checks: results})
+		for i, spec := range component.Checks {
+			results[i] = CheckResult{CheckSpec: spec, Status: spec.Scope, CheckedAt: time.Now().UTC()}
+			if spec.Scope == "skipped" || spec.Scope == "unavailable" {
+				continue
 			}
-		}()
-	}
-	for i, group := range plan.Components {
-		for j := range group.Checks {
-			jobs <- job{i, j}
+			item := job{component.Component.Root, &results[i]}
+			if spec.Check == "build" {
+				builds = append(builds, item)
+			} else {
+				checks = append(checks, item)
+			}
 		}
 	}
-	close(jobs)
-	workers.Wait()
+	run := func(batch []job) {
+		var workers sync.WaitGroup
+		slots := make(chan struct{}, plan.Concurrency)
+		for _, item := range batch {
+			slots <- struct{}{}
+			workers.Go(func() {
+				defer func() { <-slots }()
+				*item.result = runValidationCheck(ctx, plan, history, item.root, item.result.CheckSpec)
+			})
+		}
+		workers.Wait()
+	}
+	run(checks)
+	buildInputsConsistent := true
+	if len(builds) > 0 {
+		var reason string
+		for _, group := range report.Components {
+			for _, check := range group.Checks {
+				if check.Check != "build" && check.Status != "passed" && check.Status != "skipped" {
+					reason = "a preceding validation check did not pass"
+				}
+			}
+		}
+		if reason == "" && len(checks) > 0 {
+			phases.start("inputs.before_build")
+			current, captureErr := analysis.CaptureSnapshot(ctx, analysis.InputRequest{Repository: plan.Checkout})
+			buildInputsConsistent = captureErr == nil && current.Complete && current.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
+			if !buildInputsConsistent {
+				reason = "could not verify unchanged inputs before build"
+				if captureErr != nil {
+					report.Diagnostics = append(report.Diagnostics, captureErr.Error())
+				}
+			}
+		}
+		if reason == "" {
+			phases.start("build")
+			run(builds)
+		} else {
+			for _, item := range builds {
+				item.result.Status, item.result.Reason = "skipped", reason
+			}
+		}
+	}
 	report.Complete, report.Passed = true, true
 	for _, group := range report.Components {
 		for _, result := range group.Checks {
@@ -535,7 +569,7 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 	}
 	phases.start("inputs.after")
 	after, err := analysis.CaptureSnapshot(ctx, analysis.InputRequest{Repository: plan.Checkout})
-	report.InputsConsistent = err == nil && after.Complete && after.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
+	report.InputsConsistent = buildInputsConsistent && err == nil && after.Complete && after.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
 	if !report.InputsConsistent {
 		report.Passed = false
 		message := "inputs changed during validation"
@@ -552,10 +586,34 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 	return report, nil
 }
 
-// Validate plans and executes lint/test. Lint and Test use the same planner and executor.
+func runValidationCheck(ctx context.Context, plan ValidationPlan, history *historySession, root string, spec CheckSpec) CheckResult {
+	var result CheckResult
+	requested := time.Now().UTC()
+	lookup := time.Now()
+	previous, reason := history.reuse(ctx, root, spec)
+	lookupSeconds := time.Since(lookup).Seconds()
+	if previous != nil {
+		result = *previous
+		result.CheckSpec = spec
+		result.Reused = true
+		result.ReuseReason = reason
+		slog.InfoContext(ctx, "validation check reused", "component", root, "check", spec.Check, "run", result.RunID)
+	} else {
+		slog.DebugContext(ctx, "validation check reuse missed", "checkout", plan.Checkout, "component", root, "check", spec.Check, "reason", reason)
+		started := time.Now()
+		result = executeMakeStarted(ctx, filepath.Join(plan.Checkout, root), spec, plan.environment, func() string { return history.started(ctx, root, spec) })
+		result.DurationSeconds = time.Since(started).Seconds()
+		result.CheckedAt = time.Now().UTC()
+		result.ReuseReason = reason
+	}
+	result.RequestedAt, result.LookupSeconds = requested, lookupSeconds
+	return result
+}
+
+// Validate plans and executes the requested Component checks. Lint and Test use the same planner and executor.
 func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, error) {
 	for _, check := range req.Checks {
-		if check != "format" && check != "lint" && check != "test" {
+		if !slices.Contains(checkOrder, check) {
 			return ValidationReport{}, fmt.Errorf("unsupported check %q", check)
 		}
 	}
@@ -574,15 +632,8 @@ func Validate(ctx context.Context, req ValidationRequest) (ValidationReport, err
 		if len(req.ChangedFiles) > 0 {
 			req.ChangedFiles = append(slices.Clone(req.ChangedFiles), changed...)
 		}
-		if !formatted.Complete {
+		if !formatted.Passed || !formatted.Complete {
 			return formatted, nil
-		}
-		for _, group := range preparation {
-			for _, check := range group.Checks {
-				if check.Status == "failed" {
-					return formatted, nil
-				}
-			}
 		}
 		req.Checks = slices.DeleteFunc(slices.Clone(req.Checks), func(check string) bool { return check == "format" })
 		if len(req.Checks) == 0 {

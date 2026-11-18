@@ -40,13 +40,14 @@ outputs/cache 不参与依赖 witness。详细边界见 [Depot](depot.md)。
 ## 项目契约
 
 Component 可在其根目录提供普通文件 `Makefile`（不接受符号链接），直接声明目标。
-Go/CLI 的 lint/test 缺少本地目标时回退到根 Component，具体选择规则见下文：
+Go/CLI 只匹配所选 Component 自己的 Makefile。
 
 - format：统一表示代码格式化，按 `format` → `fmt` → `fix` 的优先级选择第一个直接声明的 Makefile 目标，只执行一个。
   `fmt` / `fix` 是历史目标名，报告中的操作仍为 `format`，命令保留实际目标名。具体修改行为由项目 recipe 决定，
   包括历史 `fix` 中可能包含的自动修复。选中目标执行失败时不尝试其他别名；独立报告准备结果，不产生检查通过证据。
 - lint：优先 `lint-ci`，其次 `lint`。
 - test：优先 `test`，其次 `test-ci`、`test-local`。
+- build：需要构建验证的 Component 自行声明字面量 `build` target，recipe 负责构建、打包及产物检查。缺少 target 记为 skipped。
 - 目标返回 0 表示检查通过，非 0 表示检查失败；目标不修改参与验证的源码。
 - 可选的 `LINT_FILES` / `TEST_FILES` 为 Component 相对路径的空格分隔列表。
   非空时检查这些文件，空值必须执行该目标的完整检查。
@@ -123,6 +124,7 @@ CLI 映射到 `cost.phases[]`，名称加 `validation.` 前缀。规划和执行
 | `inputs.before` / `inputs.after` | 执行前计划及输入核对 / 执行后输入复核 |
 | `history.open` / `history.finish` | 打开历史上下文 / 终态写入与统计 |
 | `checks` | 整组检查的墙钟时间，包括调度等待、复用查询及执行；并发检查不相加 |
+| `inputs.before_build` / `build` | 前序检查完成后的输入一致性核对 / 实际构建耗时 |
 | `format.*` | 显式 format 的规划、前后捕获及执行，沿用对应阶段名 |
 
 提前失败也保留已进入阶段的耗时，未进入的阶段省略。CLI 的外层 `planning` / `validation` 包含这些
@@ -160,7 +162,7 @@ Go 根包 `validation.go` 提供公共类型与入口，`internal/validation` �
 
 Go 提供 `PlanValidation`、`ExecuteValidation`、`Validate`、`Format`、`Lint`、`Test`。
 Python 原生 API 为 `plan_validation`、`execute_validation`、`validate`、`lint`、`test`，
-不包装 repocli CLI。CLI 组合 Go 公共 API；format/lint/test 各自独立，validate 默认选择 lint/test，可用 checks 加入 format。
+不包装 repocli CLI。CLI 组合 Go 公共 API；format/lint/test 各自独立，validate 默认选择 lint/test，可用 checks 加入 format 和 build。
 包含 format 的计划是修改前的预览；ExecuteValidation 拒绝执行 format，组合执行必须经 Validate 重新规划。
 TypeScript 当前不提供验证执行 API。
 
@@ -210,6 +212,7 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 | format | `format` → `fmt` → `fix` |
 | lint | `lint-ci` → `lint` |
 | test | `test` → `test-ci` → `test-local` |
+| build | `build` |
 
 没有候选 target（包括没有 Makefile）时记为 skipped，不回退到根组件，也不选择语言工具命令。
 未执行的检查不采集源码或依赖回执作为执行证据。
@@ -228,6 +231,12 @@ index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中�
 手工 `files` 与 impact 是两种互斥的选择来源。文件必须是规范的仓库相对路径；进入 Make 前转换为
 Component 相对路径并去重排序。包含空格、shell/Make 元字符或穿过符号链接的路径不进入文件参数。
 这类候选只在其所属组件内导致全量回退，不会被静默丢掉或扩大到无关组件。
+
+Go/CLI 默认执行 lint/test。显式 `validate --component <root> --check build` 对整个 Component 执行构建；
+显式 `--file` 选择文件所属的 Component，项目消费 `BUILD_FILES` 时才缩小构建范围。`--base` 按受影响的 Component 选择构建范围；显式指定的 Component
+即使只有 VERSION 变化也运行 build。组合 `--check format,lint,test,build` 在 format 后重新规划，
+等待本轮 lint/test 完成并核对输入一致性，再执行 build。前置检查失败时保留结果并报告跳过构建的原因。
+每次实际运行 build 都有独立 Run，历史成功无法证明当前产物仍然存在。项目应将构建输出放在忽略路径下。
 
 ## 检查输入与结果复用
 
@@ -343,7 +352,7 @@ repocli validate history show <runID> --repo . --json
 
 `--repo` 通过现存 checkout 确定 Repository，默认列出该 Repository 所有 checkout 的保留记录。
 `--checkout` 是精确路径筛选，允许查询已经移除的 worktree；不会在该路径运行 Git 或检查。
-`--component` 使用仓库相对 root，根组件为 `.`；`--check` 为 lint/test；`--status` 为
+`--component` 使用仓库相对 root，根组件为 `.`；`--check` 为 lint/test/build；`--status` 为
 passed/failed/cancelled/uncertain/unfinished。空筛选表示不限。
 `--history-dir` 指定历史根目录，默认 `<RepoKit home>/repositories`；身份与存储位置规则见
 [验证执行历史](#执行历史)。`validate --history` 和 `stats` 继续提供汇总统计。
@@ -443,7 +452,7 @@ TS 可用 `timeoutMs` 显式设置总预算，或直接传入 AbortSignal。两�
 
 环境在规划时复制，执行时显式传给子进程；显式环境需提供用于查找 make 的 PATH。报告只保留其摘要，绝不输出环境值。
 每条命令用 `make -f Makefile` 固定读取规划时的文件，避免 GNUmakefile/makefile 抢占默认入口。
-Make 控制变量 MAKEFILES/MAKEFLAGS/MFLAGS/MAKEOVERRIDES/GNUMAKEFLAGS/MAKELEVEL 与两类文件变量不从父环境继承；
+Make 控制变量 MAKEFILES/MAKEFLAGS/MFLAGS/MAKEOVERRIDES/GNUMAKEFLAGS/MAKELEVEL 与文件筛选变量不从父环境继承；
 每条命令显式设置 LINT_FILES 和 TEST_FILES，防止继承的 dry-run 或文件选择改变计划语义。
 环境摘要描述实际传入的环境，不要求 Python/Node 宿主进程的环境相等。
 Go/CLI 默认继承环境时额外移除 `CODEX_TOOL_CALL_ID`，避免每次工具调用的追踪身份使复用失效；
@@ -458,13 +467,12 @@ stdout 上限 16 MiB，stderr 上限 64 KiB。输出超过预算会终止检查�
 
 ## Worker 预算
 
-项目可选消费正整数 `LINT_WORKERS` / `TEST_WORKERS`，分别表示单次 lint / test 的内部并发预算。
+项目可选消费正整数 `FORMAT_WORKERS`、`LINT_WORKERS`、`TEST_WORKERS`、`BUILD_WORKERS`，表示各自 recipe 的内部并发预算。
 未提供时保留项目默认值；项目负责映射到原生工具及在多层并发之间分配预算。仅声明变量而不使用它
 不会产生提速，串行工具也不因传入变量而获得并发能力。文件范围与检查判定不受预算影响。
 
-Go API 的 `ValidationRequest.LintWorkers` / `TestWorkers` 为零时不添加 Make 参数，负值拒绝。
-CLI 的 `--lint-workers` / `--test-workers` 显式提供时必须为正整数，分别追加
-`LINT_WORKERS=N` / `TEST_WORKERS=N` 到对应检查的 Make 命令；format 不接收这些 override。
+Go API 的 `FormatWorkers`、`LintWorkers`、`TestWorkers` 和 `BuildWorkers` 为零时使用项目默认值。
+CLI 接收对应的 `--<check>-workers N`，显式指定时必须为正整数，仅传给对应检查的 Make 命令。
 Make 命令行变量覆盖项目普通赋值；项目不要用 `override` 阻止这一契约。
 命令在计划、结果和历史中可见，改变 test 预算只改变 test 命令及其复用身份，不使 lint 缓存失效，反之亦然。
 未提供 flag 时既有环境变量行为保持不变，继承环境仍整体参与环境摘要。
@@ -505,7 +513,7 @@ Go/Python 共用 `conformance/validation/cases.json`，并分别通过真实 Mak
 ## format API 与 target
 
 Go API 与 CLI 使用 `Format` / `format`；`fmt` 和 `fix` 仅作为 Makefile target 的候选别名。
-format 使用既有 `LINT_FILES` 文件选择契约；完成后重新规划 lint/test，二者可并行执行。
+format 使用 `FORMAT_FILES` 或兼容的 `LINT_FILES` 文件选择契约；完成后重新规划 lint/test，二者可并行执行。
 Python 原生验证 API 仍只提供 lint/test。
 
 
