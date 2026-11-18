@@ -62,7 +62,7 @@ function replay(events: readonly Row[]): Map<string, Run> {
     text(event.component); text(event.inputs); text(check.status);
     number(check.durationSeconds); number(check.lookupSeconds);
     if (check.checkedAt != null) time(check.checkedAt);
-    if (event.schemaVersion !== 2 || !text(event.checkout) || !id || at.startsWith("0001-01-01T00:00:00") || !["lint", "test"].includes(name)) fail("Invalid validation history event");
+    if (event.schemaVersion !== 2 || !text(event.checkout) || !id || at.startsWith("0001-01-01T00:00:00") || !["lint", "test", "build"].includes(name)) fail("Invalid validation history event");
     const run = runs.get(id);
     if (event.type === "started") {
       if (run) fail(`Duplicate run ${id}`);
@@ -129,7 +129,7 @@ export async function listValidationRuns(query: ValidationRunQuery): Promise<Val
   try {
     const limit = query.limit === undefined || query.limit === 0 ? 20 : query.limit, offset = query.offset ?? 0;
     if (!Number.isInteger(limit) || limit < 1 || limit > 100 || !Number.isInteger(offset) || offset < 0) invalid("Limit must be 1–100 and offset must be nonnegative");
-    if (query.check && !["lint", "test"].includes(query.check)) invalid("Check must be lint or test");
+    if (query.check && !["lint", "test", "build"].includes(query.check)) invalid("Check must be lint, test or build");
     if (query.status && !["passed", "failed", "cancelled", "uncertain", "unfinished"].includes(query.status)) invalid("Invalid run status");
     signal = budget(query);
     const budgetSignal = signal, {key, directory} = await location(query.repository, query, budgetSignal);

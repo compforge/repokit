@@ -74,7 +74,7 @@ func (s *State) apply(e Event) error {
 	if err := json.Unmarshal(e.Check, &check); err != nil {
 		return fmt.Errorf("invalid history check: %w", err)
 	}
-	if e.SchemaVersion != 2 || e.Checkout == "" || e.Run == "" || e.At.IsZero() || (check.Check != "lint" && check.Check != "test") {
+	if e.SchemaVersion != 2 || e.Checkout == "" || e.Run == "" || e.At.IsZero() || (check.Check != "lint" && check.Check != "test" && check.Check != "build") {
 		return errors.New("invalid validation history event")
 	}
 	key := e.Component + " " + check.Check

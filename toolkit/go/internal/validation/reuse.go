@@ -134,6 +134,9 @@ func (s *historySession) candidate(root string, spec CheckSpec) (*history.Run, *
 // +spec=Successful history grants reuse only for the same task, inputs and environment
 // +spec=History never chooses or widens affected-file execution scope
 func (s *historySession) reuse(ctx context.Context, root string, spec CheckSpec) (*CheckResult, string) {
+	if spec.Check == "build" {
+		return nil, "build requires current artifact execution"
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.force {

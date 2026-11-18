@@ -304,6 +304,53 @@
       "error": true,
       "errorMessage": "invalid validation history event",
       "errorCode": "validation.history_failed"
+    },
+    {
+      "name": "full build execution",
+      "extra": [
+        {
+          "schemaVersion": 2,
+          "type": "started",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:00.000000001Z",
+          "run": "BUILD",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "BUILD",
+            "check": "build",
+            "scope": "full",
+            "status": "running",
+            "durationSeconds": 0
+          }
+        },
+        {
+          "schemaVersion": 2,
+          "type": "finished",
+          "checkout": "/retained/checkout",
+          "at": "2026-11-12T00:00:02Z",
+          "run": "BUILD",
+          "component": ".",
+          "inputs": "INPUT",
+          "check": {
+            "runID": "BUILD",
+            "check": "build",
+            "scope": "full",
+            "status": "passed",
+            "durationSeconds": 1,
+            "checkedAt": "2026-11-12T00:00:02Z"
+          },
+          "inputsConsistent": true
+        }
+      ],
+      "query": {
+        "check": "build"
+      },
+      "ids": [
+        "BUILD"
+      ],
+      "total": 1,
+      "hasMore": false
     }
   ]
 }

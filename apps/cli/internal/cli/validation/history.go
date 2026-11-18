@@ -70,8 +70,8 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 		if q.Limit < 1 || q.Limit > 100 || q.Offset < 0 {
 			return errors.New("limit must be 1–100 and offset must be nonnegative")
 		}
-		if q.Check != "" && q.Check != "lint" && q.Check != "test" {
-			return errors.New("check must be lint or test")
+		if q.Check != "" && q.Check != "lint" && q.Check != "test" && q.Check != "build" {
+			return errors.New("check must be lint, test or build")
 		}
 		if q.Status != "" && !slices.Contains([]string{"passed", "failed", "cancelled", "uncertain", "unfinished"}, q.Status) {
 			return errors.New("invalid run status")
@@ -80,7 +80,7 @@ func newValidationHistoryCommand(opts *cmdutil.Options) *cobra.Command {
 	}
 	list.Flags().StringVar(&q.Checkout, "checkout", "", "exact checkout path; default all repository checkouts, including removed paths")
 	list.Flags().StringVar(&q.Component, "component", "", "exact repository-relative Component root")
-	list.Flags().StringVar(&q.Check, "check", "", "lint or test")
+	list.Flags().StringVar(&q.Check, "check", "", "lint, test or build")
 	list.Flags().StringVar(&q.Status, "status", "", "passed, failed, cancelled, uncertain or unfinished")
 	list.Flags().IntVar(&q.Limit, "limit", 20, "maximum returned runs (1–100)")
 	list.Flags().IntVar(&q.Offset, "offset", 0, "skip this many matching runs")
