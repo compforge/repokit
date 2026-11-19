@@ -15,7 +15,11 @@ import (
 func newEnsureCommand(opts *cmdutil.Options) *cobra.Command {
 	var branch, base, remote string
 	var prepare bool
-	cmd := &cobra.Command{Use: "ensure <name>", Short: "Create or reuse a named worktree under the primary checkout", Long: "Create or reuse <primary-checkout>/.worktrees/<name>. --repo is required and resolves the owning repository even from a linked checkout or symlink. The name is a single directory name, independent of --branch; paths are not accepted. After confirmation and optional preparation, automatically enforce this clone's worktree retention limits (configured max_count and max_prepared; defaults: 10 worktrees and 3 prepared environments). This can delete eligible older worktrees, including uncommitted, untracked and ignored files, and release older prepared environments. Local branches and commits remain. The invoking and ensured checkouts and explicitly locked worktrees are protected. Maintenance runs even when reusing an existing checkout; warnings do not undo creation.", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "ensure <name>", Short: "Create or reuse a named worktree under the primary checkout", Long: `Create or reuse <primary-checkout>/.worktrees/<name>. Pass the required --repo even when invoking ensure from a linked checkout or symlink. The name must be a single directory name and is independent of --branch.
+
+To limit disk use, each confirmed creation or reuse automatically applies this clone's retention policy after optional preparation. When counts exceed the configured limits, ensure removes eligible older worktrees (max_count, default 10) and releases older prepared environments (max_prepared, default 3). Both limits use worktree creation time, oldest first. Explicit clean commands can also reclaim worktrees for verified merged PRs.
+
+Removal includes uncommitted, untracked and ignored files. Local branches and commits remain. The invoking and ensured checkouts and explicitly locked worktrees are protected. Maintenance warnings leave the confirmed checkout in place.`, Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		if !cmd.Flag("repo").Changed || opts.Repository == "" {
 			return errors.New("--repo is required")
 		}
