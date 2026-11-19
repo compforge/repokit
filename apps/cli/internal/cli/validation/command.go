@@ -34,7 +34,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command := &cobra.Command{
 		Use:   name,
 		Short: "Run Makefile-defined Component " + name + " checks",
-		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. File and worker parameters follow the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Add build to execute each selected Component's literal build target after successful checks. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
+		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. File and worker parameters follow the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Add build to execute each selected Component's literal build target alongside lint and test within the concurrency limit. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			for _, worker := range workers {
@@ -152,7 +152,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringArrayVar(&files, "file", nil, "repository-relative file selecting its owning Component (repeatable)")
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
 	command.Flags().BoolVar(&planOnly, "plan", false, "preview the plan without running checks (text by default; --json for parsing)")
-	command.Flags().IntVar(&concurrency, "concurrency", 2, "maximum concurrent checks (1–64)")
+	command.Flags().IntVar(&concurrency, "concurrency", 3, "maximum concurrent checks (1–64)")
 	for _, worker := range workers {
 		if name == "validate" || name == worker.check {
 			command.Flags().IntVar(worker.value, worker.check+"-workers", 0, "positive "+strings.ToUpper(worker.check)+"_WORKERS override; omitted uses project default")
@@ -166,7 +166,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	if name == "validate" {
 		command.AddCommand(newValidationHistoryCommand(opts))
-		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test,build); format first, optional Component build last; default lint,test")
+		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test,build); format first, then lint/test/build share the concurrency limit; default lint,test")
 	}
 	return command
 }

@@ -37,7 +37,7 @@ type ValidationRequest struct {
 	Files                []string
 	Impact               *analysis.Report
 	Tags                 []string
-	Concurrency          int // zero defaults to two concurrent checks.
+	Concurrency          int // zero defaults to three concurrent checks.
 	FormatWorkers        int // optional FORMAT_WORKERS override.
 	BuildWorkers         int // optional BUILD_WORKERS override.
 	LintWorkers          int // zero preserves the project default; positive overrides LINT_WORKERS for lint only.
@@ -237,7 +237,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 	plan.Impact = req.Impact
 	plan.Concurrency = req.Concurrency
 	if plan.Concurrency == 0 {
-		plan.Concurrency = 2
+		plan.Concurrency = 3
 	}
 	if plan.Concurrency < 1 || plan.Concurrency > 64 {
 		return ValidationPlan{}, errors.New("validation concurrency must be between 1 and 64")
@@ -457,7 +457,7 @@ func planSeal(plan ValidationPlan) string {
 	return hex.EncodeToString(sum[:])
 }
 
-// ExecuteValidation consumes only the frozen plan. Round-level captures guard evidence across checks and before a combined build.
+// ExecuteValidation consumes only the frozen plan. Round-level captures guard evidence across concurrent checks.
 // +spec=Planning mismatch prevents execution; final input changes invalidate passing evidence without erasing terminal results
 // +spec=The executor never recalculates the scope of a frozen command
 // +link=component://docs/validation.md
@@ -490,13 +490,8 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 	phases.start("history.open")
 	history := beginHistory(ctx, plan)
 	phases.start("checks")
-	// Build recipes may consume generated artifacts and run expensive packaging tools.
-	// Finish the requested lint/test round before starting any of them.
-	type job struct {
-		root   string
-		result *CheckResult
-	}
-	var checks, builds []job
+	var workers sync.WaitGroup
+	slots := make(chan struct{}, plan.Concurrency)
 	for _, component := range plan.Components {
 		results := make([]CheckResult, len(component.Checks))
 		report.Components = append(report.Components, ComponentValidationResult{Component: component.Component, Checks: results})
@@ -505,57 +500,14 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 			if spec.Scope == "skipped" || spec.Scope == "unavailable" {
 				continue
 			}
-			item := job{component.Component.Root, &results[i]}
-			if spec.Check == "build" {
-				builds = append(builds, item)
-			} else {
-				checks = append(checks, item)
-			}
-		}
-	}
-	run := func(batch []job) {
-		var workers sync.WaitGroup
-		slots := make(chan struct{}, plan.Concurrency)
-		for _, item := range batch {
 			slots <- struct{}{}
 			workers.Go(func() {
 				defer func() { <-slots }()
-				*item.result = runValidationCheck(ctx, plan, history, item.root, item.result.CheckSpec)
+				results[i] = runValidationCheck(ctx, plan, history, component.Component.Root, spec)
 			})
 		}
-		workers.Wait()
 	}
-	run(checks)
-	buildInputsConsistent := true
-	if len(builds) > 0 {
-		var reason string
-		for _, group := range report.Components {
-			for _, check := range group.Checks {
-				if check.Check != "build" && check.Status != "passed" && check.Status != "skipped" {
-					reason = "a preceding validation check did not pass"
-				}
-			}
-		}
-		if reason == "" && len(checks) > 0 {
-			phases.start("inputs.before_build")
-			current, captureErr := analysis.CaptureSnapshot(ctx, analysis.InputRequest{Repository: plan.Checkout})
-			buildInputsConsistent = captureErr == nil && current.Complete && current.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
-			if !buildInputsConsistent {
-				reason = "could not verify unchanged inputs before build"
-				if captureErr != nil {
-					report.Diagnostics = append(report.Diagnostics, captureErr.Error())
-				}
-			}
-		}
-		if reason == "" {
-			phases.start("build")
-			run(builds)
-		} else {
-			for _, item := range builds {
-				item.result.Status, item.result.Reason = "skipped", reason
-			}
-		}
-	}
+	workers.Wait()
 	report.Complete, report.Passed = true, true
 	for _, group := range report.Components {
 		for _, result := range group.Checks {
@@ -569,7 +521,7 @@ func ExecuteValidation(ctx context.Context, plan ValidationPlan) (report Validat
 	}
 	phases.start("inputs.after")
 	after, err := analysis.CaptureSnapshot(ctx, analysis.InputRequest{Repository: plan.Checkout})
-	report.InputsConsistent = buildInputsConsistent && err == nil && after.Complete && after.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
+	report.InputsConsistent = err == nil && after.Complete && after.Snapshot == plan.Snapshot && validationWitnessesMatch(plan)
 	if !report.InputsConsistent {
 		report.Passed = false
 		message := "inputs changed during validation"

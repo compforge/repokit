@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"time"
 
 	repokit "github.com/compforge/repokit/toolkit/go"
 )
@@ -58,34 +59,53 @@ func TestValidationBuildCurrentArtifact(t *testing.T) {
 	}
 }
 
-// +case=Build follows lint and test, preserving earlier evidence on failure or changed inputs.
-func TestValidationBuildAfterChecks(t *testing.T) {
-	ctx := context.Background()
+// +case=By default lint, test and build can all start after format before any of them finishes.
+func TestValidationConcurrentBuild(t *testing.T) {
+	root := validationRepo(t, `format:
+	@echo formatted > VERSION
+lint test build:
+	@grep -qx formatted VERSION
+	@touch $@.out
+	@while [ ! -f lint.out ] || [ ! -f test.out ] || [ ! -f build.out ]; do sleep 0.05; done
+`)
+	writeValidationFile(t, root, "VERSION", "initial\n")
+	ctx, cancel := context.WithTimeout(t.Context(), 10*time.Second)
+	defer cancel()
+	report, err := repokit.Validate(ctx, repokit.ValidationRequest{
+		Repository: root, Checks: []string{"format", "lint", "test", "build"},
+	})
+	if err != nil || !report.Passed || !report.Complete || !report.InputsConsistent {
+		t.Fatal(report, err)
+	}
+	for i, name := range []string{"lint", "test", "build"} {
+		check := report.Components[0].Checks[i]
+		if check.Check != name || check.Status != "passed" {
+			t.Fatal(check)
+		}
+	}
+}
+
+// +case=Queued builds still execute when a sibling fails; changed inputs invalidate the round.
+func TestValidationBuildIndependentResult(t *testing.T) {
 	for _, tc := range []struct {
-		name, testRecipe string
-		pass, consistent bool
+		name, recipe, status string
+		consistent           bool
 	}{
-		{"ordered", "touch test.out", true, true},
-		{"failed", "false", false, true},
-		{"changed inputs", "echo changed > VERSION", false, false},
+		{"failed test", "false", "failed", true},
+		{"changed inputs", "echo changed > VERSION", "passed", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root := validationRepo(t, "lint:\n\t@touch lint.out\ntest:\n\t@"+tc.testRecipe+"\nbuild:\n\t@test -f lint.out && test -f test.out && touch build.out\n")
+			root := validationRepo(t, "test:\n\t@"+tc.recipe+"\nbuild:\n\t@touch build.out\n")
 			writeValidationFile(t, root, "VERSION", "initial\n")
-			req := repokit.ValidationRequest{Repository: root, Checks: []string{"build", "test", "lint"}}
-			report, err := repokit.Validate(ctx, req)
-			if err != nil || report.Passed != tc.pass || report.InputsConsistent != tc.consistent || !report.Complete {
+			report, err := repokit.Validate(t.Context(), repokit.ValidationRequest{
+				Repository: root, Checks: []string{"test", "build"}, Concurrency: 1,
+			})
+			if err != nil || report.Passed || !report.Complete || report.InputsConsistent != tc.consistent {
 				t.Fatal(report, err)
 			}
 			checks := report.Components[0].Checks
-			if len(checks) != 3 || checks[0].Check != "lint" || checks[1].Check != "test" || checks[2].Check != "build" {
+			if checks[0].Status != tc.status || checks[1].Status != "passed" || checks[1].RunID == "" {
 				t.Fatal(checks)
-			}
-			if checks[0].Status != "passed" || (checks[2].Status == "passed") != tc.pass {
-				t.Fatal(checks)
-			}
-			if !tc.pass && (checks[2].Status != "skipped" || checks[2].RunID != "" || checks[2].Reason == "full Component check") {
-				t.Fatal(checks[2])
 			}
 		})
 	}
