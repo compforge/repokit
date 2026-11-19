@@ -124,7 +124,6 @@ CLI 映射到 `cost.phases[]`，名称加 `validation.` 前缀。规划和执行
 | `inputs.before` / `inputs.after` | 执行前计划及输入核对 / 执行后输入复核 |
 | `history.open` / `history.finish` | 打开历史上下文 / 终态写入与统计 |
 | `checks` | 整组检查的墙钟时间，包括调度等待、复用查询及执行；并发检查不相加 |
-| `inputs.before_build` / `build` | 前序检查完成后的输入一致性核对 / 实际构建耗时 |
 | `format.*` | 显式 format 的规划、前后捕获及执行，沿用对应阶段名 |
 
 提前失败也保留已进入阶段的耗时，未进入的阶段省略。CLI 的外层 `planning` / `validation` 包含这些
@@ -235,7 +234,8 @@ Component 相对路径并去重排序。包含空格、shell/Make 元字符或�
 Go/CLI 默认执行 lint/test。显式 `validate --component <root> --check build` 对整个 Component 执行构建；
 显式 `--file` 选择文件所属的 Component，项目消费 `BUILD_FILES` 时才缩小构建范围。`--base` 按受影响的 Component 选择构建范围；显式指定的 Component
 即使只有 VERSION 变化也运行 build。组合 `--check format,lint,test,build` 在 format 后重新规划，
-等待本轮 lint/test 完成并核对输入一致性，再执行 build。前置检查失败时保留结果并报告跳过构建的原因。
+lint、test、build 共享 `--concurrency` 并发额度（默认 3）。任一检查失败时，其余检查继续执行，整轮报告保留各项结果。
+检查共用格式化后的输入，执行结束后统一复核输入一致性。
 每次实际运行 build 都有独立 Run，历史成功无法证明当前产物仍然存在。项目应将构建输出放在忽略路径下。
 
 ## 检查输入与结果复用
@@ -460,7 +460,7 @@ Go/CLI 默认继承环境时额外移除 `CODEX_TOOL_CALL_ID`，避免每次工�
 继续参与摘要。Go 调用方显式提供 `ValidationRequest.Environment` 时保留该变量，并以其实际值参与复用判定。
 已有历史不改写；旧环境摘要不匹配时正常执行一次，后续请求才能复用新的成功记录。
 
-Go/CLI 的 concurrency 默认 2，范围 1–64；format 顺序完成后，lint/test 共用一个有界队列。Go 调用方通过 context 传入整轮 deadline；Python 保留顺序执行，使用 timeout 和已有 operation
+Go/CLI 的 concurrency 默认 3，范围 1–64；format 顺序完成后，lint/test/build 共用一个有界队列。Go 调用方通过 context 传入整轮 deadline；Python 保留顺序执行，使用 timeout 和已有 operation
 取消作用域。CLI 沿用全局 --timeout。macOS/Linux 上每次 Make 都运行在独立会话中，取消、超时、
 输出超限或退出时清理其进程组。启动后中断标为 uncertain，未启动时取消标为 cancelled；不自动重试。
 stdout 上限 16 MiB，stderr 上限 64 KiB。输出超过预算会终止检查并报告 uncertain。
