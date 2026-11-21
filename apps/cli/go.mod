@@ -6,7 +6,7 @@ require (
 	github.com/compforge/codegraph v0.15.4-0.20261120030233-8a1e9ee2d38b
 	github.com/compforge/go-stdx v0.1.1-0.20261010101953-ebb567922ec3
 	github.com/compforge/quality-harness/sdks/go v0.0.0-20261105122955-dd898d2b95fc
-	github.com/compforge/repokit/toolkit/go v0.94.3
+	github.com/compforge/repokit/toolkit/go v0.95.0
 	github.com/spf13/cobra v1.10.2
 	golang.org/x/mod v0.29.0
 )

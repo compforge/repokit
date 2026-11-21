@@ -18,6 +18,20 @@ import (
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
+type cloneRegistration struct {
+	Version   int    `json:"version"`
+	CommonDir string `json:"commonDir"`
+}
+
+func readCloneRegistration(path string) (cloneRegistration, bool, error) {
+	var clone cloneRegistration
+	found, err := Read(filepath.Join(path, "clone.json"), &clone)
+	if found && (clone.Version != 1 || !filepath.IsAbs(clone.CommonDir) || Digest(clone.CommonDir) != filepath.Base(path)) {
+		return clone, false, errors.New("invalid clone registration")
+	}
+	return clone, found, err
+}
+
 type checkoutObservation struct {
 	Version    int     `json:"version"`
 	Clone      string  `json:"clone"`

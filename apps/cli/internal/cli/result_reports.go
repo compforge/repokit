@@ -213,6 +213,12 @@ func describeResult(r *commandResult, data any) {
 			r.Data = []forge.PullRequest{}
 		}
 		r.Summary = fmt.Sprintf("%d pull requests", len(v))
+	case state.FindReport:
+		r.Summary = fmt.Sprintf("%d matching primary checkout(s)", len(v.Matches))
+		for _, message := range v.Diagnostics {
+			r.Outcome = "partial"
+			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "state.find_incomplete", Severity: "warning", Phase: "lookup", Message: message})
+		}
 	case stats.Report:
 		r.Summary = fmt.Sprintf("Retained statistics; complete=%t; %d diagnostics", v.Complete, len(v.Diagnostics))
 		if !v.Complete {
