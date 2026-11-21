@@ -60,7 +60,7 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	}
 	code := 0
 	if err != nil {
-		if (command == nil || command.Name() != "stats") && !validationcmd.IsHistoryQuery(command) {
+		if !isHomeQuery(command) && !validationcmd.IsHistoryQuery(command) {
 			start()
 		}
 		code = 2
@@ -123,19 +123,23 @@ saves the complete JSON result without changing the stdout format.`,
 	flags.BoolVar(&opts.JSON, "json", false, "write one final JSON result for field parsing (default: readable text)")
 	flags.DurationVar(&opts.Timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
-	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts))
+	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts), newRepoCommand(opts))
 	root.AddCommand(worktreecmd.NewCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
 	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), codecmd.NewCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
 	trackRepositoryCommands(root, opts)
 	return root
 }
 
+// Home queries can run without a checkout and without creating command history.
+func isHomeQuery(command *cobra.Command) bool {
+	return command != nil && (command.CommandPath() == "repocli repo find" || command.CommandPath() == "repocli stats")
+}
+
 func logCommandHandlers(command *cobra.Command, start func()) {
-	if command.Annotations["history-query"] == "true" {
+	if isHomeQuery(command) || command.Annotations["history-query"] == "true" {
 		return
 	}
-	// +why=Statistics must not pollute their input or trigger retention cleanup while observing it
-	if (command.Name() == "version" || command.Name() == "stats") && command.Parent() != nil && command.Parent().Parent() == nil {
+	if command.Name() == "version" && command.Parent() != nil && command.Parent().Parent() == nil {
 		return
 	}
 	if run := command.RunE; run != nil {
@@ -189,7 +193,7 @@ func trackRepositoryCommands(root *cobra.Command, opts *cmdutil.Options) {
 	}
 	for _, cmd := range root.Commands() {
 		switch cmd.Name() {
-		case "version", "stats", "upgrade", "clean":
+		case "version", "stats", "upgrade", "clean", "repo":
 			continue
 		}
 		visit(cmd)

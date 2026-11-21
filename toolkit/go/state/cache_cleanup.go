@@ -531,6 +531,7 @@ func (c *cacheCleanup) invalidateAssociations() error {
 	}
 	return nil
 }
+
 func (c *cacheCleanup) clones() error {
 	paths, err := directories(filepath.Join(c.directory, "clones"))
 	if err != nil {
@@ -540,19 +541,12 @@ func (c *cacheCleanup) clones() error {
 		if c.options.CloneKey != "" && filepath.Base(path) != c.options.CloneKey {
 			continue
 		}
-		var clone struct {
-			Version   int    `json:"version"`
-			CommonDir string `json:"commonDir"`
-		}
-		found, err := Read(filepath.Join(path, "clone.json"), &clone)
+		clone, found, err := readCloneRegistration(path)
 		if err != nil {
 			return err
 		}
 		if !found {
 			continue
-		}
-		if clone.Version != 1 || !filepath.IsAbs(clone.CommonDir) || Digest(clone.CommonDir) != filepath.Base(path) {
-			return errors.New("invalid clone registration")
 		}
 		checkouts, err := directories(filepath.Join(path, "checkouts"))
 		if err != nil {
