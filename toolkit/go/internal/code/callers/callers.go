@@ -45,12 +45,27 @@ func Analyze(ctx context.Context, req Request) (Report, error) {
 	if err != nil {
 		return Report{}, err
 	}
-	if _, ok := captured.Contents.Files[req.Path]; !ok {
-		return Report{}, fmt.Errorf("file %q unavailable in selected snapshot", req.Path)
+	report := Report{Snapshot: captured.Report}
+	_, retained := captured.Contents.Files[req.Path]
+	_, opaque := captured.Contents.Opaque[req.Path]
+	if !retained && !opaque {
+		return report, fmt.Errorf("file %q unavailable in selected snapshot", req.Path)
 	}
 	result, err := captured.BuildGraph(ctx, max(1, len(captured.Contents.Files)), cg.Options{MaxNodes: 250000, MaxRelations: 1000000, Admission: cg.AnalysisAdmission()})
 	if err != nil {
-		return Report{}, err
+		return report, err
+	}
+	report.Diagnostics = append(result.InputDiagnostics, result.Report.Diagnostics...)
+	if _, ok := result.Sources[req.Path]; !ok {
+		for _, d := range result.InputDiagnostics {
+			if d.Location.Path == req.Path {
+				return report, fmt.Errorf("file omitted from code graph: %s", d.Message)
+			}
+		}
+		if opaque {
+			return report, fmt.Errorf("file %q exceeds the snapshot file byte limit", req.Path)
+		}
+		return report, fmt.Errorf("file %q omitted from code graph", req.Path)
 	}
 	var target cg.Node
 	for _, n := range result.Graph.Find(req.Path, "", "") {
@@ -64,14 +79,15 @@ func Analyze(ctx context.Context, req Request) (Report, error) {
 			continue
 		}
 		if target.ID != "" {
-			return Report{}, fmt.Errorf("ambiguous declaration at %s:%d:%d", req.Path, req.Line, req.Column)
+			return report, fmt.Errorf("ambiguous declaration at %s:%d:%d", req.Path, req.Line, req.Column)
 		}
 		target = n
 	}
 	if target.ID == "" {
-		return Report{}, fmt.Errorf("no indexed callable declaration name at %s:%d:%d", req.Path, req.Line, req.Column)
+		return report, fmt.Errorf("no indexed callable declaration name at %s:%d:%d", req.Path, req.Line, req.Column)
 	}
-	report := Report{Snapshot: captured.Report, Target: target, Callers: []Site{}, Diagnostics: append(result.InputDiagnostics, result.Report.Diagnostics...)}
+	report.Target = target
+	report.Callers = []Site{}
 	for _, edge := range result.Graph.RelationsTo(target.ID, cg.Calls) {
 		if err := ctx.Err(); err != nil {
 			return Report{}, err

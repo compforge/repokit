@@ -51,6 +51,9 @@ func newCallersCommand(opts *cmdutil.Options) *cobra.Command {
 			req.Repository = opts.Repository
 			report, err := repokit.FindCallers(ctx, req)
 			if err != nil {
+				if report.Snapshot.Snapshot != "" {
+					cmdutil.Record(cmd.OutOrStdout(), report)
+				}
 				return cmdutil.ExecutionFailure(err)
 			}
 			if opts.JSON {

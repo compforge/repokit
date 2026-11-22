@@ -112,7 +112,10 @@ func describeResult(r *commandResult, data any) {
 			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "units.limit_exceeded", Severity: "warning", Phase: "units", Message: "Unit count exceeds the soft limit; all formed units are retained", Evidence: "/data/limit_exceeded"})
 		}
 	case repokit.CallersReport:
-		r.Summary = fmt.Sprintf("%d static call site(s) for %s", len(v.Callers), v.Target.QualifiedName)
+		r.Summary = "Caller lookup"
+		if v.Target.ID != "" {
+			r.Summary = fmt.Sprintf("%d static call site(s) for %s", len(v.Callers), v.Target.QualifiedName)
+		}
 		r.analysisDiagnostics(v.Snapshot.Diagnostics, "snapshot", "/data/snapshot/diagnostics")
 		for i, d := range v.Diagnostics {
 			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "graph", Message: d.Message, Path: d.Location.Path, Line: d.Location.Line, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})

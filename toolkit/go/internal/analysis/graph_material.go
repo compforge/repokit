@@ -78,7 +78,7 @@ func GraphFromSource(ctx context.Context, source GraphSource, opts GraphOptions)
 	var docs []shared.Document
 	diagnostics := []shared.Diagnostic{}
 	issue := func(code, name, message string) {
-		diagnostics = append(diagnostics, shared.Diagnostic{Code: code, Subject: shared.DocumentSubject, Message: name + ": " + message})
+		diagnostics = append(diagnostics, shared.Diagnostic{Code: code, Subject: shared.DocumentSubject, Location: shared.Location{Path: name}, Message: name + ": " + message})
 	}
 	var size int64
 	for _, file := range files {
@@ -128,7 +128,7 @@ func GraphFromSource(ctx context.Context, source GraphSource, opts GraphOptions)
 		return nil, fmt.Errorf("build code graph: %w", err)
 	}
 	if n < len(docs) {
-		issue("graph_budget", "graph", fmt.Sprintf("omitted %d of %d documents; prioritized materials retained", len(docs)-n, len(docs)))
+		diagnostics = append(diagnostics, shared.Diagnostic{Code: "graph_budget", Subject: shared.DocumentSubject, Message: fmt.Sprintf("graph: omitted %d of %d documents; prioritized materials retained", len(docs)-n, len(docs))})
 	}
 	sources := map[string][]byte{}
 	for _, doc := range docs[:n] {
