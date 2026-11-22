@@ -8,6 +8,7 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 
 | 子能力 | 关注的问题 | 当前状态 |
 | --- | --- | --- |
+| 调用方查询 | 给定声明名在源码中的位置，哪些位置直接调用了它？ | 已实现：`repocli code callers --at <file:line:column>` / Go `FindCallers` |
 | [Deadcode](code/dead.md) | 声明是否被使用、是否从声明的入口可达，以及改动前后的用途变化 | 已实现：`repocli code dead` / Go `AnalyzeDeadcode` |
 | 规模与复杂度 | 文件和函数长度、类型的方法数量；后续可扩展嵌套与分支复杂度 | 规划方向，尚无对应命令或规则 |
 | 耦合与结构 | 依赖范围、循环依赖团、跨模块调用与关系聚合 | 规划方向，尚无对应命令或规则 |
@@ -16,6 +17,12 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 文件、声明、类型、语言模块和工程 Component 是不同的观察粒度。类型成员按语义归属统计，
 不能只按同文件或词法嵌套判断；工程 Component 的身份和边界来自 Repository 分析。
 子能力按实际需求实现，不为规划方向预建空包或统一规则引擎。
+
+## 从声明查调用方
+
+在仓库中运行 `repocli code callers --at service.go:12:8`，把位置指向函数、方法或构造器的声明名。文件路径相对仓库根，行号和 UTF-8 字节列号从 1 起算。可先用 `rg -n --column` 定位名称。命令读取当前工作树快照，每处静态调用单列调用者、调用位置和 CodeGraph 的置信度。`--json` 额外保留声明、关系证据和分析诊断。
+
+调用关系只按该声明的图身份查询。接口方法可以有指向接口契约的调用边，具体实现只能获得 CodeGraph 实际解析或推断出的入边。空结果表示已分析范围内没有发现对应调用。查询范围遵循 CodeGraph 的分析材料准入规则。函数作为值传给框架时，可以有读取引用而没有直接调用。判断未引用或入口不可达的候选见 `code dead`。
 
 ## 与底层能力的边界
 
@@ -68,17 +75,16 @@ docs/
 └── codegraph.md             # 多个上层能力共享的代码事实与仓库适配
 
 toolkit/go/
-├── deadcode.go              # 现有公开 API：AnalyzeDeadcode 与公共类型
+├── callers.go / deadcode.go # FindCallers、AnalyzeDeadcode 与公共类型
 └── internal/
     ├── code/
+    │   ├── callers/     # 声明位置与直接调用证据
     │   └── dead/        # deadcode 流程、规则、比较与所属测试
     ├── analysis/            # 共享捕获、构图与分析原语
     └── codegraph/           # 共享 CodeGraph 的仓库适配与查询
 ```
 
-`internal/code` 以子能力组织目录。依赖方向为 `code/dead → analysis` 和共享代码事实；
-共享原语不反向依赖 Code 子能力。CLI 以 Code 为领域组织，当前入口是 `repocli code dead`，Go 入口仍是
-`AnalyzeDeadcode`，CLI 展示位于 `apps/cli/internal/cli/code/dead.go`。
+各 Code 子能力复用 analysis 的快照与共享代码事实，CLI 展示位于 `apps/cli/internal/cli/code/`。
 公共命令与 SDK 入口按实际使用需求演进，目录归属本身不要求新增一层转发 API。
 
 各子能力的行为契约和 case 随实现维护；目录迁移保留现有 spec/case 及验证场景。
