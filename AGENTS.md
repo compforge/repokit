@@ -37,7 +37,7 @@ PR、Comment 与本机分散位置的 clone、branch、worktree。RepoKit / repo
 | Snapshot / Comparison | Snapshot 标识捕获内容并报告缺口；Comparison 配对前后版本、文件变化及源码。布局、图、位置和显示源码必须属于相同版本，前后版本的证据路径不能混用。 |
 | Fragment / Unit | Fragment 表达同一对象上的实际编辑，Unit 按关系强度聚合相关 Fragment；容量和数量约束由工具包负责，评审与验证决策归调用方。 |
 | CodeGraph | 共享 CodeGraph 提供语言声明、成员、命名空间、绑定关系与证据，是 Code 分析、Repository / Component 识别、Diff / Impact、View 等上层能力可复用的底层能力。RepoKit 拥有工程语义和分析策略；Component、Changeset、Testset、Workset 不进入通用图模型。 |
-| Code | 结合仓库上下文、代码事实与项目规则分析代码质量，拥有各子能力的范围、判定、诊断与版本比较。现有子能力为 deadcode；规模、耦合与架构约束是后续方向，详见 [Code](docs/code.md)。 |
+| Code | 结合仓库上下文、代码事实与项目规则分析代码质量，拥有各子能力的范围、判定、诊断与版本比较。现有子能力包括调用导航、类型层级与 deadcode；规模、耦合与架构约束是后续方向，详见 [Code](docs/code.md)。 |
 | Configuration | 用户级访问配置，按 Forge 实例解析 provider、API host 与凭据；与可回收的 repository 状态分开，契约见 Home 的配置小节。 |
 | State | 核心业务组件，拥有仓库身份与关联、观测复用、checkout 生命周期、状态发布与恢复。Git 是下层事实与操作适配，由 state 调用，不反向更新 state。持久化目录中的本地键见 Home 专题。 |
 | PullRequest / Forge | PR 由目标 Repository 与仓内编号确定；源仓、分支、revision 和状态不参与身份。Forge 适配平台读写与查询，观察层维护显式启用的刷新和持久化；调用方拥有关注范围、时效要求、进程生命周期与业务动作。 |

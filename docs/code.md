@@ -9,6 +9,8 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 | 子能力 | 关注的问题 | 当前状态 |
 | --- | --- | --- |
 | 调用方查询 | 给定声明名在源码中的位置，哪些位置直接调用了它？ | 已实现：`repocli code callers --at <file:line:column>` / Go `FindCallers` |
+| 下游调用查询 | 当前声明直接调用了哪些声明？ | `repocli code callees --at <file:line:column>` / Go `FindCallees` |
+| 类型层级 | 哪些类型是祖先、后代，关系是继承还是实现？ | `repocli code hierarchy --at <file:line:column>` / Go `TypeHierarchy` |
 | [Deadcode](code/dead.md) | 声明是否被使用、是否从声明的入口可达，以及改动前后的用途变化 | 已实现：`repocli code dead` / Go `AnalyzeDeadcode` |
 | 规模与复杂度 | 文件和函数长度、类型的方法数量；后续可扩展嵌套与分支复杂度 | 规划方向，尚无对应命令或规则 |
 | 耦合与结构 | 依赖范围、循环依赖团、跨模块调用与关系聚合 | 规划方向，尚无对应命令或规则 |
@@ -23,6 +25,20 @@ Code 是 RepoKit 的代码分析领域：结合仓库上下文、代码事实和
 在仓库中运行 `repocli code callers --at service.go:12:8`，把位置指向函数、方法或构造器的声明名。文件路径相对仓库根，行号和 UTF-8 字节列号从 1 起算。可先用 `rg -n --column` 定位名称。命令读取当前工作树快照，每处静态调用单列调用者、调用位置和 CodeGraph 的置信度。`--json` 额外保留声明、关系证据和分析诊断。
 
 调用关系只按该声明的图身份查询。接口方法可以有指向接口契约的调用边，具体实现只能获得 CodeGraph 实际解析或推断出的入边。空结果表示已分析范围内没有发现对应调用。查询范围遵循 CodeGraph 的分析材料准入规则。函数作为值传给框架时，可以有读取引用而没有直接调用。判断未引用或入口不可达的候选见 `code dead`。
+
+`repocli code callees --at service.go:12:8` 沿相反方向列出一跳调用。每个调用点单独一行，包含调用位置、被调用声明的位置及置信度。同一函数被调用两次会出现两行。嵌套函数体内的调用归属于对应的声明。
+
+## 从类型声明查层级
+
+```sh
+repocli code hierarchy --at types.ts:12:7 --direction parents
+repocli code hierarchy --at types.ts:12:7 --direction children
+repocli code hierarchy --at types.ts:12:7
+```
+
+`parents` 递归列出基类及实现的接口，`children` 递归列出派生类型及接口的实现类型。默认 `both` 从选中的类型分别向上和向下展开。要包含兄弟类型，从共同祖先查 `children`。每条关系保留 `extends` 或 `implements`、对端声明及置信度。多继承的共享祖先或循环中的类型再次出现时，保留这条边并标记 `already shown`，每个方向内只展开一次。
+
+`--json` 输出深度优先排列的关系条目，`depth` 从 1 起算，关系保留 CodeGraph 记录的方向和证据。范围取决于快照和静态绑定。Go 接口嵌入可产生 `extends`，struct 嵌入表示组合；基于方法名集合推断的接口实现保留 `heuristic` 置信度。动态基类等未解析关系可结合诊断查看。
 
 ## 与底层能力的边界
 
@@ -78,6 +94,7 @@ toolkit/go/
 ├── callers.go / deadcode.go # FindCallers、AnalyzeDeadcode 与公共类型
 └── internal/
     ├── code/
+    │   ├── navigation/  # 声明定位、下游调用与类型层级
     │   ├── callers/     # 声明位置与直接调用证据
     │   └── dead/        # deadcode 流程、规则、比较与所属测试
     ├── analysis/            # 共享捕获、构图与分析原语

@@ -14,13 +14,13 @@ func TestCallersPosition(t *testing.T) {
 		{"dir/file.go:12:8", "dir/file.go"},
 		{"./dir/a:b.go:12:8", "dir/a:b.go"},
 	} {
-		req, err := callersPosition(tc.at)
+		req, err := symbolPosition(tc.at)
 		if err != nil || req.Path != tc.path || req.Line != 12 || req.Column != 8 {
 			t.Errorf("%q: got %+v, %v", tc.at, req, err)
 		}
 	}
 	for _, at := range []string{"", ":1:2", "a.go:1", "a.go:x:2", "a.go:1:x", "a.go:0:1", "a.go:1:-1", "../a.go:1:2", "/a.go:1:2"} {
-		if _, err := callersPosition(at); err == nil {
+		if _, err := symbolPosition(at); err == nil {
 			t.Errorf("accepted %q", at)
 		}
 	}

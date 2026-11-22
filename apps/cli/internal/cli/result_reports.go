@@ -3,6 +3,8 @@ package cli
 import (
 	"fmt"
 
+	cg "github.com/compforge/codegraph"
+
 	"github.com/compforge/repokit/apps/cli/internal/stats"
 	"github.com/compforge/repokit/toolkit/go"
 	"github.com/compforge/repokit/toolkit/go/depot"
@@ -116,10 +118,19 @@ func describeResult(r *commandResult, data any) {
 		if v.Target.ID != "" {
 			r.Summary = fmt.Sprintf("%d static call site(s) for %s", len(v.Callers), v.Target.QualifiedName)
 		}
-		r.analysisDiagnostics(v.Snapshot.Diagnostics, "snapshot", "/data/snapshot/diagnostics")
-		for i, d := range v.Diagnostics {
-			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "graph", Message: d.Message, Path: d.Location.Path, Line: d.Location.Line, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
+		r.symbolDiagnostics(v.Snapshot, v.Diagnostics)
+	case repokit.CalleesReport:
+		r.Summary = "Callee lookup"
+		if v.Target.ID != "" {
+			r.Summary = fmt.Sprintf("%d outgoing static call site(s) for %s", len(v.Callees), v.Target.QualifiedName)
 		}
+		r.symbolDiagnostics(v.Snapshot, v.Diagnostics)
+	case repokit.HierarchyReport:
+		r.Summary = "Type hierarchy"
+		if v.Target.ID != "" {
+			r.Summary = fmt.Sprintf("Type hierarchy for %s (%s)", v.Target.QualifiedName, v.Direction)
+		}
+		r.symbolDiagnostics(v.Snapshot, v.Diagnostics)
 	case repokit.DeadcodeReport:
 		r.analysisDiagnostics(v.Scope.Diagnostics, "deadcode_scope", "/data/scope/diagnostics")
 		if v.Baseline != nil {
@@ -253,5 +264,12 @@ func (r *commandResult) maintenanceDiagnostics(v state.WorktreeCleanReport, seve
 		if a.Status == "failed" {
 			r.Diagnostics = append(r.Diagnostics, diagnostic{Code: "worktree.action_failed", Severity: severity, Phase: "maintenance", Subject: a.Path, Message: a.Reason, Evidence: fmt.Sprintf("%s/actions/%d", path, i)})
 		}
+	}
+}
+
+func (r *commandResult) symbolDiagnostics(snapshot repokit.SnapshotReport, diagnostics []cg.Diagnostic) {
+	r.analysisDiagnostics(snapshot.Diagnostics, "snapshot", "/data/snapshot/diagnostics")
+	for i, d := range diagnostics {
+		r.Diagnostics = append(r.Diagnostics, diagnostic{Code: d.Code, Severity: "warning", Phase: "graph", Message: d.Message, Path: d.Location.Path, Line: d.Location.Line, Evidence: fmt.Sprintf("/data/diagnostics/%d", i)})
 	}
 }
