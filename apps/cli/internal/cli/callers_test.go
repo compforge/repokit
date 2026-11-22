@@ -36,3 +36,39 @@ func TestCallersLookupFailureDiagnostics(t *testing.T) {
 		})
 	}
 }
+
+// +case=Symbol commands expose the same declaration positions and report coverage through the normal CLI entry point.
+func TestSymbolNavigationCLI(t *testing.T) {
+	root, home := fixture(t), t.TempDir()
+	put(t, root, "nav.ts", "class Base {}\nclass Mid extends Base {}\nclass Leaf extends Mid {}\nfunction run() { work(); }\nfunction work() {}\n")
+	for _, tc := range []struct {
+		args   []string
+		code   int
+		want   []string
+		absent string
+	}{
+		{[]string{"hierarchy", "--at", "nav.ts:2:7"}, 0, []string{"extends Base (nav.ts:1:7)", "extended by Leaf (nav.ts:3:7)"}, ""},
+		{[]string{"hierarchy", "--at", "nav.ts:2:7", "--direction", "children"}, 0, []string{"extended by Leaf"}, "Parents"},
+		{[]string{"hierarchy", "--at", "nav.ts:2:7", "--direction", "parents"}, 0, []string{"extends Base"}, "Children"},
+		{[]string{"hierarchy", "--at", "nav.ts:2:7", "--direction", "invalid"}, 2, []string{"direction"}, ""},
+		{[]string{"callees", "--at", "nav.ts:4:10"}, 0, []string{"nav.ts:4:", "work (nav.ts:5:10)"}, ""},
+		{[]string{"callees", "--at", "nav.ts:2:7", "--json"}, 1, []string{"code.callees_failed"}, ""},
+	} {
+		var out, stderr bytes.Buffer
+		args := append([]string{"code"}, tc.args...)
+		args = append(args, "--repo", root, "--home", home)
+		code := Execute(context.Background(), args, nil, &out, &stderr)
+		text := out.String() + stderr.String()
+		if code != tc.code {
+			t.Fatalf("%v: exit %d: %s", tc.args, code, text)
+		}
+		for _, part := range tc.want {
+			if !strings.Contains(text, part) {
+				t.Errorf("%v missing %q: %s", tc.args, part, text)
+			}
+		}
+		if tc.absent != "" && strings.Contains(text, tc.absent) {
+			t.Errorf("%v contained %q: %s", tc.args, tc.absent, text)
+		}
+	}
+}
