@@ -53,19 +53,7 @@ func (captured *CapturedSnapshot) Graph(ctx context.Context, maxDocuments int, o
 	if err != nil {
 		return nil, err
 	}
-	if opts.Admission == nil {
-		opts.Admission = &shared.AdmissionPolicy{ParseTags: []shared.Tag{shared.SourceTag}, ExcludedTags: []shared.Tag{shared.ToolingTag}}
-	}
-	opts.MaxDocuments = maxDocuments
-	if opts.MaxDocumentBytes == 0 {
-		opts.MaxDocumentBytes = 2 << 20
-	}
-	opts.MaxSourceBytes = 128 << 20
-	source, err := newRetainedGraphSource(report.Snapshot, contents)
-	if err != nil {
-		return nil, err
-	}
-	result, err := GraphFromSource(ctx, source, GraphOptions{CodeGraph: opts})
+	result, err := captured.BuildGraph(ctx, maxDocuments, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -74,4 +62,21 @@ func (captured *CapturedSnapshot) Graph(ctx context.Context, maxDocuments int, o
 		diagnostics = []shared.Diagnostic{}
 	}
 	return &GraphSnapshot{Layout: layout, Snapshot: report, Nodes: result.Graph.Nodes(), Relations: result.Graph.Relations(), Diagnostics: diagnostics, Documents: result.Documents, Sources: result.Sources}, nil
+}
+
+// BuildGraph exposes CodeGraph queries over the exact captured bytes.
+func (captured *CapturedSnapshot) BuildGraph(ctx context.Context, maxDocuments int, opts shared.Options) (*GraphResult, error) {
+	if opts.Admission == nil {
+		opts.Admission = &shared.AdmissionPolicy{ParseTags: []shared.Tag{shared.SourceTag}, ExcludedTags: []shared.Tag{shared.ToolingTag}}
+	}
+	opts.MaxDocuments = maxDocuments
+	if opts.MaxDocumentBytes == 0 {
+		opts.MaxDocumentBytes = 2 << 20
+	}
+	opts.MaxSourceBytes = 128 << 20
+	source, err := newRetainedGraphSource(captured.Report.Snapshot, captured.Contents)
+	if err != nil {
+		return nil, err
+	}
+	return GraphFromSource(ctx, source, GraphOptions{CodeGraph: opts})
 }

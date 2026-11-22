@@ -11,6 +11,6 @@ import (
 // +link=component://docs/code.md
 func NewCommand(opts *cmdutil.Options) *cobra.Command {
 	root := &cobra.Command{Use: "code", Short: "Analyze code usage, structure and quality"}
-	root.AddCommand(newDeadCommand(opts))
+	root.AddCommand(newDeadCommand(opts), newCallersCommand(opts))
 	return root
 }
