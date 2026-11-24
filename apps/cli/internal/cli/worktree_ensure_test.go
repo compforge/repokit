@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -51,8 +52,10 @@ func TestWorktreeEnsureCLI(t *testing.T) {
 // +case=Failed preparation returns a partial envelope and preserves a confirmed checkout; no receipt is not ready.
 func TestWorktreeEnsurePreparationPartial(t *testing.T) {
 	root := fixture(t)
-	t.Setenv("REPOKIT_HOME", t.TempDir())
-	for name, content := range map[string]string{"package.json": `{"name":"fixture","packageManager":"npm@10"}`, "package-lock.json": `{"lockfileVersion":3}`, ".gitignore": "node_modules/\n"} {
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", filepath.Join(home, ".repokit"))
+	export := filepath.Join(t.TempDir(), "result.json")
+	for name, content := range map[string]string{"package.json": `{"name":"fixture","packageManager":"bun@1.3.0"}`, "bun.lock": "{}", ".gitignore": "node_modules/\n"} {
 		if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0600); err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +66,7 @@ func TestWorktreeEnsurePreparationPartial(t *testing.T) {
 		}
 	}
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "npm"), []byte("#!/bin/sh\necho installer-failed >&2\nexit 3\n"), 0700); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "bun"), []byte("#!/bin/sh\necho 'error: Workspace not found \"fixture-package\"' >&2\nexit 3\n"), 0700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
@@ -75,7 +78,7 @@ func TestWorktreeEnsurePreparationPartial(t *testing.T) {
 			}
 		}
 		var out, stderr bytes.Buffer
-		code := Execute(context.Background(), []string{"worktree", "ensure", "topic", "--branch", "topic", "--base", "HEAD", "--repo", root, "--prepare", "--json"}, nil, &out, &stderr)
+		code := Execute(context.Background(), []string{"worktree", "ensure", "topic", "--branch", "topic", "--base", "HEAD", "--repo", root, "--prepare", "--json", "--output", export}, nil, &out, &stderr)
 		var envelope commandResult
 		if err := json.Unmarshal(out.Bytes(), &envelope); err != nil {
 			t.Fatal(err, out.String())
@@ -87,8 +90,23 @@ func TestWorktreeEnsurePreparationPartial(t *testing.T) {
 		if code != 1 || envelope.Outcome != "partial" || !report.Confirmed || report.Ready || report.Preparation == nil {
 			t.Fatal(code, out.String(), stderr.String())
 		}
-		if !present && (envelope.Error == nil || report.Preparation.Bins[0].Stderr != "installer-failed\n") {
+		if !present && (envelope.Error == nil || report.Preparation.Bins[0].Stderr != "error: Workspace not found \"fixture-package\"\n") {
 			t.Fatal(out.String())
+		}
+		logs := readLogs(t, home)
+		for _, want := range []string{"msg=worktree.bin_not_ready", "bin=node_modules", "confirmed=true", "ready=false", "result_path=" + export} {
+			if !strings.Contains(logs, want) {
+				t.Fatalf("missing %q in %s", want, logs)
+			}
+		}
+		if strings.Contains(logs, "fixture-package") {
+			t.Fatal("raw installer stderr in command log")
+		}
+		if !present {
+			saved, err := os.ReadFile(export)
+			if err != nil || !bytes.Equal(saved, out.Bytes()) || !strings.Contains(logs, "error_code=depot.install_failed installer_exit_code=3 installer_cause=workspace_not_found") {
+				t.Fatalf("failed installation evidence: %v, %s", err, logs)
+			}
 		}
 		if present && report.Preparation.Bins[0].Status != "present" {
 			t.Fatal(out.String())

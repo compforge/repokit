@@ -3,8 +3,8 @@ package cli
 import (
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/state"
 	"io"
 	"log/slog"
 	"os"
@@ -12,6 +12,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/compforge/repokit/toolkit/go/depot"
+	"github.com/compforge/repokit/toolkit/go/state"
+	"github.com/compforge/repokit/toolkit/go/worktree"
 )
 
 type commandLog struct {
@@ -114,13 +118,67 @@ func pruneLogs(dir string, now time.Time) error {
 	return nil
 }
 
-func (run *commandLog) finish(command string, code int, err error) {
-	fields := []any{"command", command, "elapsed_ms", time.Since(run.started).Milliseconds(), "exit_code", code}
+func (run *commandLog) finish(result commandResult, code int, err error) {
+	fields := []any{"command", result.Command, "elapsed_ms", time.Since(run.started).Milliseconds(), "exit_code", code}
 	if err != nil {
+		if result.Command == "repocli worktree ensure" {
+			fields = append(fields, run.ensureFailureFields(result, err)...)
+		}
 		run.logger.Error("command.failed", fields...)
 	} else {
 		run.logger.Info("command.finished", fields...)
 	}
+}
+
+func (run *commandLog) ensureFailureFields(result commandResult, err error) []any {
+	var fields []any
+	problem := result.Error
+	if problem != nil || errors.As(err, &problem) {
+		fields = append(fields, "error_code", problem.Code)
+	}
+	if report, ok := result.Data.(worktree.EnsureReport); ok {
+		fields = append(fields, "confirmed", report.Confirmed)
+		if report.Preparation != nil {
+			fields = append(fields, "ready", report.Ready)
+			for _, bin := range report.Preparation.Bins {
+				if bin.Status != "ready" && bin.Action != "not_run" {
+					run.logUnreadyBin(bin)
+				}
+			}
+		}
+	}
+	for _, artifact := range result.Artifacts {
+		if artifact.Kind == "command_result" {
+			fields = append(fields, "result_path", artifact.Path)
+		}
+	}
+	return fields
+}
+
+// +spec=Daily logs retain installer failure categories. Raw process output belongs to the command result.
+func (run *commandLog) logUnreadyBin(bin depot.Bin) {
+	fields := []any{"bin", bin.Path, "manager", bin.Manager, "status", bin.Status, "action", bin.Action}
+	if bin.Error != nil {
+		fields = append(fields, "error_code", bin.Error.Code)
+	}
+	if bin.ExitCode != nil {
+		fields = append(fields, "installer_exit_code", *bin.ExitCode)
+	}
+	if bin.Executed && bin.Error != nil && bin.Error.Code == "depot.install_failed" {
+		for _, line := range strings.Split(bin.Stderr, "\n") {
+			line = strings.TrimSpace(line)
+			switch {
+			case bin.Manager == "bun" && strings.HasPrefix(line, `error: Workspace not found "`):
+				fields = append(fields, "installer_cause", "workspace_not_found")
+			case bin.Manager == "uv" && strings.TrimSpace(strings.TrimPrefix(line, "╰─▶")) == "operation timed out":
+				fields = append(fields, "installer_cause", "timeout")
+			default:
+				continue
+			}
+			break
+		}
+	}
+	run.logger.Warn("worktree.bin_not_ready", fields...)
 }
 
 func (run *commandLog) close() {

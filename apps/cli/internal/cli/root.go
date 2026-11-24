@@ -91,7 +91,7 @@ func execute(ctx context.Context, root *cobra.Command, args []string, stdin io.R
 	}
 	code, err = output.finish(name, err, code, stderr)
 	if run.logger != nil {
-		run.finish(name, code, err)
+		run.finish(output.result, code, err)
 	}
 	return code
 }

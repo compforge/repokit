@@ -69,6 +69,7 @@ Removal includes uncommitted, untracked and ignored files. Local branches and co
 		}
 		return cmdutil.ExecutionFailure(err)
 	}}
+	cmd.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	cmd.Flags().BoolVar(&prepare, "prepare", false, "Prepare declared dependency Bins after confirming the checkout")
 	cmd.Flags().StringVar(&branch, "branch", "", "Exact local branch to create or resume")
 	cmd.Flags().StringVar(&base, "base", "", "Creation base: local revision, or branch on --remote")
