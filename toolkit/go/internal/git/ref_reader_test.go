@@ -2,6 +2,7 @@ package git_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9,6 +10,8 @@ import (
 	"testing"
 
 	git "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/gogit"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 )
 
@@ -110,5 +113,37 @@ func TestRefReaderOtherFormats(t *testing.T) {
 				t.Fatal(got, found, err)
 			}
 		})
+	}
+}
+
+// +case=The SDK reports unsupported evidence to its caller and never launches native Git itself.
+func TestSDKRefReaderDoesNotFallback(t *testing.T) {
+	ctx := context.Background()
+	root := fixture(t)
+	info, err := worktree.Local(ctx, root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	formats, err := process.RefReader(root).Formats(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := gogit.OpenRefReader(info, formats)
+	if reader == nil {
+		t.Skip("repository format is not supported by the SDK")
+	}
+	composed := git.NewRefReader(ctx, info)
+	trace := filepath.Join(t.TempDir(), "git-trace")
+	t.Setenv("GIT_TRACE2_EVENT", trace)
+	if _, _, err := reader.BranchCommit(ctx, "missing"); !errors.Is(err, errors.ErrUnsupported) {
+		t.Fatalf("missing ref: %v", err)
+	}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if _, _, err := composed.BranchCommit(canceled, "missing"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled query: %v", err)
+	}
+	if data, err := os.ReadFile(trace); len(data) != 0 || (err != nil && !os.IsNotExist(err)) {
+		t.Fatalf("unexpected Git process: %v", err)
 	}
 }

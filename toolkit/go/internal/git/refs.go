@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"strings"
 	"time"
 )
@@ -17,28 +18,13 @@ func ValidateBranch(ctx context.Context, repo, branch string) error {
 
 // BranchCommit distinguishes a missing local branch from a failed observation.
 func BranchCommit(ctx context.Context, repo, branch string) (string, bool, error) {
-	return processRefReader(repo).BranchCommit(ctx, branch)
+	return process.RefReader(repo).BranchCommit(ctx, branch)
 }
 
-type processRefReader string
-
-func (reader processRefReader) BranchCommit(ctx context.Context, branch string) (string, bool, error) {
-	repo := string(reader)
-	ref := "refs/heads/" + branch
-	result := command.Run(ctx, repo, 5*time.Second, "show-ref", "--verify", "--quiet", ref)
-	if result.ExitCode == 1 && !result.Uncertain {
-		return "", false, nil
-	}
-	if result.Err != nil {
-		return "", false, result.Err
-	}
-	sha, err := ResolveCommit(ctx, repo, ref)
-	return sha, true, err
-}
 func ResolveCommit(ctx context.Context, repo, ref string) (string, error) {
-	result := command.Run(ctx, repo, 5*time.Second, "rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
-	return strings.TrimSpace(result.Stdout), result.Err
+	return process.ResolveCommit(ctx, repo, ref)
 }
+
 func CurrentBranch(ctx context.Context, repo string) (string, error) {
 	result := command.Run(ctx, repo, 5*time.Second, "symbolic-ref", "--quiet", "HEAD")
 	return strings.TrimPrefix(strings.TrimSpace(result.Stdout), "refs/heads/"), result.Err
