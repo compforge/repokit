@@ -36,6 +36,11 @@ func NewCommand(opts *command.Options) *cobra.Command {
 			} else {
 				command.Record(cmd.OutOrStdout(), report)
 				fmt.Fprintf(cmd.OutOrStdout(), "%d Component(s), %d Bin(s); complete=%t\n", len(report.Components), len(report.Bins), report.Complete)
+				for _, recipe := range report.Recipes {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s: make depot (executed=%t)\n", recipe.Root, recipe.Executed)
+					fmt.Fprint(cmd.OutOrStdout(), recipe.Stdout)
+					fmt.Fprint(cmd.ErrOrStderr(), recipe.Stderr)
+				}
 				for _, bin := range report.Bins {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s (%s) %s\n", bin.Path, bin.Status, bin.Action, bin.Manager, bin.Reason)
 					if bin.Stdout != "" {

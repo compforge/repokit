@@ -338,12 +338,12 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				}
 				spec.Reason = "affected Component; canonical full check"
 			}
-			target := contract.target(check)
+			target := validationTarget(contract, check)
 			if target == "" {
 				spec.Scope = "skipped"
 				spec.Reason = "Makefile does not declare a supported " + check + " target"
-				if contract.problem != "" {
-					spec.Scope, spec.Reason = "unavailable", contract.problem
+				if contract.Problem != "" {
+					spec.Scope, spec.Reason = "unavailable", contract.Problem
 				}
 				slog.DebugContext(ctx, "validation target not selected", "component", component.Root, "check", check, "scope", spec.Scope, "reason", spec.Reason)
 				appendValidationCheck(&plan, component, spec)
@@ -355,14 +355,14 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				candidates = nil
 			}
 			variable := strings.ToUpper(check) + "_FILES"
-			if check == "format" && !contract.variables[variable] {
+			if check == "format" && !contract.Variables[variable] {
 				variable = "LINT_FILES"
 			}
 			files, reason := validationFiles(plan.Checkout, component.Root, layout.Layout, candidates)
 			if len(candidates) > 0 {
 				if reason != "" {
 					spec.Reason = reason + "; canonical full check"
-				} else if !contract.variables[variable] {
+				} else if !contract.Variables[variable] {
 					spec.Reason = variable + " contract missing; canonical full check"
 				} else {
 					spec.Scope = "focused"
@@ -372,7 +372,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 			}
 			spec.Command = []string{"make", "-f", "Makefile", target}
 			fileVariables := []string{"LINT_FILES", "TEST_FILES"}
-			if !slices.Contains(fileVariables, variable) && contract.variables[variable] {
+			if !slices.Contains(fileVariables, variable) && contract.Variables[variable] {
 				fileVariables = append(fileVariables, variable)
 			}
 			for _, name := range fileVariables {

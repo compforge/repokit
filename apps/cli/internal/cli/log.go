@@ -140,6 +140,14 @@ func (run *commandLog) ensureFailureFields(result commandResult, err error) []an
 		fields = append(fields, "confirmed", report.Confirmed)
 		if report.Preparation != nil {
 			fields = append(fields, "ready", report.Ready)
+			for _, recipe := range report.Preparation.Recipes {
+				if recipe.Error != nil {
+					fields = append(fields, "component", recipe.Root, "target", "depot")
+					if recipe.ExitCode != nil {
+						fields = append(fields, "target_exit_code", *recipe.ExitCode)
+					}
+				}
+			}
 			for _, bin := range report.Preparation.Bins {
 				if bin.Status != "ready" && bin.Action != "not_run" {
 					run.logUnreadyBin(bin)

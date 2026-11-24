@@ -105,6 +105,26 @@ Component 发现与 workspace 成员声明分别解释：未列入 workspace 的
 
 这些形态由三语言共享的 `conformance/inspect/layouts.json` 验证；组件数量不改变 tree 的内容查询能力。
 
+## Component 的五个 Makefile 扩展点
+
+项目在各 Component 的 Makefile 中声明需要的 target，决定使用哪些原生工具、按什么顺序执行。
+RepoKit 根据调用选择 Component、发现入口、执行命令并记录结果。每个扩展点都可以独立声明。
+
+| 扩展点 | 项目负责的行为 | RepoKit 入口 | 缺少支持的 target |
+|---|---|---|---|
+| `depot` | 准备依赖和工具链，可先初始化项目所需的源码 | `depot prepare`、`worktree ensure --prepare` | 按声明的 Bin 和锁文件选择默认安装器 |
+| `format` | 格式化源文件 | `format`、`validate --check format` | 跳过 |
+| `lint` | 静态分析、类型检查等只读检查 | `lint`、`validate --check lint` | 跳过 |
+| `test` | 执行组件负责的行为测试 | `test`、`validate --check test` | 跳过 |
+| `build` | 构建并校验交付产物 | `validate --check build` | 跳过 |
+
+例如 monorepo 有独立的 `web/` 和 `server/`。若只有 `web/Makefile` 声明 `depot`，
+整仓准备时在 web 目录执行 `make depot`，server 走自己的默认安装流程。
+`repocli depot prepare --component web` 只准备 web。若两个组件通过 workspace 共享一个物理依赖目录，
+RepoKit 合并该 Bin 的准备操作。
+
+检查 target 的兼容名称和复用规则见 [Validation](validation.md)。共享 Bin 的安装入口、核验与回执见 [Depot](depot.md)。
+
 ## Depot
 
 `Component.depot` 复用 common 的 `Depot`，保存按仓库相对路径声明的 `bins`。

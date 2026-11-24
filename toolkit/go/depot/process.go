@@ -47,7 +47,7 @@ func run(ctx context.Context, root string, args []string, manager string) execut
 	cmd.Dir = root
 	cmd.WaitDelay = time.Second
 	cmd.Env = env.ForCheckout(os.Environ())
-	if manager == "uv" {
+	if manager == "uv" || manager == "make" {
 		env := []string{}
 		for _, v := range cmd.Env {
 			if !strings.HasPrefix(v, "VIRTUAL_ENV=") && !strings.HasPrefix(v, "UV_PROJECT_ENVIRONMENT=") {

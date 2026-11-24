@@ -156,6 +156,7 @@ lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepa
 installation and still maintains capacity after confirming the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed
 lockfiles; `depot inspect` is a query, never a mandatory preflight before preparation.
 
+Preparation selects each Component’s literal Makefile depot target or its default installer under the [Depot contract](depot.md).
 The flat checkout report remains available together with `preparation` and `ready`. If creation
 succeeds but preparation fails or remains unverified, outcome is `partial`, `confirmed=true`, and
 `ready=false`. Do not recreate or remove that checkout: inspect each Bin and resume preparation.

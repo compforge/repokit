@@ -52,6 +52,8 @@ Changeset 是变更在对应版本中存在的 Document，变更 Symbol 是查�
 只有其成员能成为测试推荐。Workset 是所选源码、测试及按需引用的辅助文件实际入图的集合；
 完整目录保留用于解析，未选中源码不因 import 自动解析，空测试集合也不证明没有受影响测试。
 
+Component 在自己的 Makefile 中声明 `depot`、`format`、`lint`、`test`、`build`。职责、入口和缺省行为见 [Component 的五个 Makefile 扩展点](docs/repository.md#component-的五个-makefile-扩展点)。
+
 ### 主流程
 
 | 入口 | 必要工作与输出边界 |

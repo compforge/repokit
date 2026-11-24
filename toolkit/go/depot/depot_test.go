@@ -233,3 +233,88 @@ func TestUVEnvironmentAndReceipt(t *testing.T) {
 		t.Fatal(string(data))
 	}
 }
+
+// +case=Members share their installation root's depot recipe; selecting one member leaves unrelated Components untouched.
+func TestSharedComponentDepot(t *testing.T) {
+	root := fixture(t, "echo default >> calls; exit 7")
+	write(t, root, "other/package.json", `{"dependencies":{"library":"1"}}`)
+	write(t, root, "Makefile", ".PHONY: depot\ndepot:\n\t@echo project >> calls\n\t@mkdir -p node_modules\n")
+	ctx := context.Background()
+	selected := depot.Options{Components: []string{"apps/a", "apps/b"}}
+	plan, err := depot.Inspect(ctx, root, selected)
+	if err != nil || len(plan.Recipes) != 1 || plan.Recipes[0].Executed || len(plan.Bins) != 1 {
+		t.Fatal(plan, err)
+	}
+	report, err := depot.Prepare(ctx, root, selected)
+	if err != nil || len(report.Recipes) != 1 || !report.Recipes[0].Executed || len(report.Bins) != 1 || report.Bins[0].Status != "ready" {
+		t.Fatal(report, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "other/node_modules")); !os.IsNotExist(err) {
+		t.Fatal("prepared unselected Component", err)
+	}
+	verified, err := depot.Inspect(ctx, root, selected)
+	if err != nil || verified.Bins[0].Status != "ready" || verified.Bins[0].RecipeRoot != "." {
+		t.Fatal(verified, err)
+	}
+	write(t, root, "Makefile", "depot:\n\t@echo project-error >&2; exit 2\n")
+	report, err = depot.Prepare(ctx, root, selected)
+	if err == nil || report.Complete || report.Recipes[0].ExitCode == nil || !strings.Contains(report.Recipes[0].Stderr, "project-error") {
+		t.Fatal(report, err)
+	}
+	if report.Bins[0].Action != "failed" || report.Bins[0].Status == "ready" {
+		t.Fatal(report.Bins[0])
+	}
+	if _, err := os.Stat(filepath.Join(root, "node_modules/.repokit-dependencies.json")); !os.IsNotExist(err) {
+		t.Fatal("old receipt survived failure", err)
+	}
+	if data, err := os.ReadFile(filepath.Join(root, "calls")); err != nil || string(data) != "project\n" {
+		t.Fatal(string(data), err)
+	}
+}
+
+// +case=Independent Components select their own commands, mixing custom targets and native defaults in one round.
+func TestMonorepoComponentDepot(t *testing.T) {
+	root := fixture(t, install)
+	write(t, root, "web/package.json", `{"dependencies":{"pkg":"1"}}`)
+	write(t, root, "web/Makefile", "depot:\n\t@mkdir -p node_modules; echo web > calls\n")
+	write(t, root, "server/package.json", `{"packageManager":"npm@10"}`)
+	write(t, root, "server/package-lock.json", "{}")
+	opts := depot.Options{Components: []string{"web", "server"}}
+	report, err := depot.Prepare(context.Background(), root, opts)
+	if err != nil || len(report.Recipes) != 1 || report.Recipes[0].Root != "web" || len(report.Bins) != 2 {
+		t.Fatal(report, err)
+	}
+	for _, bin := range report.Bins {
+		if bin.Status != "ready" {
+			t.Fatal(bin)
+		}
+	}
+	for component, want := range map[string]string{"web": "web\n", "server": "install\n"} {
+		got, err := os.ReadFile(filepath.Join(root, component, "calls"))
+		if err != nil || string(got) != want {
+			t.Fatal(component, string(got), err)
+		}
+	}
+	write(t, root, "server/Makefile", "depot:\n\t@mkdir -p node_modules; echo server > calls\n")
+	report, err = depot.Prepare(context.Background(), root, opts)
+	if err != nil || len(report.Recipes) != 2 {
+		t.Fatal(report, err)
+	}
+	for _, recipe := range report.Recipes {
+		if !recipe.Executed {
+			t.Fatal(recipe)
+		}
+	}
+}
+
+func TestComponentDepotWithoutBins(t *testing.T) {
+	root := t.TempDir()
+	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
+		t.Fatal(string(out), err)
+	}
+	write(t, root, "server/Makefile", "depot:\n\t@echo native-toolchain\n")
+	report, err := depot.Prepare(context.Background(), root, depot.Options{})
+	if err != nil || len(report.Bins) != 0 || len(report.Recipes) != 1 || report.Recipes[0].Stdout != "native-toolchain\n" {
+		t.Fatal(report, err)
+	}
+}
