@@ -223,14 +223,11 @@ command and analysis timings, and local storage. Use `--json` for structured out
 It does not execute checks or prune records. See [local statistics](docs/stats.md)
 for counting rules and partial-report semantics.
 
-## Component Makefile targets
+## Makefile validation
 
-Each Component can define `depot`, `format`, `lint`, `test` and `build` in its own Makefile.
-`depot` prepares dependencies, while the other targets define project checks. See the
-[Component Makefile contract](docs/repository.md#component-的五个-makefile-扩展点).
+Projects can expose Component checks through documented Makefile targets:
 
 ```sh
-repocli depot prepare --component toolkit/python
 repocli validate --component toolkit/go --check format,lint,test --timeout 10m
 repocli test --component toolkit/python --file toolkit/python/tests/test_inspect.py
 repocli validate --base HEAD --plan
