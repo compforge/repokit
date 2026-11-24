@@ -15,6 +15,10 @@ repocli git push --branch topic --commit <same-full-sha> --remote origin --check
 `--target` 可选择不同的远端分支，默认与源分支同名。只发送固定 SHA 的一个 refspec，不附带 tags、
 不递归推送 submodule。dirty 工作区不阻止发布已有 commit，也不会被暂存或提交；Git 原生 push hooks 仍执行。
 
+同一次发布的多次源分支核验共用一个本地 ref reader，每次都重新观察分支 tip。SHA-1 且使用
+files ref 格式时由 go-git 查询常规 loose 分支并核验 commit 对象；仅保存在 packed-refs 的分支、其它格式及 SDK 无法判定的结果交由
+原生 Git 查询。只读 `--check` 直接观察远端，不需要本地源分支。
+
 配置的 remote 必须只有一个 push URL，预检、push 和核验使用同一解析结果；fetch URL 可以不同。
 URL 保持私有，不进入报告。恢复观察时调用方需保持 remote 配置不变；修改配置后的查询属于新目标。
 

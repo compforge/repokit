@@ -4,8 +4,10 @@ go 1.26.0
 
 require (
 	github.com/bluekeyes/go-gitdiff v0.8.1
+	github.com/go-git/go-billy/v5 v5.9.2
+	github.com/go-git/go-git/v5 v5.19.3
 	github.com/odvcencio/gotreesitter v0.58.1-0.20261123054809-3e8cac17b358
-	golang.org/x/mod v0.29.0
+	golang.org/x/mod v0.35.0
 )
 
 require (
@@ -20,6 +22,15 @@ require (
 )
 
 require (
+	github.com/cyphar/filepath-securejoin v0.6.1 // indirect
+	github.com/go-git/gcfg v1.5.1-0.20230307220236-3a3c6141e376 // indirect
+	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
+	github.com/pjbgf/sha1cd v0.7.0 // indirect
+	golang.org/x/net v0.57.0 // indirect
+	gopkg.in/warnings.v0 v0.1.2 // indirect
+)
+
+require (
 	github.com/RoaringBitmap/roaring/v2 v2.26.0 // indirect
 	github.com/antlr4-go/antlr/v4 v4.13.1 // indirect
 	github.com/bits-and-blooms/bitset v1.25.0 // indirect
@@ -31,6 +42,6 @@ require (
 	github.com/tidwall/match v1.1.1 // indirect
 	github.com/tidwall/pretty v1.2.0 // indirect
 	github.com/tidwall/tinylru v1.1.0 // indirect
-	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
-	golang.org/x/sync v0.16.0 // indirect
+	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f // indirect
+	golang.org/x/sync v0.20.0 // indirect
 )
