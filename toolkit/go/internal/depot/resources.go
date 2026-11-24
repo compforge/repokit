@@ -29,10 +29,26 @@ type Receipt struct {
 // ReadReceipt separates absent ownership evidence from corrupt or unsafe evidence.
 func ReadReceipt(directory string) (*Receipt, error) {
 	file := filepath.Join(directory, ReceiptName)
-	info, err := os.Lstat(file)
+	data, err := ReadReceiptBytes(file)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	var receipt Receipt
+	if err := json.Unmarshal(data, &receipt); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidReceipt, file)
+	}
+	if receipt.Manager == "" || receipt.Fingerprint == "" {
+		return nil, fmt.Errorf("%w: %s", ErrInvalidReceipt, file)
+	}
+	return &receipt, nil
+}
+
+// ReadReceiptBytes preserves the original evidence and applies the receipt type and size limits.
+func ReadReceiptBytes(file string) ([]byte, error) {
+	info, err := os.Lstat(file)
 	if err != nil {
 		return nil, err
 	}
@@ -51,14 +67,7 @@ func ReadReceipt(directory string) (*Receipt, error) {
 	if len(data) > 2<<20 {
 		return nil, fmt.Errorf("%w: %s", ErrUnsafeReceipt, file)
 	}
-	var receipt Receipt
-	if err := json.Unmarshal(data, &receipt); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidReceipt, file)
-	}
-	if receipt.Manager == "" || receipt.Fingerprint == "" {
-		return nil, fmt.Errorf("%w: %s", ErrInvalidReceipt, file)
-	}
-	return &receipt, nil
+	return data, nil
 }
 
 type Resource struct {

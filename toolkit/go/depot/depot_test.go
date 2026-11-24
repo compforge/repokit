@@ -307,6 +307,82 @@ func TestMonorepoComponentDepot(t *testing.T) {
 	}
 }
 
+// +case=If a multi-Bin target cannot start, earlier Bins retain the exact receipt from their last successful preparation.
+func TestComponentDepotPreservesReceiptBeforeStart(t *testing.T) {
+	for _, failure := range []string{"symlink", "tracked", "readonly_directory", "missing_make"} {
+		t.Run(failure, func(t *testing.T) {
+			root := fixture(t, install)
+			write(t, root, "pyproject.toml", "[project]\nname='fixture'\nversion='0.1.0'\n")
+			write(t, root, "uv.lock", "version = 1\n")
+			write(t, root, "Makefile", "depot:\n\t@mkdir -p .venv node_modules\n\t@echo run >> calls\n")
+			ctx := context.Background()
+			options := depot.Options{Components: []string{"."}}
+			if _, err := depot.Prepare(ctx, root, options); err != nil {
+				t.Fatal(err)
+			}
+			receiptPath := filepath.Join(root, ".venv", ".repokit-dependencies.json")
+			before, err := os.ReadFile(receiptPath)
+			if err != nil {
+				t.Fatal(err)
+			}
+			expected := "depot.install_failed"
+			switch failure {
+			case "symlink":
+				modules := filepath.Join(root, "node_modules")
+				target := filepath.Join(t.TempDir(), "modules")
+				if err := os.Rename(modules, target); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.Symlink(target, modules); err != nil {
+					t.Fatal(err)
+				}
+				expected = "depot.unsupported"
+			case "tracked":
+				write(t, root, "node_modules/owned", "tracked")
+				cmd := exec.Command("git", "-C", root, "add", "-f", "node_modules/owned")
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatal(string(out), err)
+				}
+				expected = "depot.tracked_resource"
+			case "readonly_directory":
+				modules := filepath.Join(root, "node_modules")
+				if err := os.Chmod(modules, 0555); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = os.Chmod(modules, 0755) })
+				probe, err := os.CreateTemp(modules, "probe")
+				if err == nil {
+					probe.Close()
+					t.Skip("filesystem permits writes to a read-only directory")
+				}
+				expected = "depot.receipt_failed"
+			case "missing_make":
+				git, err := exec.LookPath("git")
+				if err != nil {
+					t.Fatal(err)
+				}
+				bin := t.TempDir()
+				if err := os.Symlink(git, filepath.Join(bin, "git")); err != nil {
+					t.Fatal(err)
+				}
+				t.Setenv("PATH", bin)
+			}
+			report, err := depot.Prepare(ctx, root, options)
+			if err == nil || len(report.Recipes) != 1 || report.Recipes[0].Executed || report.Recipes[0].Error == nil || report.Recipes[0].Error.Code != expected {
+				t.Fatal(report, err)
+			}
+			after, err := os.ReadFile(receiptPath)
+			if err != nil || string(after) != string(before) {
+				t.Fatalf("receipt changed before make started: %v", err)
+			}
+			report, err = depot.Inspect(ctx, root, options)
+			if err != nil || len(report.Bins) != 2 || report.Bins[0].Path != ".venv" || report.Bins[0].Status != "ready" {
+				t.Fatal(report, err)
+			}
+		})
+	}
+}
+
 func TestComponentDepotWithoutBins(t *testing.T) {
 	root := t.TempDir()
 	if out, err := exec.Command("git", "init", "-q", root).CombinedOutput(); err != nil {
