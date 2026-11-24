@@ -41,8 +41,8 @@ URL 保持私有，不进入报告。恢复观察时调用方需保持 remote �
 
 `--set-upstream` 在确认远端后写入源分支的 remote/merge 配置，有界 fetch 目标分支并核对 upstream SHA，单独返回 `upstreamConfirmed`。
 失败保留 `confirmed=true` 并附 warning，不能因此重做已确认的 push。只读 check 不允许此选项。
-tracking refs 按 remote 的 fetch mapping 更新；fetch URL 与 push URL 不同或配置没有对应 mapping 时，
-可能已发布但 upstream 无法确认，报告保留 warning。
+fetch URL 与 push URL 相同且使用常规 tracking mapping 时，成功推送后的一次 fetch 同时刷新目标 tracking ref，并从本次 Git porcelain 输出核验远端 SHA。该次 fetch 计入 `remote_verify`，`refresh_tracking` 随后核对本地 upstream。无法取得有效 fetch 输出时回到独立远端核验。两个 URL 不同或采用自定义 mapping 时分别核验。
+只跟踪指定分支的常规 clone 会为本次明确请求的目标分支补一条精确 mapping。自定义 mapping 保留原配置，明确排除的目标返回 upstream 未确认告警。
 
 JSON/text 均报告 prepare、lock_wait、remote_preflight、push、remote_verify、configure_upstream、refresh_tracking 中实际
 执行的阶段耗时；统一 envelope 的 `cost.phases` 使用 `git.push.` 前缀。

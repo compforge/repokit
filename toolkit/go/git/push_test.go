@@ -5,6 +5,7 @@ import (
 	"errors"
 	"github.com/compforge/repokit/toolkit/go/internal/git/command"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -223,6 +224,91 @@ func TestPushRemoteFailureBeforeWrite(t *testing.T) {
 		requireProblem(t, e, "git.invalid_response", false)
 		if r.PushAttempted {
 			t.Fatal(r)
+		}
+	}
+}
+
+// +case=Same-endpoint publication observes the fetched SHA in one post-push fetch, including a narrow clone with a different target branch.
+func TestPushTrackingFetch(t *testing.T) {
+	help, _ := exec.Command("git", "fetch", "-h").CombinedOutput()
+	porcelain := strings.Contains(string(help), "--porcelain")
+	for _, mode := range []string{"standard", "narrow", "excluded", "custom", "old_git", "stale_ref"} {
+		t.Run(mode, func(t *testing.T) {
+			repo, remote, opts := pushFixture(t)
+			opts.SetUpstream, opts.Target = true, "published/topic"
+			ref := "refs/heads/" + opts.Target
+			dest := "refs/remotes/origin/" + opts.Target
+			switch mode {
+			case "narrow":
+				runGit(t, repo, "remote", "set-branches", "origin", "main")
+				runGit(t, repo, "config", "--add", "remote.origin.fetch", "^refs/heads/archive/*")
+			case "excluded":
+				runGit(t, repo, "config", "--add", "remote.origin.fetch", "^refs/heads/published/*")
+				runGit(t, repo, "update-ref", dest, opts.Commit)
+			case "custom":
+				runGit(t, repo, "config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/custom/*")
+			}
+			before := runGit(t, repo, "config", "--get-all", "remote.origin.fetch")
+			calls := map[string]int{}
+			run := func(ctx context.Context, repo string, budget time.Duration, args ...string) command.Result {
+				calls[args[0]]++
+				if args[0] == "fetch" {
+					if mode == "old_git" && args[1] == "--porcelain" {
+						return command.Result{ExitCode: 129, Err: errors.New("unsupported fetch option")}
+					}
+					if mode == "stale_ref" {
+						runGit(t, remote, "update-ref", "-d", ref)
+						runGit(t, repo, "update-ref", dest, opts.Commit)
+					}
+				}
+				return command.Run(ctx, repo, budget, args...)
+			}
+			report, err := push(context.Background(), repo, opts, run)
+			if mode == "stale_ref" {
+				requireProblem(t, err, "git.push_unknown", true)
+				if report.Confirmed || report.UpstreamConfirmed || report.RemoteState != "missing" || calls["push"] != 1 {
+					t.Fatal(report)
+				}
+				return
+			}
+			if err != nil || !report.Confirmed || report.UpstreamConfirmed != (mode != "excluded") || calls["push"] != 1 {
+				t.Fatal(report, err)
+			}
+			want := before
+			if mode == "narrow" {
+				want += "\n+" + ref + ":" + dest
+			}
+			if got := runGit(t, repo, "config", "--get-all", "remote.origin.fetch"); got != want {
+				t.Fatalf("unexpected fetch mappings: %q, want %q", got, want)
+			}
+			if mode == "standard" || mode == "narrow" {
+				if porcelain && (calls["ls-remote"] != 1 || calls["fetch"] != 1) {
+					t.Fatalf("calls=%v report=%+v", calls, report)
+				}
+				if got := runGit(t, repo, "rev-parse", "topic@{upstream}"); got != opts.Commit {
+					t.Fatalf("upstream = %s, want %s", got, opts.Commit)
+				}
+				again, err := Push(context.Background(), repo, opts)
+				if err != nil || again.PushAttempted || !again.UpstreamConfirmed || runGit(t, repo, "config", "--get-all", "remote.origin.fetch") != want {
+					t.Fatal(again, err)
+				}
+			}
+		})
+	}
+}
+
+func TestFetchedBranchTip(t *testing.T) {
+	oldSHA, newSHA := strings.Repeat("a", 40), strings.Repeat("b", 40)
+	dest := "refs/remotes/origin/topic"
+	row := oldSHA + " " + newSHA + " " + dest
+	for _, flag := range []string{"* ", "= ", "+ ", "  "} {
+		if tip, ok := fetchedBranchTip(flag+row, dest); !ok || tip != newSHA {
+			t.Fatalf("invalid tip for flag %q: %q", flag, tip)
+		}
+	}
+	for _, raw := range []string{"", "! " + row, "- " + row, "= " + row + "/other", "= " + row + "\n= " + row, "= " + oldSHA + " short " + dest} {
+		if _, ok := fetchedBranchTip(raw, dest); ok {
+			t.Fatalf("accepted ambiguous fetch output %q", raw)
 		}
 	}
 }
