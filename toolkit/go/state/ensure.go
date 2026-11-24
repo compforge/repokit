@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
@@ -168,7 +169,7 @@ func ensureWorktreeLocked(ctx context.Context, info CheckoutInfo, options Ensure
 	}
 	start = time.Now()
 	report.WriteAttempted = true
-	result := worktree.Add(ctx, info.Root, report.Checkout, ref, branch, false)
+	result := process.AddWorktree(ctx, info.Root, report.Checkout, ref, branch, false)
 	report.measure("create", start)
 	if result.Err != nil {
 		return checkoutError(result, "state.ensure_worktree", report.Checkout).Err

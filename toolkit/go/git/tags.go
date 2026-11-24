@@ -6,7 +6,8 @@ import (
 	"errors"
 	"fmt"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"log/slog"
 	"strings"
 	"time"
@@ -87,7 +88,7 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 			return failure("git.invalid_argument", "tag publication requires tags, an explicit target and a configured remote", nil)
 		}
 		var e error
-		endpoint, e = repogit.PushDestination(repo, opts.Remote, func(timeout time.Duration, args ...string) (string, error) { return query(ctx, timeout, args...) })
+		endpoint, e = process.PushDestination(repo, opts.Remote, func(timeout time.Duration, args ...string) (string, error) { return query(ctx, timeout, args...) })
 		if e != nil {
 			return e
 		}
@@ -202,7 +203,7 @@ func publishTags(ctx context.Context, repo string, opts PublishTagsOptions, run 
 // Unknown/localized summaries stay uncertain; never infer rejection from free-form stderr.
 func pushRejected(output string, tags []TagObservation) bool {
 	for _, tag := range tags {
-		if repogit.PushRejected(output, tag.Ref) {
+		if process.PushRejected(output, tag.Ref) {
 			return true
 		}
 	}

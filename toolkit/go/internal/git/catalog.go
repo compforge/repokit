@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"io"
 	"os"
 	"path/filepath"
@@ -16,15 +17,11 @@ import (
 // values mean presence, never a captured source blob. Gitlinks and symlinks do
 // not become project material; inspection never opens child repositories.
 func (r *Repository) Catalog(ctx context.Context, head string, staged bool, needsContent func(string) bool) (map[string][]byte, error) {
-	args := []string{"ls-files", "--stage", "-z"}
-	if head != "" {
-		args = []string{"ls-tree", "-r", "-z", "--full-tree", head}
-	}
-	out, err := r.run(ctx, args...)
+	out, err := process.Material(r.Root).Entries(ctx, head)
 	if err != nil {
 		return nil, err
 	}
-	entries := map[string]blob{}
+	entries := map[string]process.Blob{}
 	for _, entry := range strings.Split(string(out), "\x00") {
 		if entry == "" {
 			continue
@@ -55,10 +52,10 @@ func (r *Repository) Catalog(ctx context.Context, head string, staged bool, need
 		if fields[0] != "100644" && fields[0] != "100755" && fields[0] != "120000" {
 			return nil, fmt.Errorf("unsupported Git entry mode for %s", name)
 		}
-		entries[name] = blob{name: name, oid: oid}
+		entries[name] = process.Blob{Name: name, OID: oid}
 	}
 	if head == "" && !staged {
-		out, err := r.run(ctx, "ls-files", "-z", "--others", "--exclude-standard")
+		out, err := process.Material(r.Root).Untracked(ctx)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +67,7 @@ func (r *Repository) Catalog(ctx context.Context, head string, staged bool, need
 			if !diff.ValidPath(name) {
 				return nil, fmt.Errorf("unsafe repository path %q", name)
 			}
-			entries[name] = blob{name: name}
+			entries[name] = process.Blob{Name: name}
 		}
 	}
 	if len(entries) > maxFiles {
@@ -82,7 +79,7 @@ func (r *Repository) Catalog(ctx context.Context, head string, staged bool, need
 	}
 	sort.Strings(names)
 	captured := newSnapshot()
-	var selected []blob
+	var selected []process.Blob
 	total := 0
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {

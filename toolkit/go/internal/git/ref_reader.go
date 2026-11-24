@@ -28,7 +28,7 @@ func NewReader(ctx context.Context, checkout worktree.CheckoutInfo) Reader {
 	native := process.RefReader(checkout.Root)
 	formats, err := native.Formats(ctx)
 	if err == nil {
-		if sdk := gogit.OpenRefReader(checkout, formats); sdk != nil {
+		if sdk := gogit.OpenRefReader(checkout.GitDir, checkout.CommonDir, formats); sdk != nil {
 			return fallbackReader{primary: sdk, fallback: native}
 		}
 	}

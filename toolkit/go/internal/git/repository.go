@@ -2,20 +2,15 @@
 package git
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"crypto/sha256"
-	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/git/env"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -26,11 +21,6 @@ import (
 const maxFiles = 10000
 const maxFileBytes = 2 << 20
 const maxSnapshotBytes = 128 << 20
-
-type blob struct {
-	name, oid string
-	symlink   bool
-}
 
 type Snapshot struct {
 	Resources map[string][]byte // Additional captured configuration; never populated from child repositories.
@@ -79,62 +69,36 @@ func (r *Repository) CheckSnapshotBytes(total int64) error {
 }
 
 func (r *Repository) Origin(ctx context.Context) (string, error) {
-	out, err := r.run(ctx, "config", "--get", "remote.origin.url")
-	var exit *exec.ExitError
-	if errors.As(err, &exit) && exit.ExitCode() == 1 {
-		return "", nil
-	}
-	return strings.TrimSpace(string(out)), err
+	return process.Material(r.Root).Origin(ctx)
 }
 
-// CommonDir identifies the shared metadata directory across linked worktrees.
 func (r *Repository) CommonDir(ctx context.Context) (string, error) {
-	out, err := r.run(ctx, "rev-parse", "--path-format=absolute", "--git-common-dir")
-	if err != nil {
-		return "", err
-	}
-	return filepath.EvalSymlinks(strings.TrimSuffix(string(out), "\n"))
+	return process.Material(r.Root).CommonDir(ctx)
 }
 
 func Open(ctx context.Context, dir string) (*Repository, error) {
-	r := &Repository{Root: dir}
-	out, err := r.run(ctx, "rev-parse", "--show-toplevel")
+	root, err := process.Material(dir).TopLevel(ctx)
 	if err != nil {
 		return nil, err
 	}
-	r.Root = strings.TrimSuffix(string(out), "\n")
-	return r, nil
-}
-
-func (r *Repository) run(ctx context.Context, args ...string) ([]byte, error) {
-	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-pager"}, args...)...)
-	cmd.Env = env.ForCheckout(os.Environ())
-	cmd.Dir = r.Root
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	out, err := cmd.Output()
-	if err != nil {
-		return nil, fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(stderr.String()))
-	}
-	return out, nil
+	return &Repository{Root: root}, nil
 }
 
 func (r *Repository) Resolve(ctx context.Context, ref string) (string, error) {
-	out, err := r.run(ctx, "rev-parse", "--verify", "--end-of-options", ref+"^{commit}")
-	return strings.TrimSpace(string(out)), err
+	return process.Material(r.Root).Resolve(ctx, ref)
 }
 
 func (r *Repository) Patch(ctx context.Context, base string) ([]byte, error) {
-	return r.run(ctx, "diff", "--no-ext-diff", "--no-textconv", "--binary", "--find-renames", base, "--")
+	return process.Material(r.Root).Patch(ctx, base)
 }
 
 func (r *Repository) Base(ctx context.Context, ref string) (Snapshot, error) {
 	s := newSnapshot()
-	out, err := r.run(ctx, "ls-tree", "-r", "-z", "--full-tree", ref)
+	out, err := process.Material(r.Root).Tree(ctx, ref)
 	if err != nil {
 		return s, err
 	}
-	var blobs []blob
+	var blobs []process.Blob
 	for _, line := range strings.Split(string(out), "\x00") {
 		if line == "" {
 			continue
@@ -152,89 +116,48 @@ func (r *Repository) Base(ctx context.Context, ref string) (Snapshot, error) {
 			s.Issues = append(s.Issues, name+": unsupported Git entry mode")
 			continue
 		}
-		blobs = append(blobs, blob{name, fields[2], fields[0] == "120000"})
+		blobs = append(blobs, process.Blob{Name: name, OID: fields[2], Symlink: fields[0] == "120000"})
 	}
 	return r.readBlobs(ctx, s, blobs, true)
 }
 
 // Full capture streams oversized blobs into an identity; metadata-only readers
 // reject them before reading their contents. Both use the same bounded batch I/O.
-func (r *Repository) readBlobs(ctx context.Context, s Snapshot, blobs []blob, hashLargeFiles bool) (Snapshot, error) {
+func (r *Repository) readBlobs(ctx context.Context, s Snapshot, blobs []process.Blob, hashLargeFiles bool) (Snapshot, error) {
 	if err := r.CheckFileCount(len(blobs)); err != nil {
 		return s, err
 	}
-	// One cat-file process avoids spawning Git once for every unchanged file.
-	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
-	cmd.Env = env.ForCheckout(os.Environ())
-	cmd.Dir = r.Root
-	var input strings.Builder
-	for _, b := range blobs {
-		fmt.Fprintln(&input, b.oid)
-	}
-	cmd.Stdin = strings.NewReader(input.String())
-	pipe, err := cmd.StdoutPipe()
-	if err != nil {
-		return s, err
-	}
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Start(); err != nil {
-		return s, err
-	}
-	finished := false
-	defer func() {
-		if !finished {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		}
-	}()
-	reader := bufio.NewReader(pipe)
 	total := 0
-	for _, b := range blobs {
-		header, err := reader.ReadString('\n')
-		if err != nil {
-			return s, fmt.Errorf("read blob %s: %w", b.name, err)
-		}
-		parts := strings.Fields(header)
-		if len(parts) != 3 || parts[1] != "blob" {
-			return s, fmt.Errorf("invalid blob header for %s", b.name)
-		}
-		size, err := strconv.Atoi(parts[2])
-		if err != nil || size < 0 {
-			return s, fmt.Errorf("invalid blob size for %s", b.name)
-		}
+	err := process.ReadBlobs(ctx, r.Root, blobs, func(b process.Blob, payload process.BlobPayload) error {
+		size := payload.Size()
 		if size > maxFileBytes {
 			if !hashLargeFiles {
-				return s, fmt.Errorf("metadata %s exceeds %d bytes", b.name, maxFileBytes)
+				return fmt.Errorf("metadata %s exceeds %d bytes", b.Name, maxFileBytes)
 			}
 			digest := sha256.New()
-			if _, err = io.CopyN(digest, reader, int64(size)); err != nil {
-				return s, err
+			if _, err := payload.WriteTo(digest); err != nil {
+				return err
 			}
-			if _, err = reader.ReadByte(); err != nil {
-				return s, err
-			}
-			s.Opaque[b.name] = fmt.Sprintf("%d:sha256:%x", size, digest.Sum(nil))
-			continue
+			s.Opaque[b.Name] = fmt.Sprintf("%d:sha256:%x", size, digest.Sum(nil))
+			return nil
 		}
 		total += size
 		if err := r.CheckSnapshotBytes(int64(total)); err != nil {
-			return s, err
+			return err
 		}
-		data := make([]byte, size+1)
-		if _, err = io.ReadFull(reader, data); err != nil {
-			return s, err
+		data, err := payload.Bytes()
+		if err != nil {
+			return err
 		}
-		if b.symlink {
-			s.Links[b.name] = string(data[:size])
+		if b.Symlink {
+			s.Links[b.Name] = string(data)
 		} else {
-			s.Files[b.name] = data[:size]
+			s.Files[b.Name] = data
 		}
-	}
-	err = cmd.Wait()
-	finished = true
+		return nil
+	})
 	if err != nil {
-		return s, fmt.Errorf("git cat-file: %w: %s", err, stderr.String())
+		return s, err
 	}
 	s.checkLinks()
 	return s, nil
@@ -242,11 +165,11 @@ func (r *Repository) readBlobs(ctx context.Context, s Snapshot, blobs []blob, ha
 
 func (r *Repository) Working(ctx context.Context) (Snapshot, []string, error) {
 	s := newSnapshot()
-	untracked, err := r.run(ctx, "ls-files", "-z", "--others", "--exclude-standard")
+	untracked, err := process.Material(r.Root).Untracked(ctx)
 	if err != nil {
 		return s, nil, err
 	}
-	entries, err := r.run(ctx, "ls-files", "--stage", "-z")
+	entries, err := process.Material(r.Root).Entries(ctx, "")
 	if err != nil {
 		return s, nil, err
 	}

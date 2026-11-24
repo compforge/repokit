@@ -96,7 +96,7 @@ repokit/
 │   │       │   └── dead/ # 用途、可达性、候选规则与前后版本比较
 │   │       ├── git/          # Git 底层适配：材料读取、refs、push、互斥与恢复记录
 │   │       │   ├── env/      # checkout 环境隔离
-│   │       │   ├── command/  # 命令执行、取消与不确定结果
+│   │       │   ├── process/  # 原生 Git 操作、对象批读与子进程执行
 │   │       │   └── worktree/ # checkout 拓扑与 worktree 操作
 │   │       ├── project/      # 结构识别、组件归属与工具证据
 │   │       ├── diff/         # patch 与变更行

@@ -3,6 +3,7 @@ package rebase
 import (
 	"errors"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"os"
 	"path/filepath"
 	"strings"
@@ -139,7 +140,7 @@ func (o *operation) observe() error {
 	return nil
 }
 func (o *operation) destination(remote string) (string, error) {
-	return repogit.PushDestination(o.repo, remote, o.queryFor)
+	return process.PushDestination(o.repo, remote, o.queryFor)
 }
 func (o *operation) remoteTip() (string, error) {
 	ref := "refs/heads/" + o.record.Branch

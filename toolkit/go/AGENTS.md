@@ -30,9 +30,9 @@ internal/
 │   └── dead/  # 用途、可达性、候选规则、前后比较与筛选
 ├── git/           # Git 底层适配：材料读取、refs、push、互斥与恢复记录
 │   ├── gogit/     # 使用 go-git SDK 观察本地分支
-│   ├── process/   # 使用原生 Git 命令查询分支和 commit
+│   ├── process/   # 原生 Git 的 refs、worktree、对象批读、diff 与 ignore 查询
+│   │   └── command/ # 命令执行、取消、退出状态与不确定结果
 │   ├── env/       # Git 子进程的 checkout 环境隔离
-│   ├── command/   # 命令执行、取消、退出状态与不确定结果
 │   └── worktree/  # checkout 拓扑、枚举与创建
 ├── project/       # common 身份、目录布局、语言、工具证据及归属
 ├── diff/          # patch、变更行与 postimage
@@ -49,7 +49,7 @@ internal/
 
 - `internal/git` 拥有共享类型、checkout reader 接口、实现选择和 fallback。
   `gogit` 对无法判定的查询返回 `errors.ErrUnsupported`，父包交给 `process` 核验。
-  `process` 和 `worktree` 复用 `command` 执行原生 Git，`command` 使用 `env`。恢复记录内容、阶段和持锁范围归调用方。
+  `worktree` 通过 `process` 获取原生 Git 记录并解释 checkout 拓扑。限时命令由 `process/command` 执行，子进程复用 `env` 的 checkout 环境隔离。恢复记录内容、阶段和持锁范围归调用方。
 
 - 应用只能消费公共 API；不能为了 CLI 或测试放宽 internal 可见性。工具包不依赖 apps、Cobra 或 HTTP 展示。验证历史由 validation 通过显式 HistoryDir 保存；不隐式写入用户目录。
 - 终止操作的错误使用公共 `errs.Error`，在所属组件提供 code、操作与目标；应用直接复用其 JSON/text 表达，退出码和输出通道归应用。领域报告中的失败与缺口仍留在报告中，见 [错误契约](../../docs/errors.md)。

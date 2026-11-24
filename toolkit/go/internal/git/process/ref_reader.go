@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 )
 
 // RefReader is the root path of the checkout to query.

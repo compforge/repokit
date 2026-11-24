@@ -5,7 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ func AddWorktree(ctx context.Context, repo, path, ref string, options AddWorktre
 			unlock()
 		}
 	}()
-	result := worktree.Add(ctx, repo, path, ref, options.Branch, options.Detach)
+	result := process.AddWorktree(ctx, repo, path, ref, options.Branch, options.Detach)
 	if result.Err == nil {
 		if err := recordCheckoutCreation(ctx, createdPathFor(repo, path)); err != nil {
 			result.Stderr += fmt.Sprintf("\ncreation time unavailable: %v", err)

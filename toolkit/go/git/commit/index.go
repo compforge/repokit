@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"path/filepath"

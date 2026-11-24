@@ -158,6 +158,7 @@ TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出�
 
 Go 工具包按操作语义定义内部接口。公共类型、接口和后端选择放在 `toolkit/go/internal/git`，
 `gogit/` 用 go-git SDK 在进程内读取仓库，`process/` 通过原生 Git 命令实现同一契约。
+原生分支刷新、worktree 命令、tree/index 列举、diff、批量对象读取和 ignore 匹配也归 `process/`。限时命令通过 `process/command` 执行，材料读取保留二进制输出和流式读取。
 上层按需要请求具体能力。例如，push 需要知道本地分支是否存在、当前指向哪个 commit，以及这次查询是否失败。
 `RefReader.BranchCommit` 分别返回 SHA、存在标志和错误，调用方无需判断仓库采用哪种存储格式。
 

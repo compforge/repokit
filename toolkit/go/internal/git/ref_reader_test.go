@@ -137,7 +137,7 @@ func TestSDKRefReaderDoesNotFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := gogit.OpenRefReader(info, formats)
+	reader := gogit.OpenRefReader(info.GitDir, info.CommonDir, formats)
 	if reader == nil {
 		t.Skip("repository format is not supported by the SDK")
 	}
