@@ -15,7 +15,7 @@ type pushTracking struct {
 }
 
 // +spec=Only extend a narrow clone made of conventional exact branch mappings. Git retains ownership of custom fetch layouts and explicit exclusions.
-// +link=component://docs/git-push.md
+// +link=component://docs/git.md#普通分支发布
 func planPushTracking(specs, remote, branch string) pushTracking {
 	source := "refs/heads/" + branch
 	prefix := "refs/remotes/" + remote + "/"

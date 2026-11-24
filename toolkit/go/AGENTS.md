@@ -47,8 +47,8 @@ internal/
   共享 CodeGraph 事实；不重新提取语言语义。CodeGraph 是多个上层能力的基础，不归 Code 领域独占。
   Code 的模型与目录约定见 [Code](../../docs/code.md)。
 
-- `internal/git` 拥有共享类型、`RefReader` 接口、实现选择和 fallback。
-  `gogit` 对无法判定的分支返回 `errors.ErrUnsupported`，父包交给 `process` 核验。
+- `internal/git` 拥有共享类型、checkout reader 接口、实现选择和 fallback。
+  `gogit` 对无法判定的查询返回 `errors.ErrUnsupported`，父包交给 `process` 核验。
   `process` 和 `worktree` 复用 `command` 执行原生 Git，`command` 使用 `env`。恢复记录内容、阶段和持锁范围归调用方。
 
 - 应用只能消费公共 API；不能为了 CLI 或测试放宽 internal 可见性。工具包不依赖 apps、Cobra 或 HTTP 展示。验证历史由 validation 通过显式 HistoryDir 保存；不隐式写入用户目录。

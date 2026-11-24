@@ -51,7 +51,7 @@ type PushReport struct {
 
 // Push publishes a frozen branch commit without force and verifies the single push destination.
 // +spec=Only matching remote evidence confirms publication. Never retry a push automatically or replace the requested commit with a newer branch tip; check observes the original intent.
-// +link=component://docs/git-push.md
+// +link=component://docs/git.md#普通分支发布
 func Push(ctx context.Context, repo string, opts PushOptions) (PushReport, error) {
 	return push(ctx, repo, opts, command.Run)
 }
@@ -117,7 +117,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	defer unlock()
 	var refs repogit.RefReader
 	if !opts.Check {
-		refs = repogit.NewRefReader(ctx, info)
+		refs = repogit.NewReader(ctx, info)
 	}
 	checkSource := func() error {
 		head, exists, e := refs.BranchCommit(ctx, opts.Branch)

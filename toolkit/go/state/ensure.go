@@ -203,15 +203,22 @@ func confirmWorktree(ctx context.Context, source CheckoutInfo, report *EnsureWor
 	if actual.Root != report.Checkout || actual.CommonDir != source.CommonDir {
 		return ensureConflict("requested checkout belongs to a different repository or path")
 	}
-	branch, err := repogit.CurrentBranch(ctx, report.Checkout)
+	ref, sha, err := repogit.NewReader(ctx, actual).AttachedHead(ctx)
 	if err != nil {
 		return err
 	}
-	if branch != report.Branch {
+	if ref != "refs/heads/"+report.Branch {
 		return ensureConflict("checkout branch changed during ensure")
 	}
-	report.HeadSHA, err = repogit.ResolveCommit(ctx, report.Checkout, "HEAD")
-	return err
+	if sha == "" {
+		// Preserve native verification errors for an unborn or unreadable tip.
+		sha, err = repogit.ResolveCommit(ctx, report.Checkout, "HEAD")
+		if err != nil {
+			return err
+		}
+	}
+	report.HeadSHA = sha
+	return nil
 }
 
 // Canonicalize existing ancestors so aliases such as /tmp match Git registration paths.

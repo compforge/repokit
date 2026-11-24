@@ -170,4 +170,4 @@ HTTP 展示、CLI 日志或调用方门禁；viewer 只展示分析结果与捕�
 
 - [Branch 创建](docs/git-branch.md)：显式基线、改动携带、精确 stash 与恢复证据。
 
-- [普通分支发布](docs/git-push.md)：固定 commit、远端确认、只读恢复和 upstream 结果。
+- [普通分支发布](docs/git.md#普通分支发布)：固定 commit、远端确认、只读恢复和 upstream 结果。

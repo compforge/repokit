@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/gogit"
 	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"strings"
 	"time"
@@ -12,6 +13,12 @@ import (
 func ValidateBranch(ctx context.Context, repo, branch string) error {
 	if branch == "" || branch == "HEAD" || strings.HasPrefix(branch, "-") {
 		return fmt.Errorf("invalid branch name %q", branch)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if gogit.ValidBranchName(branch) {
+		return nil
 	}
 	return command.Run(ctx, repo, 5*time.Second, "check-ref-format", "refs/heads/"+branch).Err
 }
@@ -23,11 +30,6 @@ func BranchCommit(ctx context.Context, repo, branch string) (string, bool, error
 
 func ResolveCommit(ctx context.Context, repo, ref string) (string, error) {
 	return process.ResolveCommit(ctx, repo, ref)
-}
-
-func CurrentBranch(ctx context.Context, repo string) (string, error) {
-	result := command.Run(ctx, repo, 5*time.Second, "symbolic-ref", "--quiet", "HEAD")
-	return strings.TrimPrefix(strings.TrimSpace(result.Stdout), "refs/heads/"), result.Err
 }
 
 // RefreshBranch accepts a configured remote name and a branch name, never a URL or arbitrary refspec.
