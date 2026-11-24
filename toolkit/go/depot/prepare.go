@@ -186,21 +186,29 @@ func prepareBin(ctx context.Context, report *Report, index int, options Options)
 }
 
 func retireBinReceipt(ctx context.Context, checkout string, bin *Bin) *errs.Error {
-	directory, err := checkedPath(checkout, bin.Path)
+	name, err := binReceiptPath(ctx, checkout, bin)
 	if err != nil {
-		return problem("unsafe_path", err.Error())
+		return err
 	}
-	tracked := command.Run(ctx, checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
-	if tracked.Err != nil {
-		return problem("inspection_failed", tracked.Err.Error())
-	}
-	if tracked.Stdout != "" {
-		return problem("tracked_resource", "dependency Bin contains tracked files")
-	}
-	if err := os.Remove(filepath.Join(directory, receiptName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := os.Remove(name); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return problem("receipt_failed", err.Error())
 	}
 	return nil
+}
+
+func binReceiptPath(ctx context.Context, checkout string, bin *Bin) (string, *errs.Error) {
+	directory, err := checkedPath(checkout, bin.Path)
+	if err != nil {
+		return "", problem("unsafe_path", err.Error())
+	}
+	tracked := command.Run(ctx, checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
+	if tracked.Err != nil {
+		return "", problem("inspection_failed", tracked.Err.Error())
+	}
+	if tracked.Stdout != "" {
+		return "", problem("tracked_resource", "dependency Bin contains tracked files")
+	}
+	return filepath.Join(directory, receiptName), nil
 }
 
 func verifyBinOutput(checkout string, bin *Bin) *errs.Error {
