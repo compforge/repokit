@@ -7,28 +7,29 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/compforge/repokit/toolkit/go/internal/makefile"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
-func validationMakeContract(ctx context.Context, checkout, component string) (makeContract, error) {
+func validationMakeContract(ctx context.Context, checkout, component string) (makefile.Contract, error) {
 	directory := filepath.Join(checkout, component)
 	real, err := filepath.EvalSymlinks(directory)
 	if err != nil {
-		return makeContract{}, err
+		return makefile.Contract{}, err
 	}
 	if real != directory {
-		return makeContract{}, fmt.Errorf("Component %q crosses a symlink", component)
+		return makefile.Contract{}, fmt.Errorf("Component %q crosses a symlink", component)
 	}
-	makefile := filepath.Join(directory, "Makefile")
-	info, err := os.Lstat(makefile)
+	makePath := filepath.Join(directory, "Makefile")
+	info, err := os.Lstat(makePath)
 	if err == nil && !info.Mode().IsRegular() {
-		return makeContract{}, fmt.Errorf("Component %q Makefile must be a regular file", component)
+		return makefile.Contract{}, fmt.Errorf("Component %q Makefile must be a regular file", component)
 	}
-	text, err := os.ReadFile(makefile)
+	text, err := os.ReadFile(makePath)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return makeContract{}, err
+		return makefile.Contract{}, err
 	}
-	return readMakeContract(ctx, text), nil
+	return makefile.Parse(ctx, text), nil
 }
 
 // Each selected Component/check is planned once; Makefile recipes own any further orchestration.

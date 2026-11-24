@@ -40,6 +40,11 @@ linked worktree 调用仍定位到同一个主 checkout。无法定位主 checko
 `writeAttempted` 表示尝试执行 worktree add；fetch 的本地 tracking ref 更新单独计入 base 阶段。
 创建后的核验失败为 unknown，不能据此盲目重试；失败不会删除已经创建的目录或分支。
 confirmed 后的创建时间记录或状态发布失败放在 diagnostics，不撤销已确认成功。
+
+非零退出时，Home 的每日命令日志按同一 `run_id` 关联 `command.failed` 和每个未就绪 Bin 的
+`worktree.bin_not_ready`。命令记录可用的 error code、checkout 确认状态与依赖就绪状态；
+Bin 记录 manager、action、错误码、安装器退出码及可识别的原因。需要安装器原始输出时，传
+`--output <path>` 保存完整 JSON 结果，失败日志的 `result_path` 指向成功导出的文件。
 状态发布在释放 Git lease 后执行，避免与 cleanup 的锁顺序冲突。
 
 `cost.phases` 报告 inspect、lock_wait、inventory、branch、base、create、verify、record、observe
@@ -151,6 +156,7 @@ lifecycle; Depot owns Bin discovery, receipts and installation. Without `--prepa
 installation and still maintains capacity after confirming the checkout. Standalone `depot prepare` remains useful for existing checkouts and changed
 lockfiles; `depot inspect` is a query, never a mandatory preflight before preparation.
 
+Preparation selects each Component’s literal Makefile depot target or its default installer under the [Depot contract](depot.md).
 The flat checkout report remains available together with `preparation` and `ready`. If creation
 succeeds but preparation fails or remains unverified, outcome is `partial`, `confirmed=true`, and
 `ready=false`. Do not recreate or remove that checkout: inspect each Bin and resume preparation.

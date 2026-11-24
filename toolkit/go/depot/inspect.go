@@ -1,6 +1,7 @@
 package depot
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -19,6 +20,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go/errs"
 	depotdata "github.com/compforge/repokit/toolkit/go/internal/depot"
 	"github.com/compforge/repokit/toolkit/go/internal/git"
+	"github.com/compforge/repokit/toolkit/go/internal/makefile"
 	"github.com/compforge/repokit/toolkit/go/internal/project"
 )
 
@@ -47,7 +49,8 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 		return report, err
 	}
 	report.Checkout = repository.Root
-	files, err := repository.Catalog(ctx, "", false, project.NeedsContent)
+	needsContent := func(name string) bool { return path.Base(name) == "Makefile" || project.NeedsContent(name) }
+	files, err := repository.Catalog(ctx, "", false, needsContent)
 	if err != nil {
 		return report, err
 	}
@@ -59,6 +62,8 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 	for _, name := range options.Components {
 		selected[filepath.ToSlash(filepath.Clean(name))] = true
 	}
+	available := map[string]MakeRecipe{}
+	neededRecipes := map[string]bool{}
 	found := map[string]bool{}
 	bins := map[string]*Bin{}
 	for _, component := range layout.Components {
@@ -76,10 +81,10 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 	}
 	wanted := map[string]bool{}
 	for _, component := range layout.Components {
+		found[component.Root] = true
 		if len(selected) > 0 && !selected[component.Root] {
 			continue
 		}
-		found[component.Root] = true
 		report.Components = append(report.Components, Component{component.Root, component.Depot})
 		if component.Depot != nil {
 			for _, bin := range component.Depot.Bins {
@@ -90,6 +95,32 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 	for name := range selected {
 		if !found[name] {
 			return report, problem("invalid_component", "unknown Component: "+name)
+		}
+	}
+	relevant := map[string]bool{}
+	for _, c := range report.Components {
+		relevant[c.Root] = true
+	}
+	for name := range wanted {
+		relevant[bins[name].Root] = true
+	}
+	for _, c := range layout.Components {
+		if !relevant[c.Root] {
+			continue
+		}
+		source := files[path.Join(c.Root, "Makefile")]
+		if !bytes.Contains(source, []byte("depot")) {
+			continue
+		}
+		contract := makefile.Parse(ctx, source)
+		if contract.Problem != "" {
+			return report, &errs.Error{Code: "depot.makefile_invalid", Subject: c.Root, Message: contract.Problem}
+		}
+		if contract.Targets["depot"] {
+			available[c.Root] = MakeRecipe{Root: c.Root, Command: []string{"make", "-f", "Makefile", "depot"}, Fingerprint: fmt.Sprintf("%x", sha256.Sum256(source))}
+			if c.Depot == nil || len(c.Depot.Bins) == 0 {
+				neededRecipes[c.Root] = true
+			}
 		}
 	}
 	names := []string{}
@@ -107,6 +138,14 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 			entry.Status = "unsupported"
 			entry.Reason = "no preparation recipe for this Bin kind"
 		} else {
+			owner, err := recipeOwner(entry, available, selected)
+			if err != nil {
+				return report, err
+			}
+			if owner != "" {
+				entry.RecipeRoot = owner
+				neededRecipes[owner] = true
+			}
 			if err = recipe(report.Checkout, files, entry); err != nil {
 				return report, err
 			}
@@ -118,7 +157,12 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 		}
 		report.Bins = append(report.Bins, *entry)
 	}
-	latest, err := repository.Catalog(ctx, "", false, project.NeedsContent)
+	for _, c := range layout.Components {
+		if neededRecipes[c.Root] {
+			report.Recipes = append(report.Recipes, available[c.Root])
+		}
+	}
+	latest, err := repository.Catalog(ctx, "", false, needsContent)
 	if err != nil {
 		return report, err
 	}
@@ -127,6 +171,28 @@ func Inspect(ctx context.Context, repo string, options Options) (report Report, 
 	}
 	report.Complete = true
 	return report, nil
+}
+
+// Shared environments use their installation root's recipe when declared. Without it,
+// one selected member may provide the recipe; competing recipes cannot own the same Bin.
+func recipeOwner(bin *Bin, available map[string]MakeRecipe, selected map[string]bool) (string, error) {
+	if _, ok := available[bin.Root]; ok {
+		return bin.Root, nil
+	}
+	var owner string
+	for _, root := range bin.Components {
+		if len(selected) != 0 && !selected[root] {
+			continue
+		}
+		if _, ok := available[root]; !ok {
+			continue
+		}
+		if owner != "" {
+			return "", &errs.Error{Code: "depot.ambiguous_recipe", Subject: bin.Path, Message: "multiple Components declare depot for the shared Bin: " + owner + ", " + root}
+		}
+		owner = root
+	}
+	return owner, nil
 }
 
 // checkedPath rejects symlinked ancestors and nested checkouts before reading or executing in a Bin.
@@ -203,7 +269,7 @@ func readInput(checkout, name string) ([]byte, bool, error) {
 
 func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 	python := path.Base(bin.Path) == ".venv"
-	if !python {
+	if !python && bin.RecipeRoot == "" {
 		if _, exists, e := readInput(checkout, path.Join(bin.Root, ".pnp.cjs")); e != nil {
 			return e
 		} else if exists {
@@ -231,7 +297,11 @@ func recipe(checkout string, files map[string][]byte, bin *Bin) error {
 			return problem("inputs_changed", "manifest disappeared: "+name)
 		}
 	}
-	if python {
+	if bin.RecipeRoot != "" {
+		makePath := path.Join(bin.RecipeRoot, "Makefile")
+		contents[makePath] = files[makePath]
+		bin.Manager = "make"
+	} else if python {
 		bin.Manager = "uv"
 		if _, exists := contents[path.Join(bin.Root, "uv.lock")]; exists {
 			bin.Command = []string{"uv", "sync", "--locked"}
@@ -327,7 +397,7 @@ func observe(checkout string, bin *Bin) error {
 	info, err := os.Lstat(directory)
 	if errors.Is(err, os.ErrNotExist) {
 		bin.Status = "missing"
-		if len(bin.Command) == 0 {
+		if len(bin.Command) == 0 && bin.Manager != "make" {
 			bin.Reason = "no supported locked installer"
 		}
 		return nil

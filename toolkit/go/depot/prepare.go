@@ -29,7 +29,7 @@ func Prepare(ctx context.Context, repo string, options Options) (report Report, 
 	for _, bin := range report.Bins {
 		paths = append(paths, bin.Path)
 	}
-	if len(paths) == 0 {
+	if len(paths) == 0 && len(report.Recipes) == 0 {
 		return report, nil
 	}
 	start := time.Now()
@@ -46,8 +46,18 @@ func Prepare(ctx context.Context, repo string, options Options) (report Report, 
 			return problem("inputs_changed", "dependency plan changed while waiting; inspect again")
 		}
 		report.Bins = fresh.Bins
+		for i := range report.Recipes {
+			recipe := &report.Recipes[i]
+			if e := prepareRecipe(ctx, &report, recipe, options); e != nil {
+				recipe.Error = errs.Wrap(e, "depot.prepare_failed", "make depot", recipe.Root).(*errs.Error)
+				return recipe.Error
+			}
+		}
 		for i := range report.Bins {
 			bin := &report.Bins[i]
+			if bin.RecipeRoot != "" {
+				continue
+			}
 			if e := ctx.Err(); e != nil {
 				bin.Action = "failed"
 				bin.Error = errs.Wrap(e, "depot.cancelled", "depot.prepare", bin.Path).(*errs.Error)
@@ -76,7 +86,9 @@ func Prepare(ctx context.Context, repo string, options Options) (report Report, 
 					report.Complete = false
 				}
 				for j := i + 1; j < len(report.Bins); j++ {
-					report.Bins[j].Action = "not_run"
+					if report.Bins[j].RecipeRoot == "" {
+						report.Bins[j].Action = "not_run"
+					}
 				}
 				break
 			}
@@ -104,6 +116,14 @@ func Prepare(ctx context.Context, repo string, options Options) (report Report, 
 	return report, nil
 }
 func samePlan(a, b Report) bool {
+	if len(a.Recipes) != len(b.Recipes) {
+		return false
+	}
+	for i := range a.Recipes {
+		if a.Recipes[i].Root != b.Recipes[i].Root || a.Recipes[i].Fingerprint != b.Recipes[i].Fingerprint {
+			return false
+		}
+	}
 	if !reflect.DeepEqual(a.Components, b.Components) || len(a.Bins) != len(b.Bins) {
 		return false
 	}
@@ -125,31 +145,15 @@ func prepareBin(ctx context.Context, report *Report, index int, options Options)
 			bin.Status = "unknown"
 		}
 		bin.Reason = message
-		bin.Error = &errs.Error{Code: "depot." + code, Message: message, Uncertain: uncertain, Subject: bin.Path}
+		bin.Error = &errs.Error{Code: code, Message: message, Uncertain: uncertain, Subject: bin.Path}
 	}
 	defer func() {
 		if bin.Error != nil {
 			slog.WarnContext(ctx, "Depot preparation incomplete", "checkout", report.Checkout, "bin", bin.Path, "manager", bin.Manager, "code", bin.Error.Code, "executed", bin.Executed)
 		}
 	}()
-	directory, e := checkedPath(report.Checkout, bin.Path)
-	if e != nil {
-		fail("unsafe_path", e.Error(), false)
-		return
-	}
-	tracked := command.Run(ctx, report.Checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
-	if tracked.Err != nil {
-		fail("inspection_failed", tracked.Err.Error(), false)
-		return
-	}
-	if tracked.Stdout != "" {
-		fail("tracked_resource", "dependency Bin contains tracked files", false)
-		return
-	}
-	// Retire old success evidence before invoking an installer that can partially mutate its directory.
-	receiptPath := filepath.Join(directory, receiptName)
-	if e = os.Remove(receiptPath); e != nil && !errors.Is(e, os.ErrNotExist) {
-		fail("receipt_failed", e.Error(), false)
+	if err := retireBinReceipt(ctx, report.Checkout, bin); err != nil {
+		fail(err.Code, err.Message, false)
 		return
 	}
 	start := time.Now()
@@ -158,50 +162,79 @@ func prepareBin(ctx context.Context, report *Report, index int, options Options)
 	measure(report, "install", bin.Path, start)
 	bin.Executed, bin.ExitCode, bin.Stdout, bin.Stderr = result.started, result.code, result.stdout, result.stderr
 	if result.err != nil {
-		fail("install_failed", result.err.Error(), result.uncertain)
+		fail("depot.install_failed", result.err.Error(), result.uncertain)
 		return
 	}
 	start = time.Now()
 	fresh, e := Inspect(ctx, report.Checkout, options)
 	measure(report, "verify", bin.Path, start)
 	if e != nil {
-		fail("verification_failed", e.Error(), true)
+		fail("depot.verification_failed", e.Error(), true)
 		return
 	}
 	if !samePlan(*report, fresh) {
-		fail("inputs_changed", "dependency inputs changed during installation; no receipt written", false)
+		fail("depot.inputs_changed", "dependency inputs changed during installation; no receipt written", false)
 		return
 	}
-	if _, e = checkedPath(report.Checkout, bin.Path); e != nil {
-		fail("unsafe_path", e.Error(), false)
+	if e := verifyBinOutput(report.Checkout, bin); e != nil {
+		fail(e.Code, e.Message, false)
 		return
 	}
-	info, e := os.Lstat(directory)
-	if e != nil || !info.IsDir() {
-		fail("missing_output", "installer did not create the dependency directory", false)
-		return
+	if e := publishBinReceipt(ctx, report, bin); e != nil {
+		fail("depot.receipt_failed", e.Error(), ctx.Err() != nil)
 	}
-	if e = ctx.Err(); e != nil {
-		fail("cancelled", e.Error(), true)
-		return
+}
+
+func retireBinReceipt(ctx context.Context, checkout string, bin *Bin) *errs.Error {
+	directory, err := checkedPath(checkout, bin.Path)
+	if err != nil {
+		return problem("unsafe_path", err.Error())
 	}
-	start = time.Now()
+	tracked := command.Run(ctx, checkout, 5*time.Second, "ls-files", "-z", "--", bin.Path)
+	if tracked.Err != nil {
+		return problem("inspection_failed", tracked.Err.Error())
+	}
+	if tracked.Stdout != "" {
+		return problem("tracked_resource", "dependency Bin contains tracked files")
+	}
+	if err := os.Remove(filepath.Join(directory, receiptName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return problem("receipt_failed", err.Error())
+	}
+	return nil
+}
+
+func verifyBinOutput(checkout string, bin *Bin) *errs.Error {
+	directory, err := checkedPath(checkout, bin.Path)
+	if err != nil {
+		return problem("unsafe_path", err.Error())
+	}
+	info, err := os.Lstat(directory)
+	if err != nil || !info.IsDir() {
+		return problem("missing_output", "installer did not create the dependency directory")
+	}
+	return nil
+}
+
+func publishBinReceipt(ctx context.Context, report *Report, bin *Bin) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	start := time.Now()
 	generation := make([]byte, 16)
-	if _, e = rand.Read(generation); e != nil {
-		fail("receipt_failed", e.Error(), false)
-		return
+	if _, err := rand.Read(generation); err != nil {
+		return err
 	}
-	data, e := json.Marshal(receipt{Manager: bin.Manager, Fingerprint: bin.Fingerprint, Generation: hex.EncodeToString(generation)})
-	if e == nil {
-		e = writeReceipt(ctx, receiptPath, data)
+	data, err := json.Marshal(receipt{Manager: bin.Manager, Fingerprint: bin.Fingerprint, Generation: hex.EncodeToString(generation)})
+	if err == nil {
+		err = writeReceipt(ctx, filepath.Join(report.Checkout, filepath.FromSlash(bin.Path), receiptName), data)
 	}
 	measure(report, "receipt", bin.Path, start)
-	if e != nil {
-		fail("receipt_failed", e.Error(), ctx.Err() != nil)
-		return
+	if err != nil {
+		return err
 	}
 	bin.Status, bin.Action, bin.Reason = "ready", "prepared", ""
 	slog.InfoContext(ctx, "Depot installation ready", "checkout", report.Checkout, "bin", bin.Path, "manager", bin.Manager)
+	return nil
 }
 func writeReceipt(ctx context.Context, name string, data []byte) error {
 	f, err := os.CreateTemp(filepath.Dir(name), ".repokit-receipt-*")

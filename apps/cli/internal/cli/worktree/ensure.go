@@ -47,6 +47,10 @@ Removal includes uncommitted, untracked and ignored files. Local branches and co
 			fmt.Fprintf(cmd.OutOrStdout(), "%s %s branch=%s confirmed=%t\n", report.Action, report.Checkout, report.Branch, report.Confirmed)
 			if report.Preparation != nil {
 				fmt.Fprintf(cmd.OutOrStdout(), "Dependencies ready=%t; complete=%t\n", report.Ready, report.Preparation.Complete)
+				for _, recipe := range report.Preparation.Recipes {
+					fmt.Fprintf(cmd.OutOrStdout(), "%s: make depot (executed=%t)\n", recipe.Root, recipe.Executed)
+					fmt.Fprint(cmd.ErrOrStderr(), recipe.Stderr)
+				}
 				for _, bin := range report.Preparation.Bins {
 					fmt.Fprintf(cmd.OutOrStdout(), "%s: %s %s %s\n", bin.Path, bin.Status, bin.Action, bin.Reason)
 				}
@@ -69,6 +73,7 @@ Removal includes uncommitted, untracked and ignored files. Local branches and co
 		}
 		return cmdutil.ExecutionFailure(err)
 	}}
+	cmd.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	cmd.Flags().BoolVar(&prepare, "prepare", false, "Prepare declared dependency Bins after confirming the checkout")
 	cmd.Flags().StringVar(&branch, "branch", "", "Exact local branch to create or resume")
 	cmd.Flags().StringVar(&base, "base", "", "Creation base: local revision, or branch on --remote")

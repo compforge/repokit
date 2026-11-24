@@ -42,13 +42,28 @@ repocli depot prepare --repo . --component apps/web --timeout 10m --json
 全部引用 Components、安装根、manager、command、inputs、fingerprint 和运行态结果。
 未声明 Depot 不证明没有依赖；当前不准备 output/cache，也不安装语言运行时或升级依赖。
 
+每个选中 Component 独立选择安装方式。其 Makefile 显式声明字面量 `depot` target 时，
+在该组件目录执行一次 `make -f Makefile depot`；否则走默认的锁文件安装流程。项目 recipe
+直接运行原生准备命令，可按需初始化 submodule。两个入口 `depot prepare` 和
+`worktree ensure --prepare` 使用同一规则。失败保留本次输出与退出码，结束本轮安装。
+
+`--component web` 只准备 web。整仓执行时，web 与 server 的 Makefile 分别决定各自的安装方式。
+成员共享物理 Bin 时，优先使用安装根 Component 的 target，并只执行一次。安装根未声明
+target 时可由一个选中成员提供；多个成员争用同一 Bin 时报告歧义。独立 Component 不继承
+仓库根 target。没有可识别 Bin 的 Component 也可以用 target 安装自己的工具。
+
+`data.recipes` 按 Component 保留执行目录、命令、退出码和输出；`data.bins[].recipeRoot` 标识
+负责该 Bin 的 recipe。准备显式调用项目 target，每条 recipe 在锁内执行一次；RepoKit 复核
+Makefile、安装输入及声明的物理目录后发布回执。已有无回执目录保留原归属。未声明 Bin 时，
+结果记录 target 的退出状态。默认安装器继续按有效回执复用。
+
 Go 公共入口为 `depot.Inspect` / `depot.Prepare`。Python 原生依赖 API 仍独立执行；
 各语言调用方也可直接消费上述版本化 CLI 结果，不作为原生 SDK 的隐式回退。
 
 | status | 含义及 prepare 行为 |
 |---|---|
-| ready | 回执匹配当前输入；`reused`，不安装。 |
-| present | 本地目录存在但没有回执；`preserved`，报告未验证告警。 |
+| ready | 回执匹配当前输入。默认安装器复用；显式调用项目 target 后重新核验。 |
+| present | 本地目录存在但没有回执。默认安装器保留目录；项目 target 执行后仍保留目录原归属。 |
 | missing | 目录不存在；有 recipe 时安装，否则 `unsupported`。 |
 | stale | 回执与输入不匹配或无效；有 recipe 时重新安装。 |
 | unsupported | 位置或准备方式不支持；报告原因，不安装。 |
