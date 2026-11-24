@@ -115,8 +115,12 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		return report, err
 	}
 	defer unlock()
+	var refs repogit.RefReader
+	if !opts.Check {
+		refs = repogit.NewRefReader(ctx, info)
+	}
 	checkSource := func() error {
-		head, exists, e := repogit.BranchCommit(ctx, repo, opts.Branch)
+		head, exists, e := refs.BranchCommit(ctx, opts.Branch)
 		if e != nil {
 			return e
 		}
