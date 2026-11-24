@@ -127,6 +127,18 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	}
 	var endpoint string
 	ref := "refs/heads/" + opts.Target
+	recordTip := func(tip string) {
+		report.Confirmed = tip == opts.Commit
+		report.RemoteCommit = tip
+		switch tip {
+		case opts.Commit:
+			report.RemoteState = "matching"
+		case "":
+			report.RemoteState = "missing"
+		default:
+			report.RemoteState = "different"
+		}
+	}
 	observe := func() error {
 		report.RemoteCommit = ""
 		report.RemoteState = "unknown"
@@ -139,16 +151,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		if e != nil {
 			return e
 		}
-		report.RemoteCommit = tip
-		switch tip {
-		case opts.Commit:
-			report.RemoteState = "matching"
-			report.Confirmed = true
-		case "":
-			report.RemoteState = "missing"
-		default:
-			report.RemoteState = "different"
-		}
+		recordTip(tip)
 		return nil
 	}
 	err = measure("remote_preflight", func() error {
@@ -170,6 +173,14 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	if opts.Check {
 		return report, nil
 	}
+	var tracking pushTracking
+	if opts.SetUpstream {
+		specs, e := query(5*time.Second, "config", "--get-all", "remote."+opts.Remote+".fetch")
+		if e == nil {
+			tracking = planPushTracking(specs, opts.Remote, opts.Target)
+		}
+	}
+	trackingFetched := false
 	if !report.Confirmed {
 		if err = ctx.Err(); err != nil {
 			return report, err
@@ -184,7 +195,16 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 			report.PushExitCode = &result.ExitCode
 			return result.Err
 		})
-		err = measure("remote_verify", observe)
+		err = measure("remote_verify", func() error {
+			if result.Err == nil {
+				if tip, ok := tracking.fetchTip(repo, opts.Remote, endpoint, ref, query); ok {
+					recordTip(tip)
+					trackingFetched = true
+					return nil
+				}
+			}
+			return observe()
+		})
 		if !report.Confirmed {
 			if err == nil && !result.Uncertain && repogit.PushRejected(result.Stdout, ref) {
 				return report, failure("rejected", "remote rejected branch publication; inspect the observed remote commit", result.Err)
@@ -199,6 +219,14 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		e := measure("configure_upstream", func() error {
 			if e := checkSource(); e != nil {
 				return e
+			}
+			if tracking.excluded {
+				return failure("upstream_excluded", "remote fetch configuration excludes the target branch", nil)
+			}
+			if tracking.addMapping {
+				if _, e := query(5*time.Second, "remote", "set-branches", "--add", opts.Remote, opts.Target); e != nil {
+					return e
+				}
 			}
 			for _, entry := range [][2]string{{"branch." + opts.Branch + ".remote", opts.Remote}, {"branch." + opts.Branch + ".merge", ref}} {
 				r := run(ctx, repo, 5*time.Second, "config", "--local", "--replace-all", entry[0], entry[1])
@@ -219,9 +247,11 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 		})
 		if e == nil {
 			e = measure("refresh_tracking", func() error {
-				result := run(ctx, repo, 30*time.Second, "fetch", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--", opts.Remote, ref)
-				if result.Err != nil {
-					return result.Err
+				if !trackingFetched {
+					result := run(ctx, repo, 30*time.Second, "fetch", "--no-tags", "--no-write-fetch-head", "--recurse-submodules=no", "--", opts.Remote, ref)
+					if result.Err != nil {
+						return result.Err
+					}
 				}
 				tracked, err := query(5*time.Second, "rev-parse", "--verify", "--end-of-options", opts.Branch+"@{upstream}^{commit}")
 				if err != nil {
