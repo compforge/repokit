@@ -222,23 +222,15 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 			sourceGit("add", ".")
 			sourceGit("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "source")
 			root, create := retentionFixture(t)
-			run := func(path string, args ...string) string {
-				t.Helper()
-				result := command.Run(ctx, path, 10*time.Second, args...)
-				if result.Err != nil {
-					t.Fatal(result.Err)
-				}
-				return result.Stdout
-			}
-			run(root, "-c", "protocol.file.allow=always", "submodule", "add", source, "deps/sub")
-			run(root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qam", "module")
+			fixtureGit(t, root, "-c", "protocol.file.allow=always", "submodule", "add", source, "deps/sub")
+			fixtureGit(t, root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qam", "module")
 			linked := create("whole", false)
-			run(linked, "-c", "protocol.file.allow=always", "submodule", "update", "--init")
+			fixtureGit(t, linked, "-c", "protocol.file.allow=always", "submodule", "update", "--init")
 			info, err := Checkout(ctx, linked)
 			if err != nil {
 				t.Fatal(err)
 			}
-			head := run(root, "rev-parse", "refs/heads/whole")
+			head := fixtureGit(t, root, "rev-parse", "refs/heads/whole")
 			switch mode {
 			case "dirty", "untracked":
 				name := "tracked.txt"
@@ -248,9 +240,9 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 				if err := os.WriteFile(filepath.Join(linked, "deps/sub", name), []byte("keep"), 0600); err != nil {
 					t.Fatal(err)
 				}
-				run(root, "config", "submodule.deps/sub.ignore", "all")
+				fixtureGit(t, root, "config", "submodule.deps/sub.ignore", "all")
 			case "locked":
-				run(root, "worktree", "lock", linked)
+				fixtureGit(t, root, "worktree", "lock", linked)
 			}
 			policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
 			for _, dry := range []bool{true, false} {
@@ -267,7 +259,7 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 					if dry {
 						expected = "planned"
 					}
-					if action.Status != expected || report.RemainingCount != 0 {
+					if action.Status != expected || action.DurationSeconds <= 0 || report.RemainingCount != 0 {
 						t.Fatal(report)
 					}
 				} else if action.Status != "skipped" || report.RemainingCount != 1 {
@@ -290,7 +282,7 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 					t.Fatal("original repository removed", path, err)
 				}
 			}
-			if run(root, "rev-parse", "refs/heads/whole") != head {
+			if fixtureGit(t, root, "rev-parse", "refs/heads/whole") != head {
 				t.Fatal("branch changed")
 			}
 			if mode == "locked" {

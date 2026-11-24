@@ -71,14 +71,21 @@ func LoadWorktreePolicy(ctx context.Context, repo, home string) (policy Worktree
 }
 
 type WorktreeAction struct {
-	Action         string  `json:"action"`
-	Status         string  `json:"status"`
-	Reason         string  `json:"reason"`
-	Path           string  `json:"path"`
-	Branch         string  `json:"branch"`
-	PRNumber       int     `json:"pr_number,omitempty"`
-	EstimatedBytes int64   `json:"estimatedBytes,omitempty"`
-	LastAccessAt   float64 `json:"lastAccessAt,omitempty"`
+	Action          string  `json:"action"`
+	Status          string  `json:"status"`
+	Reason          string  `json:"reason"`
+	Path            string  `json:"path"`
+	Branch          string  `json:"branch"`
+	PRNumber        int     `json:"pr_number,omitempty"`
+	DurationSeconds float64 `json:"durationSeconds,omitempty"`
+	EstimatedBytes  int64   `json:"estimatedBytes,omitempty"`
+	LastAccessAt    float64 `json:"lastAccessAt,omitempty"`
+}
+
+func (r *WorktreeCleanReport) recordActionDuration(index int, start time.Time) {
+	if index < len(r.Actions) {
+		r.Actions[index].DurationSeconds = time.Since(start).Seconds()
+	}
 }
 
 type WorktreeCleanReport struct {
@@ -273,6 +280,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		if e.excluded || e.Path == "" {
 			return
 		}
+		defer report.recordActionDuration(len(report.Actions), time.Now())
 		protection, err := worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
 		if err != nil {
 			failure(e, "remove_worktree", err)
@@ -405,6 +413,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			continue
 		}
 		run(e, func(ctx context.Context) {
+			defer report.recordActionDuration(len(report.Actions), time.Now())
 			reason, err := worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
 			if err != nil {
 				failure(e, "release_environment", err)

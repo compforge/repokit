@@ -191,3 +191,5 @@ The ensure report includes `maintenance`, its actions and errors, plus a mainten
 Maintenance failure adds warning diagnostics without changing confirmed checkout or preparation
 results. Soft limits can remain exceeded when older candidates are protected or cannot be cleaned;
 creation does not fail merely because capacity maintenance is incomplete.
+
+For retention actions, `remove_worktree` and `release_environment` report `durationSeconds` from the start of the action’s eligibility checks through its recorded outcome. The enclosing maintenance phase also includes checkout and environment inventory.

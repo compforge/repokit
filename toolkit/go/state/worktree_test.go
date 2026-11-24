@@ -17,12 +17,7 @@ func worktreeFixture(t *testing.T) (string, func(...string) string) {
 	}
 	git := func(args ...string) string {
 		t.Helper()
-		cmd := exec.Command("git", append([]string{"-C", root, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"}, args...)...)
-		out, err := cmd.CombinedOutput()
-		if err != nil {
-			t.Fatalf("git %v: %v: %s", args, err, out)
-		}
-		return string(out)
+		return fixtureGit(t, root, args...)
 	}
 	git("init", "-q")
 	git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "--allow-empty", "-qm", "root")
@@ -100,4 +95,14 @@ func TestWorktreeFailedObservationAndCanceledWrite(t *testing.T) {
 	if result.Err == nil || result.Uncertain {
 		t.Fatalf("canceled before start: %+v", result)
 	}
+}
+
+func fixtureGit(t *testing.T, root string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", append([]string{"-C", root, "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false"}, args...)...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("git %v: %v: %s", args, err, out)
+	}
+	return string(out)
 }

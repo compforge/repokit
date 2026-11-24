@@ -442,7 +442,17 @@ func TestGlobalAndDirectWorktreeRetentionAgree(t *testing.T) {
 			}
 			row := a.WorktreeAction
 			row.LastAccessAt = 0
+			if row.DurationSeconds <= 0 {
+				t.Fatal("global retention action missing duration", row)
+			}
+			row.DurationSeconds = 0
 			actions = append(actions, row)
+		}
+		for i, row := range direct.Actions {
+			if row.DurationSeconds <= 0 {
+				t.Fatal("direct retention action missing duration", row)
+			}
+			direct.Actions[i].DurationSeconds = 0
 		}
 		if !reflect.DeepEqual(direct.Actions, actions) {
 			t.Fatal(direct.Actions, actions)
