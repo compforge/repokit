@@ -4,42 +4,25 @@ import (
 	"context"
 	"crypto/sha256"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"sort"
 	"strings"
 
 	"github.com/compforge/repokit/toolkit/go/internal/diff"
 )
 
-// ComparisonPatch uses resolved object IDs; user refs never become Git options.
 func (r *Repository) ComparisonPatch(ctx context.Context, base, head string, staged bool) ([]byte, error) {
-	if base == "" {
-		// Git's empty-tree identity depends on the repository object format. Computing
-		// it does not write an object or require the checkout to have a first commit.
-		data, err := r.run(ctx, "hash-object", "-t", "tree", "--stdin")
-		if err != nil {
-			return nil, err
-		}
-		base = strings.TrimSpace(string(data))
-	}
-	args := []string{"diff", "--no-ext-diff", "--no-textconv", "--binary", "--find-renames"}
-	if staged {
-		args = append(args, "--cached")
-	}
-	args = append(args, base)
-	if head != "" {
-		args = append(args, head)
-	}
-	return r.run(ctx, append(args, "--")...)
+	return process.Material(r.Root).ComparisonPatch(ctx, base, head, staged)
 }
 
 // Staged reads the index without writing a tree or changing its stat cache.
 func (r *Repository) Staged(ctx context.Context) (Snapshot, error) {
 	s := newSnapshot()
-	out, err := r.run(ctx, "ls-files", "--stage", "-z")
+	out, err := process.Material(r.Root).Entries(ctx, "")
 	if err != nil {
 		return s, err
 	}
-	var blobs []blob
+	var blobs []process.Blob
 	for _, line := range strings.Split(string(out), "\x00") {
 		if line == "" {
 			continue
@@ -60,7 +43,7 @@ func (r *Repository) Staged(ctx context.Context) (Snapshot, error) {
 			s.Issues = append(s.Issues, name+": unsupported Git entry mode")
 			continue
 		}
-		blobs = append(blobs, blob{name, fields[1], fields[0] == "120000"})
+		blobs = append(blobs, process.Blob{Name: name, OID: fields[1], Symlink: fields[0] == "120000"})
 	}
 	return r.readBlobs(ctx, s, blobs, true)
 }

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 )
 
 // RefReader is the root path of the checkout to query.
@@ -36,4 +36,31 @@ func ResolveCommit(ctx context.Context, repo, ref string) (string, error) {
 func (reader RefReader) Formats(ctx context.Context) (string, error) {
 	result := command.Run(ctx, string(reader), 5*time.Second, "rev-parse", "--show-object-format", "--show-ref-format")
 	return strings.TrimSpace(result.Stdout), result.Err
+}
+
+func (reader RefReader) AttachedHead(ctx context.Context) (string, string, error) {
+	result := command.Run(ctx, string(reader), 5*time.Second, "symbolic-ref", "--quiet", "HEAD")
+	if result.Err != nil {
+		return "", "", result.Err
+	}
+	ref := strings.TrimSuffix(result.Stdout, "\n")
+	branch, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok {
+		return ref, "", nil
+	}
+	sha, _, err := reader.BranchCommit(ctx, branch)
+	return ref, sha, err
+}
+
+func (reader RefReader) CommitMetadata(ctx context.Context, sha string) (string, []string, error) {
+	budget := 30 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		budget = time.Until(deadline)
+	}
+	result := command.Run(ctx, string(reader), budget, "show", "--no-patch", "--format=%T%n%P", sha, "--")
+	if result.Err != nil {
+		return "", nil, result.Err
+	}
+	tree, parents, _ := strings.Cut(strings.TrimSuffix(result.Stdout, "\n"), "\n")
+	return tree, strings.Fields(parents), nil
 }

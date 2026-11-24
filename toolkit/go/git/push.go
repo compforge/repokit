@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"path/filepath"
@@ -51,7 +52,7 @@ type PushReport struct {
 
 // Push publishes a frozen branch commit without force and verifies the single push destination.
 // +spec=Only matching remote evidence confirms publication. Never retry a push automatically or replace the requested commit with a newer branch tip; check observes the original intent.
-// +link=component://docs/git-push.md
+// +link=component://docs/git.md#普通分支发布
 func Push(ctx context.Context, repo string, opts PushOptions) (PushReport, error) {
 	return push(ctx, repo, opts, command.Run)
 }
@@ -117,7 +118,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	defer unlock()
 	var refs repogit.RefReader
 	if !opts.Check {
-		refs = repogit.NewRefReader(ctx, info)
+		refs = repogit.NewReader(ctx, info)
 	}
 	checkSource := func() error {
 		head, exists, e := refs.BranchCommit(ctx, opts.Branch)
@@ -160,7 +161,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 	}
 	err = measure("remote_preflight", func() error {
 		var e error
-		endpoint, e = repogit.PushDestination(repo, opts.Remote, query)
+		endpoint, e = process.PushDestination(repo, opts.Remote, query)
 		if e != nil {
 			return e
 		}
@@ -210,7 +211,7 @@ func push(ctx context.Context, repo string, opts PushOptions, run gitRunner) (re
 			return observe()
 		})
 		if !report.Confirmed {
-			if err == nil && !result.Uncertain && repogit.PushRejected(result.Stdout, ref) {
+			if err == nil && !result.Uncertain && process.PushRejected(result.Stdout, ref) {
 				return report, failure("rejected", "remote rejected branch publication; inspect the observed remote commit", result.Err)
 			}
 			return report, &errs.Error{Code: "git.push_unknown", Message: "branch publication could not be confirmed", Uncertain: true, Cause: errors.Join(result.Err, err), Hint: "Observe the same remote and target with --check and the original --commit before deciding whether to retry; no push was retried."}

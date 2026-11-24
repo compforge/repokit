@@ -3,7 +3,7 @@ package rebase
 import (
 	"errors"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"time"
 )
 

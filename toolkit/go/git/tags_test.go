@@ -3,7 +3,7 @@ package git
 import (
 	"context"
 	"errors"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"os"
 	"os/exec"
 	"path/filepath"

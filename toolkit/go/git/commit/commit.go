@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"log/slog"
 	"os"
@@ -63,7 +63,7 @@ func execute(ctx context.Context, repo, action string, opts Options) (report Rep
 		return report, e
 	}
 	report.Checkout = info.Root
-	o := operation{ctx: ctx, info: info, report: &report}
+	o := operation{ctx: ctx, info: info, reader: repogit.NewReader(ctx, info), report: &report}
 	if action == "check" {
 		err = measure("observe", func() error { return o.observe(opts.Intent) })
 		return report, err
@@ -210,16 +210,15 @@ func (o *operation) observe(intent Intent) error {
 		return nil
 	}
 	o.report.Commit = tip
-	raw, e := o.query("show", "--no-patch", "--format=%T%n%P", tip, "--")
+	tree, parents, e := o.reader.CommitMetadata(o.ctx, tip)
 	if e != nil {
 		return e
 	}
-	tree, parents, _ := strings.Cut(raw, "\n")
 	if !repogit.ValidObjectID(tree) {
 		return failure("evidence", "invalid commit tree evidence")
 	}
 	o.report.ActualTree = tree
-	o.report.Parents = strings.Fields(parents)
+	o.report.Parents = parents
 	parentMatches := (intent.Head == "unborn" && len(o.report.Parents) == 0) || (len(o.report.Parents) == 1 && o.report.Parents[0] == intent.Head)
 	o.report.Confirmed = parentMatches && tree == intent.Tree
 	return nil

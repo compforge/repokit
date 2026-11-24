@@ -3,6 +3,7 @@ package git
 import (
 	"context"
 	"fmt"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"os"
 	"path/filepath"
 	"sort"
@@ -22,11 +23,7 @@ type Entry struct {
 // Entries observes a version's paths and types, without reading file contents.
 // Working gitlinks use checkout HEAD when initialized, otherwise the index OID.
 func (r *Repository) Entries(ctx context.Context, head string, staged bool) ([]Entry, error) {
-	args := []string{"ls-files", "--stage", "-z"}
-	if head != "" {
-		args = []string{"ls-tree", "-r", "-z", "--full-tree", head}
-	}
-	out, err := r.run(ctx, args...)
+	out, err := process.Material(r.Root).Entries(ctx, head)
 	if err != nil {
 		return nil, err
 	}
@@ -50,7 +47,7 @@ func (r *Repository) Entries(ctx context.Context, head string, staged bool) ([]E
 		entries[name] = Entry{Path: name, Mode: parts[0], OID: oid}
 	}
 	if head == "" && !staged {
-		out, err = r.run(ctx, "ls-files", "--others", "--exclude-standard", "-z")
+		out, err = process.Material(r.Root).Untracked(ctx)
 		if err != nil {
 			return nil, err
 		}

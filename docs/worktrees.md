@@ -49,7 +49,7 @@ Bin 记录 manager、action、错误码、安装器退出码及可识别的原�
 
 `cost.phases` 报告 inspect、lock_wait、inventory、branch、base、create、verify、record、observe
 中实际发生的阶段。`ensure` 不隐式安装依赖；调用方决定是否继续运行 `depot prepare` 和验证。
-通用生命周期判断归 state，checkout 拓扑与 worktree 操作归 internal/git/worktree，通用 Git 命令执行归 internal/git/command，refs、push、互斥与恢复记录机制归 internal/git；任务与 session 归属留在调用方。
+通用生命周期判断归 state，checkout 拓扑与 worktree 操作归 internal/git/worktree，原生 Git 查询和创建归 internal/git/process，限时命令执行归 internal/git/process/command，refs、push、互斥与恢复记录机制归 internal/git；任务与 session 归属留在调用方。
 
 ## Policy and ordering
 

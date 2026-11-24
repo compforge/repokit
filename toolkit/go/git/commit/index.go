@@ -6,7 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"os"
 	"path/filepath"
@@ -18,6 +18,7 @@ import (
 type operation struct {
 	ctx    context.Context
 	info   worktree.CheckoutInfo
+	reader repogit.Reader
 	report *Report
 	index  string
 }
@@ -45,19 +46,21 @@ func fingerprint(path string) (string, []byte, error) {
 	return hex.EncodeToString(sum[:]), b, nil
 }
 func (o *operation) identity() (string, string, error) {
-	b, e := o.query("symbolic-ref", "--quiet", "HEAD")
-	if e != nil {
-		return "", "", failure("detached", "commit requires an attached local branch")
+	ref, sha, err := o.reader.AttachedHead(o.ctx)
+	if err != nil {
+		if ref == "" && o.ctx.Err() == nil {
+			return "", "", failure("detached", "commit requires an attached local branch")
+		}
+		return "", "", err
 	}
-	if !strings.HasPrefix(b, "refs/heads/") {
+	branch, local := strings.CutPrefix(ref, "refs/heads/")
+	if !local {
 		return "", "", failure("branch", "HEAD is not a local branch")
 	}
-	b = strings.TrimPrefix(b, "refs/heads/")
-	h, exists, e := repogit.BranchCommit(o.ctx, o.info.Root, b)
-	if e == nil && !exists {
-		h = "unborn"
+	if sha == "" {
+		sha = "unborn"
 	}
-	return b, h, e
+	return branch, sha, nil
 }
 func (o *operation) prepare(selection Selection) error {
 	if selection.Mode != "files" && selection.Mode != "tracked" && selection.Mode != "staged" {

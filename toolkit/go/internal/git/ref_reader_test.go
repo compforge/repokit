@@ -39,7 +39,7 @@ func TestRefReaderContract(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			reader := git.NewRefReader(ctx, info)
+			reader := git.NewReader(ctx, info)
 			native := func(ctx context.Context, branch string) (string, bool, error) {
 				return git.BranchCommit(ctx, root, branch)
 			}
@@ -108,9 +108,18 @@ func TestRefReaderOtherFormats(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			got, found, err := git.NewRefReader(context.Background(), info).BranchCommit(context.Background(), "main")
+			ctx := context.Background()
+			reader := git.NewReader(ctx, info)
+			got, found, err := reader.BranchCommit(ctx, "main")
 			if err != nil || !found || got != strings.TrimSpace(gitCommand(t, root, "rev-parse", "HEAD")) {
 				t.Fatal(got, found, err)
+			}
+			if ref, head, err := reader.AttachedHead(ctx); err != nil || ref != "refs/heads/main" || head != got {
+				t.Fatal(ref, head, err)
+			}
+			wantTree := strings.TrimSpace(gitCommand(t, root, "rev-parse", "HEAD^{tree}"))
+			if tree, parents, err := reader.CommitMetadata(ctx, got); err != nil || tree != wantTree || len(parents) != 0 {
+				t.Fatal(tree, parents, err)
 			}
 		})
 	}
@@ -128,11 +137,11 @@ func TestSDKRefReaderDoesNotFallback(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	reader := gogit.OpenRefReader(info, formats)
+	reader := gogit.OpenRefReader(info.GitDir, info.CommonDir, formats)
 	if reader == nil {
 		t.Skip("repository format is not supported by the SDK")
 	}
-	composed := git.NewRefReader(ctx, info)
+	composed := git.NewReader(ctx, info)
 	trace := filepath.Join(t.TempDir(), "git-trace")
 	t.Setenv("GIT_TRACE2_EVENT", trace)
 	if _, _, err := reader.BranchCommit(ctx, "missing"); !errors.Is(err, errors.ErrUnsupported) {

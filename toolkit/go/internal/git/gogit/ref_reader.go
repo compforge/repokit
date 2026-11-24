@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/compforge/repokit/toolkit/go/internal/git/worktree"
 	"github.com/go-git/go-billy/v5/osfs"
 	"github.com/go-git/go-git/v5/plumbing"
 	"github.com/go-git/go-git/v5/plumbing/cache"
@@ -21,20 +20,21 @@ import (
 type RefReader struct {
 	store     *filesystem.Storage
 	commonDir string
+	gitDir    string
 }
 
 // OpenRefReader returns nil for object or ref formats the SDK cannot read.
-func OpenRefReader(checkout worktree.CheckoutInfo, formats string) *RefReader {
+func OpenRefReader(gitDir, commonDir, formats string) *RefReader {
 	if len(plumbing.ZeroHash) != 20 || formats != "sha1\nfiles" {
 		return nil
 	}
-	fs := dotgit.NewRepositoryFilesystem(osfs.New(checkout.GitDir), osfs.New(checkout.CommonDir))
+	fs := dotgit.NewRepositoryFilesystem(osfs.New(gitDir), osfs.New(commonDir))
 	store := filesystem.NewStorage(fs, cache.NewObjectLRU(0))
-	return &RefReader{store: store, commonDir: checkout.CommonDir}
+	return &RefReader{store: store, commonDir: commonDir, gitDir: gitDir}
 }
 
 // +spec=Source checks observe the current ref even if an external process moves it after preflight. Only an ordinary ref naming a commit is answered directly.
-// +link=component://docs/git-push.md
+// +link=component://docs/git.md#go-git-后端
 func (reader *RefReader) BranchCommit(ctx context.Context, branch string) (string, bool, error) {
 	if err := ctx.Err(); err != nil {
 		return "", false, err

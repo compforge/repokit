@@ -154,6 +154,34 @@ Python Git 能力集中在 `repokit/git/`：包入口导出显式操作，`opera
 TypeScript 的对应实现集中在 `src/git/`，`index.ts` 汇总公共导出，包根 API 保持不变，
 `catalog.ts` 仍为内部实现。仓库观察和 Forge 保持各自边界，不放进 Git 目录。
 
+### Go Git 后端
+
+Go 工具包按操作语义定义内部接口。公共类型、接口和后端选择放在 `toolkit/go/internal/git`，
+`gogit/` 用 go-git SDK 在进程内读取仓库，`process/` 通过原生 Git 命令实现同一契约。
+原生分支刷新、worktree 命令、tree/index 列举、diff、批量对象读取和 ignore 匹配也归 `process/`。限时命令通过 `process/command` 执行，材料读取保留二进制输出和流式读取。
+上层按需要请求具体能力。例如，push 需要知道本地分支是否存在、当前指向哪个 commit，以及这次查询是否失败。
+`RefReader.BranchCommit` 分别返回 SHA、存在标志和错误，调用方无需判断仓库采用哪种存储格式。
+
+`NewReader` 绑定一个 checkout，通过原生 Git 探测一次对象和 ref 格式。同一次操作可以复用 reader，
+每次查询仍重新读取分支 tip。对于 SHA-1 和 files refs，SDK 可以直接读取常规 loose 分支并核验其 commit 对象。
+SHA-256、reftable 或格式探测失败时，直接选择 process。对于仅存于 packed-refs 的分支、损坏的 loose ref、
+对象替换等 SDK 无法确认的情况，SDK 返回 `errors.ErrUnsupported`，由 `internal/git` 将本次查询交给 process。
+缺失由原生 Git 核实，查询错误向上传递，context 已取消时停止查询。
+
+分支名校验独立于 checkout reader。RepoKit 先检查空名称、`HEAD` 和前导 `-`，再用 SDK 验证完整的
+`refs/heads/<branch>`。SDK 接受时无需启动 Git，SDK 拒绝时交给原生 `check-ref-format` 判定，
+因此 `team/@/one` 等 Git 允许的名称仍可使用。
+
+`worktree ensure` 核验 checkout、`git commit` 核验提交身份时，reader 从该 worktree 自己的 HEAD 读取
+符号引用，再从共享分支存储核验 commit。常规 attached HEAD 走 SDK，符号引用链、detached 或 unborn HEAD
+由原生 Git 判定。commit 在准备、写入前复核和写入后确认之间复用同一 reader，每次重新观察。
+确认新 tip 时，按完整对象 ID 读取 tree 与按顺序排列的 parents。shallow 仓库、grafts、replacement ref
+或 SDK 无法读取的对象交给 Git，以保留其有效提交历史。
+
+新增 SDK 查询时，先对照普通仓库、linked worktree 及该操作的边界输入，再把格式探测和回退计入整条命令。
+push、fetch、rebase 的执行继续使用原生 Git，以沿用其传输、认证、hooks 和恢复语义。
+对于已经用 `git cat-file --batch` 合并的对象读取，按整批耗时评估迁移收益。
+
 ## Repository 本地信息
 
 信息目录、read-through、freshness 与回收边界见 [Repository 状态](home.md)。
@@ -214,8 +242,54 @@ Go `git/branch` 与 `repocli git branch create/status` 提供显式分支创建�
 
 ## 普通分支发布
 
-Go `git.Push` 与 `repocli git push` 将固定 commit 发布到显式远端分支，通过 push destination 的
-实时观察确认结果。未知响应使用相同 commit 的 `--check` 恢复观察；见 [发布契约](git-push.md)。
+`git.Push(ctx, repo, PushOptions)` 与 `repocli git push` 发布显式分支的一个固定 commit，并核验实际
+push destination。它们不决定保护分支、PR 生命周期、外来提交或验证门禁；这些策略归调用方。
+历史改写继续使用 [rebase](git-rebase.md) 的精确 lease，不为普通 push 增加隐式 force。
+
+### 输入与确认
+
+```sh
+repocli git push --branch topic --commit <full-sha> --remote origin --set-upstream --repo . --json
+repocli git push --branch topic --commit <same-full-sha> --remote origin --check --repo . --json
+```
+
+`--commit` 必须是调用方冻结的完整 SHA-1/SHA-256；发布前验证它仍是显式本地分支的 tip。
+`--target` 可选择不同的远端分支，默认与源分支同名。只发送固定 SHA 的一个 refspec，不附带 tags、
+不递归推送 submodule。dirty 工作区不阻止发布已有 commit，也不会被暂存或提交；Git 原生 push hooks 仍执行。
+
+同一次发布复用 checkout 的 ref reader，在预检和发送前分别读取源分支 tip。只读 `--check` 直接观察远端，不需要本地源分支。
+
+配置的 remote 必须只有一个 push URL，预检、push 和核验使用同一解析结果；fetch URL 可以不同。
+URL 保持私有，不进入报告。恢复观察时调用方需保持 remote 配置不变；修改配置后的查询属于新目标。
+
+`confirmed=true` 的唯一依据是远端目标 ref 与 `targetCommit` 一致。
+`remoteState` 为 matching、different、missing 或 unknown；`remoteCommit` 是成功观察到的远端 SHA。
+`pushAttempted` 与 `pushExitCode` 是执行证据，不能代替确认。Git 返回错误但核验相同时，报告成功和
+`git.push_reconciled` warning；预检已相同时直接确认，不重复推送。
+
+`--check` 只观察，不 push、不配置 upstream；本地分支后来前进或删除，不影响对原 commit 的远端核验。
+成功查询到 missing/different 时命令仍可成功，但 `confirmed=false`，调用方不能当作发布成功。
+
+### 失败与恢复
+
+只有 Git porcelain 明确拒绝且远端核验成功时才报告已知拒绝；连接中断、取消、核验失败或未匹配的
+响应均保留 unknown。每次调用最多执行一次 push，无自动重试。
+响应丢失时，用原 `--commit` 和相同 remote/target 执行 `--check`；不要将新的 HEAD 当成旧请求重试。
+此操作不保存第二套 branch 生命周期状态，冻结意图由显式参数及报告携带。
+
+与 worktree/rebase 共用 common Git directory 的 lease。调用方 context 约束完整操作，push 为后续
+核验预留预算，不延长 deadline。锁只协调 RepoKit 操作，不能阻止外部 Git 同时修改源分支或远端。
+即使源分支在最后核对后被外部进程移动，发送的仍是原固定 SHA。
+
+### Upstream 与成本
+
+`--set-upstream` 在确认远端后写入源分支的 remote/merge 配置，有界 fetch 目标分支并核对 upstream SHA，单独返回 `upstreamConfirmed`。
+失败保留 `confirmed=true` 并附 warning，不能因此重做已确认的 push。只读 check 不允许此选项。
+fetch URL 与 push URL 相同且使用常规 tracking mapping 时，成功推送后的一次 fetch 同时刷新目标 tracking ref，并从本次 Git porcelain 输出核验远端 SHA。该次 fetch 计入 `remote_verify`，`refresh_tracking` 随后核对本地 upstream。无法取得有效 fetch 输出时回到独立远端核验。两个 URL 不同或采用自定义 mapping 时分别核验。
+只跟踪指定分支的常规 clone 会为本次明确请求的目标分支补一条精确 mapping。自定义 mapping 保留原配置，明确排除的目标返回 upstream 未确认告警。
+
+JSON/text 均报告 prepare、lock_wait、remote_preflight、push、remote_verify、configure_upstream、refresh_tracking 中实际
+执行的阶段耗时；统一 envelope 的 `cost.phases` 使用 `git.push.` 前缀。
 
 ## Commit
 

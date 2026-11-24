@@ -2,8 +2,9 @@ package rebase
 
 import (
 	"errors"
-	repogit "github.com/compforge/repokit/toolkit/go/internal/git"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
+
+	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 )
 
 func (o *operation) finish() error {
@@ -88,7 +89,7 @@ func (o *operation) finish() error {
 		o.publishState("published")
 		return nil
 	}
-	if e == nil && !result.Uncertain && repogit.PushRejected(result.Stdout, ref) {
+	if e == nil && !result.Uncertain && process.PushRejected(result.Stdout, ref) {
 		return failure("push_rejected", "remote rejected the lease-protected publication; recovery record retained", result.Err)
 	}
 	return unknown("publication could not be confirmed; frozen commit and lease retained", errors.Join(result.Err, e))

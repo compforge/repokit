@@ -4,11 +4,10 @@ package worktree
 import (
 	"context"
 	"fmt"
-	"github.com/compforge/repokit/toolkit/go/internal/git/command"
+	"github.com/compforge/repokit/toolkit/go/internal/git/process"
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 )
 
 // WorktreeEntry is a registered Git worktree. The first entry can be a bare or
@@ -30,12 +29,12 @@ type CheckoutInfo struct {
 
 // ListWorktrees reads NUL-delimited Git records; failure never means an empty inventory.
 func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
-	result := command.Run(ctx, repo, 5*time.Second, "worktree", "list", "--porcelain", "-z")
-	if result.Err != nil {
-		return nil, result.Err
+	records, err := process.WorktreeRecords(ctx, repo)
+	if err != nil {
+		return nil, err
 	}
 	var entries []WorktreeEntry
-	for _, block := range strings.Split(result.Stdout, "\x00\x00") {
+	for _, block := range strings.Split(records, "\x00\x00") {
 		var entry WorktreeEntry
 		for _, field := range strings.Split(block, "\x00") {
 			key, value, _ := strings.Cut(field, " ")
@@ -57,25 +56,18 @@ func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
 
 // Local resolves checkout paths without enumerating registered worktrees.
 func Local(ctx context.Context, repo string) (CheckoutInfo, error) {
-	query := func(path, flag string) (string, error) {
-		result := command.Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
-		if result.Err != nil {
-			return "", result.Err
-		}
-		return filepath.EvalSymlinks(strings.TrimSuffix(result.Stdout, "\n"))
-	}
 	var info CheckoutInfo
 	var err error
-	if info.Root, err = query(repo, "--show-toplevel"); err != nil {
+	if info.Root, err = process.CheckoutPath(ctx, repo, "--show-toplevel"); err != nil {
 		return info, err
 	}
 	if _, err = os.Stat(filepath.Join(info.Root, ".git")); err != nil {
 		return info, fmt.Errorf("not a checkout: %w", err)
 	}
-	if info.GitDir, err = query(repo, "--git-dir"); err != nil {
+	if info.GitDir, err = process.CheckoutPath(ctx, repo, "--git-dir"); err != nil {
 		return info, err
 	}
-	if info.CommonDir, err = query(repo, "--git-common-dir"); err != nil {
+	if info.CommonDir, err = process.CheckoutPath(ctx, repo, "--git-common-dir"); err != nil {
 		return info, err
 	}
 	info.Linked = info.GitDir != info.CommonDir
@@ -97,18 +89,12 @@ func WithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (Che
 	if err != nil {
 		return info, err
 	}
-	query := func(path, flag string) (string, error) {
-		result := command.Run(ctx, path, 5*time.Second, "rev-parse", "--path-format=absolute", flag)
-		if result.Err != nil {
-			return "", result.Err
-		}
-		return filepath.EvalSymlinks(strings.TrimSuffix(result.Stdout, "\n"))
-	}
+
 	if len(entries) > 0 {
-		if candidate, err := query(entries[0].Path, "--show-toplevel"); err == nil {
+		if candidate, err := process.CheckoutPath(ctx, entries[0].Path, "--show-toplevel"); err == nil {
 			// A metadata directory may masquerade as its own work tree, but has no .git entry.
 			if _, err := os.Stat(filepath.Join(candidate, ".git")); err == nil {
-				if common, err := query(candidate, "--git-common-dir"); err == nil && common == info.CommonDir {
+				if common, err := process.CheckoutPath(ctx, candidate, "--git-common-dir"); err == nil && common == info.CommonDir {
 					info.MainRoot = candidate
 				}
 			}
