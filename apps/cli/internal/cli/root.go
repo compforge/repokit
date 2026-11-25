@@ -123,9 +123,47 @@ saves the complete JSON result without changing the stdout format.`,
 	flags.BoolVar(&opts.JSON, "json", false, "write one final JSON result for field parsing (default: readable text)")
 	flags.DurationVar(&opts.Timeout, "timeout", 2*time.Minute, "command deadline")
 	_ = root.MarkPersistentFlagDirname("repo")
-	root.AddCommand(newStatsCommand(opts), newCleanCommand(opts), newRepoCommand(opts))
-	root.AddCommand(worktreecmd.NewCommand(opts), pr.NewCommand(opts), gitcmd.NewCommand(opts), releasecmd.NewCommand(opts), depotcmd.NewCommand(opts))
-	root.AddCommand(validationcmd.New(opts, "format"), validationcmd.New(opts, "validate"), validationcmd.New(opts, "lint"), validationcmd.New(opts, "test"), codecmd.NewCommand(opts), newInspectCommand(opts), newTreeCommand(opts), newViewCommand(opts), newDiffCommand(opts), newImpactCommand(opts), newSnapshotCommand(opts), newVersionCommand(opts, root.Version), newUpgradeCommand(opts, root.Version, upgrade.NewClient()))
+	addGroup := func(id, title string, commands ...*cobra.Command) {
+		root.AddGroup(&cobra.Group{ID: id, Title: title})
+		for _, command := range commands {
+			command.GroupID = id
+		}
+		root.AddCommand(commands...)
+	}
+	addGroup("code", "Code Analysis:",
+		codecmd.NewCommand(opts),
+		newImpactCommand(opts),
+		newViewCommand(opts),
+	)
+	addGroup("validation", "Dependencies & Validation:",
+		depotcmd.NewCommand(opts),
+		validationcmd.New(opts, "format"),
+		validationcmd.New(opts, "lint"),
+		validationcmd.New(opts, "test"),
+		validationcmd.New(opts, "validate"),
+	)
+	addGroup("git", "Git & Forge:",
+		newDiffCommand(opts),
+		gitcmd.NewCommand(opts),
+		pr.NewCommand(opts),
+		releasecmd.NewCommand(opts),
+	)
+	addGroup("repository", "Repository & Workspace:",
+		newCleanCommand(opts),
+		newInspectCommand(opts),
+		newRepoCommand(opts),
+		newSnapshotCommand(opts),
+		newStatsCommand(opts),
+		newTreeCommand(opts),
+		worktreecmd.NewCommand(opts),
+	)
+	const utilitiesGroup = "utilities"
+	addGroup(utilitiesGroup, "CLI Utilities:",
+		newUpgradeCommand(opts, root.Version, upgrade.NewClient()),
+		newVersionCommand(opts, root.Version),
+	)
+	root.SetHelpCommandGroupID(utilitiesGroup)
+	root.SetCompletionCommandGroupID(utilitiesGroup)
 	trackRepositoryCommands(root, opts)
 	return root
 }
