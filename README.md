@@ -230,11 +230,11 @@ Projects can expose Component checks through documented Makefile targets:
 ```sh
 repocli validate --component toolkit/go --check format,lint,test --timeout 10m
 repocli test --component toolkit/python --file toolkit/python/tests/test_inspect.py
-repocli validate --base HEAD --plan
+repocli validate --plan
 ```
 
 `format`, `lint` and `test` run independently; `validate --check format,lint,test` formats first,
-then replans and runs bounded checks through the Go toolkit. Planning is read-only;
+then replans and runs bounded checks through the Go toolkit. By default, validate selects affected files from the branch diff. Use `--full` for explicit full coverage. Planning is read-only;
 execution uses the frozen commands, scopes and environment, then verifies that inputs
 stayed unchanged. Each Component selects the first supported target candidate in its own
 Makefile. Missing targets are skipped; failures never select another candidate or a root

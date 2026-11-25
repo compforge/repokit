@@ -29,6 +29,8 @@ import (
 // slice selects none. Files and impact are alternative selections.
 // Tags selects affected file roles for automatic checks.
 type ValidationRequest struct {
+	Automatic            bool   // Derive impact from the current branch when no explicit scope is supplied.
+	Home                 string // RepoKit Home for managed branch provenance in automatic mode.
 	Base                 string
 	ChangedFiles         []string
 	Repository           string
@@ -158,16 +160,30 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 			return ValidationPlan{}, errors.New("validation worker budgets must be positive when supplied (zero uses project defaults)")
 		}
 	}
-	if req.Base != "" {
+	auto := req.Automatic && req.Base == "" && req.Impact == nil && len(req.Files) == 0
+	base := req.Base
+	fallback := ""
+	if auto {
+		phases.start("planning.base")
+		var err error
+		base, err = automaticBase(ctx, req.Repository, req.Home)
+		if err != nil {
+			fallback = "automatic baseline unavailable: " + err.Error()
+		}
+	}
+	if base != "" {
 		if req.Impact != nil {
 			return ValidationPlan{}, errors.New("base and impact are alternative selections")
 		}
 		phases.start("planning.impact")
-		impact, err := analysis.Analyze(ctx, analysis.Request{Repository: req.Repository, Base: req.Base, ChangedFiles: req.ChangedFiles})
-		if err != nil {
+		impact, err := analysis.Analyze(ctx, analysis.Request{Repository: req.Repository, Base: base, ChangedFiles: req.ChangedFiles})
+		if err == nil {
+			req.Impact = &impact
+		} else if !auto || ctx.Err() != nil {
 			return ValidationPlan{}, err
+		} else {
+			fallback = "automatic impact unavailable: " + err.Error()
 		}
-		req.Impact = &impact
 	}
 	phases.start("planning.snapshot")
 	captured, err := analysis.Capture(ctx, analysis.InputRequest{Repository: req.Repository})
@@ -203,7 +219,11 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 		return ValidationPlan{}, errors.New("files and impact are alternative selections")
 	}
 	if req.Impact != nil && (req.Impact.Snapshot != observed.Snapshot || req.Impact.Input != "working_tree" || req.Impact.Checkout != observed.Checkout) {
-		return ValidationPlan{}, errors.New("impact does not describe current checkout contents")
+		if !auto {
+			return ValidationPlan{}, errors.New("impact does not describe current checkout contents")
+		}
+		req.Impact = nil
+		fallback = "contents changed during automatic impact analysis"
 	}
 	env := req.Environment
 	if env == nil {
@@ -277,6 +297,10 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 	if tags == nil {
 		tags = []string{"source", "test", "config", "manifest", "lockfile"}
 	}
+	var documentation map[string]bool
+	if auto && req.Impact != nil && !req.Impact.Complete {
+		documentation = documentationGaps(req.Impact)
+	}
 	for _, component := range layout.Components {
 		if req.Components != nil {
 			if _, ok := selected[component.Root]; !ok {
@@ -323,7 +347,12 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				if check == "build" {
 					relevant = req.Components != nil || impact.Affected
 				}
-				if !relevant {
+				if auto && check == "test" && len(impact.TestFiles) > 0 {
+					relevant = true
+				}
+				if gap := firstValidationGap(documentation, impact.FallbackReasons, req.Impact.Unowned.FallbackReasons); auto && gap != "" {
+					spec.Reason = "incomplete impact; full Component check: " + gap
+				} else if !relevant {
 					spec.Scope = "skipped"
 					spec.Reason = "no selected validation tags"
 					if check == "build" {
@@ -331,12 +360,15 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 					}
 					appendValidationCheck(&plan, component, spec)
 					continue
+				} else {
+					candidates = impact.AffectedFiles
+					if check == "test" {
+						candidates = impact.TestFiles
+					}
+					spec.Reason = "affected Component; canonical full check"
 				}
-				candidates = impact.AffectedFiles
-				if check == "test" {
-					candidates = impact.TestFiles
-				}
-				spec.Reason = "affected Component; canonical full check"
+			} else if fallback != "" {
+				spec.Reason = fallback + "; full Component check"
 			}
 			target := validationTarget(contract, check)
 			if target == "" {

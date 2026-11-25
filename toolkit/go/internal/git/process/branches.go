@@ -35,3 +35,16 @@ func FetchBranch(ctx context.Context, repo, remote, branch string) (string, erro
 	}
 	return ResolveCommit(ctx, repo, ref)
 }
+
+// MergeBase returns the unique best common ancestor for two local revisions.
+func MergeBase(ctx context.Context, repo, target string) (string, error) {
+	result := command.Run(ctx, repo, 10*time.Second, "merge-base", "--all", "--", "HEAD", target)
+	if result.Err != nil {
+		return "", result.Err
+	}
+	bases := strings.Fields(result.Stdout)
+	if len(bases) != 1 {
+		return "", fmt.Errorf("expected one merge base with %s, found %d", target, len(bases))
+	}
+	return bases[0], nil
+}

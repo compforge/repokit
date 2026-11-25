@@ -196,7 +196,9 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 
 ## 选择检查范围
 
-未提供 impact 或非空 `files` 时，对选中的 Component 做全量检查；未指定 Component 时选择全部已发现 Component。
+`repocli validate` 默认以当前分支与目标的 merge base 比较工作区，涵盖已提交、已暂存和未暂存的改动及未跟踪文件。目标优先使用 RepoKit 分支创建记录中的基线，其次使用本地 `origin/HEAD`。规划只读本地 Git 引用。无法确定唯一基线或分析失败时，在所选 Component 内执行全量并说明原因。影响范围可靠时，各检查独立按 Makefile 契约选文件；确认无关的检查可以跳过。
+
+`validate --full` 显式选择全量。独立 format/lint/test 命令及未启用自动选择的 SDK 请求沿用原有全量默认。未指定 Component 时边界包含全部已发现 Component。
 显式空 Component 列表表示不选任何 Component，未知 Component 是参数错误。
 
 非空 `files` 按当前布局的最具体归属选择 Component，并只向各组件传递属于它的候选文件。
@@ -221,7 +223,7 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 调用方可提供当前工作区的 `ImpactReport`。规划器核对 checkout、input 和 snapshot，拒绝把旧报告、
 index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中出现 source/test/config/manifest/lockfile
 时选择该 Component；调用方可以提供自己的 tags。lint 使用该 Component 的 affectedFiles，test 使用 testFiles。
-分析缺口不单独触发检查，原始 ImpactReport 继续保留 before/unowned 等分析证据。
+自动模式下，可能影响检查的分析缺口使涉及的 Component 回退全量。仅普通文档的未建模依赖不扩大代码检查范围。显式 impact 保留原有标签和范围选择语义。
 
 删除、重命名前侧的路径仍按真实归属检查：候选已经不存在或当前属于别的 Component 时，当前检查
 回退全量并记录原因。没有返回候选文件、项目不支持文件过滤、路径无法安全传给 Make 时，也回退全量。
@@ -493,12 +495,12 @@ repocli format --component toolkit/go
 repocli validate --component toolkit/go --check format,lint,test --timeout 10m
 repocli lint --component toolkit/python --file toolkit/python/repokit/model.py
 repocli test --component toolkit/python --file toolkit/python/tests/test_inspect.py
-repocli validate --base HEAD --plan
+repocli validate --plan
 repocli validate --base origin/main --json --timeout 10m
 ```
 
 `--plan` 默认展示 text 计划，不执行 Makefile；显式 `--json` 时计划位于 envelope 的 `data`。`--base` 显式请求先分析 working-tree impact；
-不传该参数时，不隐式分析 diff。`--file` 可重复，不能与 --base 混用。
+省略基线和文件参数时，validate 自动规划；使用 --full 可绕过影响分析。`--file` 可重复，不能与 --base 混用。
 `--check` 只用于 validate；步骤顺序不影响 format 先完成这一约束。`--changed-file` 在 --base 下限定初始影响分析种子；format 实际改变的路径会加入后续分析，避免漏掉生成内容。
 `--output` 原子写入完整命令结果，与 JSON stdout 相同；目录必须存在且应处于 Git 忽略的本地状态中。`--history` 查询历史统计；`--force` 禁用本次复用。
 JSON 使用[统一输出契约](cli-output.md)，报告或历史统计位于 `data`，目标 stdout/stderr 作为单项结果字段保存。
