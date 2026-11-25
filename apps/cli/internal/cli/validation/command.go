@@ -155,7 +155,9 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().StringArrayVar(&files, "file", nil, "repository-relative file selecting its owning Component (repeatable)")
 	command.Flags().StringVar(&base, "base", "", "analyze working-tree impact against this revision")
 	command.Flags().BoolVar(&planOnly, "plan", false, "preview the plan without running checks (text by default; --json for parsing)")
-	command.Flags().IntVar(&concurrency, "concurrency", 3, "maximum concurrent checks (1–64)")
+	if name != "validate" {
+		command.Flags().IntVar(&concurrency, "concurrency", 3, "maximum concurrent checks (1–64)")
+	}
 	for _, worker := range workers {
 		if name == "validate" || name == worker.check {
 			command.Flags().IntVar(worker.value, worker.check+"-workers", 0, "positive "+strings.ToUpper(worker.check)+"_WORKERS override; omitted uses project default")

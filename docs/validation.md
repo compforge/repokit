@@ -236,7 +236,7 @@ Component 相对路径并去重排序。包含空格、shell/Make 元字符或�
 Go/CLI 默认执行 lint/test。显式 `validate --component <root> --check build` 对整个 Component 执行构建；
 显式 `--file` 选择文件所属的 Component，项目消费 `BUILD_FILES` 时才缩小构建范围。`--base` 按受影响的 Component 选择构建范围；显式指定的 Component
 即使只有 VERSION 变化也运行 build。组合 `--check format,lint,test,build` 在 format 后重新规划，
-lint、test、build 共享 `--concurrency` 并发额度（默认 3）。任一检查失败时，其余检查继续执行，整轮报告保留各项结果。
+lint、test、build 由 RepoKit 并行调度，默认最多同时运行 3 项检查。任一检查失败时，其余检查继续执行，整轮报告保留各项结果。
 检查共用格式化后的输入，执行结束后统一复核输入一致性。
 每次实际运行 build 都有独立 Run，历史成功无法证明当前产物仍然存在。项目应将构建输出放在忽略路径下。
 
@@ -462,7 +462,7 @@ Go/CLI 默认继承环境时额外移除 `CODEX_TOOL_CALL_ID`，避免每次工�
 继续参与摘要。Go 调用方显式提供 `ValidationRequest.Environment` 时保留该变量，并以其实际值参与复用判定。
 已有历史不改写；旧环境摘要不匹配时正常执行一次，后续请求才能复用新的成功记录。
 
-Go/CLI 的 concurrency 默认 3，范围 1–64；format 顺序完成后，lint/test/build 共用一个有界队列。Go 调用方通过 context 传入整轮 deadline；Python 保留顺序执行，使用 timeout 和已有 operation
+format 完成后，lint/test/build 共用一个有界队列。Go API 可通过 `ValidationRequest.Concurrency` 调整队列的并发上限（1–64）。Go 调用方通过 context 传入整轮 deadline；Python 保留顺序执行，使用 timeout 和已有 operation
 取消作用域。CLI 沿用全局 --timeout。macOS/Linux 上每次 Make 都运行在独立会话中，取消、超时、
 输出超限或退出时清理其进程组。启动后中断标为 uncertain，未启动时取消标为 cancelled；不自动重试。
 stdout 上限 16 MiB，stderr 上限 64 KiB。输出超过预算会终止检查并报告 uncertain。
@@ -479,12 +479,11 @@ Make 命令行变量覆盖项目普通赋值；项目不要用 `override` 阻止
 命令在计划、结果和历史中可见，改变 test 预算只改变 test 命令及其复用身份，不使 lint 缓存失效，反之亦然。
 未提供 flag 时既有环境变量行为保持不变，继承环境仍整体参与环境摘要。
 
-`--concurrency` 限制外层同时执行的检查数，worker 参数限制每个检查的内部并发。
-两层可能叠加，调用方应结合 CPU、内存和共享资源逐步调整；RepoKit 不自动调参。
+`validate` 由 RepoKit 管理同时执行的检查数，worker 参数控制每个检查的内部并发。
 预算适用于本轮所有选中的同类检查，需要独立调优时通过 Component 边界限定本轮。
 
 ```sh
-repocli validate --base HEAD --concurrency 2 --lint-workers 2 --test-workers 4 --json
+repocli validate --base HEAD --lint-workers 2 --test-workers 4 --json
 repocli test --component toolkit/go --test-workers 4 --json
 ```
 
