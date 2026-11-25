@@ -4,6 +4,9 @@ import json
 import subprocess
 from unittest.mock import patch
 
+import pytest
+
+from repokit import RepoKitError
 from repokit import cli as repocli
 from repokit.forge.model import ForgeError
 
@@ -230,3 +233,140 @@ def test_push_decoder_matches_source_and_destination_independently(tmp_path):
     data["branch"] = "other"
     with pytest.raises(ValueError, match="mismatching push report"):
         repocli.push_result(envelope, repo, "topic", commit, "origin", target="release")
+
+
+@pytest.mark.parametrize("head", ["unborn", "a" * 40])
+def test_create_commit_confirms_candidate_and_keeps_recovery_identity(tmp_path, head):
+    repo, tree, index, sha = str(tmp_path), "b" * 40, "c" * 64, "d" * 40
+    data = dict(
+        checkout=repo,
+        action="create",
+        branch="topic",
+        head=head,
+        tree=tree,
+        indexFingerprint=index,
+        confirmed=True,
+        commit=sha,
+        actualTree=tree,
+        parents=[] if head == "unborn" else [head],
+        indexInstalled=True,
+        diagnostics=[],
+    )
+
+    def create():
+        return repocli.create_commit(
+            repo,
+            "topic",
+            head=head,
+            tree=tree,
+            index_fingerprint=index,
+            mode="files",
+            files=["a file"],
+            message="message",
+        )
+
+    with patch.object(repocli, "run", return_value=dict(outcome="succeeded", data=data)) as call:
+        assert create() is data
+        call.assert_called_once_with(
+            repo,
+            ("git", "commit", "create"),
+            [
+                "--mode",
+                "files",
+                "--branch",
+                "topic",
+                "--head",
+                head,
+                "--tree",
+                tree,
+                "--index-fingerprint",
+                index,
+                "--message",
+                "message",
+                "--file",
+                "a file",
+            ],
+            timeout=180,
+        )
+    for changed in [
+        dict(branch="other"),
+        dict(confirmed=False),
+        dict(actualTree=sha),
+        dict(parents=[sha]),
+        dict(commit="bad"),
+    ]:
+        with patch.object(
+            repocli, "run", return_value=dict(outcome="succeeded", data=data | changed)
+        ) as call:
+            with pytest.raises(RepoKitError) as error:
+                create()
+            assert "git commit check" in error.value.hint and tree in error.value.hint
+            assert call.call_count == 1
+    with patch.object(repocli, "run", side_effect=TimeoutError("no response")) as call:
+        with pytest.raises(RepoKitError) as error:
+            create()
+        assert error.value.uncertain and head in error.value.hint
+        assert call.call_count == 1
+    with patch.object(
+        repocli,
+        "run",
+        return_value=dict(
+            outcome="succeeded", data=data | dict(indexInstalled=False, recoveryPath="/recovery")
+        ),
+    ):
+        with pytest.raises(RepoKitError) as error:
+            create()
+        assert error.value.code == "git.commit_index_uninstalled"
+        assert sha in error.value.message and "/recovery" in error.value.hint
+
+
+def test_push_commit_confirms_destination_or_returns_read_only_check(tmp_path):
+    repo, sha = str(tmp_path), "a" * 40
+    data = dict(
+        checkout=repo,
+        branch="topic",
+        target="release",
+        remote="fork",
+        targetCommit=sha,
+        confirmed=True,
+        remoteCommit=sha,
+        diagnostics=[{"message": "upstream setup failed"}],
+    )
+
+    def push():
+        return repocli.push_commit(
+            repo, "topic", sha, remote="fork", target="release", set_upstream=True
+        )
+
+    with patch.object(repocli, "run", return_value=dict(outcome="succeeded", data=data)) as call:
+        assert push() is data
+        call.assert_called_once_with(
+            repo,
+            ("git", "push"),
+            [
+                "--branch",
+                "topic",
+                "--commit",
+                sha,
+                "--remote",
+                "fork",
+                "--target",
+                "release",
+                "--set-upstream",
+            ],
+            timeout=300,
+        )
+    for outcome, update in [
+        ("unknown", {}),
+        ("succeeded", {"remoteCommit": "b" * 40}),
+        ("succeeded", {"confirmed": False}),
+        ("succeeded", {"target": "other"}),
+    ]:
+        with patch.object(
+            repocli, "run", return_value=dict(outcome=outcome, data=data | update)
+        ) as call:
+            with pytest.raises(RepoKitError) as error:
+                push()
+            assert error.value.uncertain
+            assert f"--commit {sha} --remote fork --target release --check" in error.value.hint
+            assert call.call_count == 1
