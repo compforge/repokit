@@ -25,6 +25,41 @@ func TestCobraHelpAndCompletion(t *testing.T) {
 	}
 }
 
+func TestRootHelpCommandGroups(t *testing.T) {
+	var out, stderr bytes.Buffer
+	if code := Execute(context.Background(), []string{"--help"}, strings.NewReader(""), &out, &stderr); code != 0 || stderr.Len() != 0 {
+		t.Fatalf("root help: code=%d err=%s", code, stderr.String())
+	}
+	help := out.String()
+	if strings.Contains(help, "\nAdditional Commands:") {
+		t.Fatalf("root help contains ungrouped commands:\n%s", help)
+	}
+	for _, group := range []struct {
+		title    string
+		commands []string
+	}{
+		{"Code Analysis", []string{"code", "impact", "view"}},
+		{"Dependencies & Validation", []string{"depot", "format", "lint", "test", "validate"}},
+		{"Git & Forge", []string{"diff", "git", "pr", "release"}},
+		{"Repository & Workspace", []string{"clean", "inspect", "repo", "snapshot", "stats", "tree", "worktree"}},
+		{"CLI Utilities", []string{"completion", "help", "upgrade", "version"}},
+	} {
+		_, body, found := strings.Cut(help, "\n"+group.title+":\n")
+		if !found {
+			t.Fatalf("root help is missing %q:\n%s", group.title, help)
+		}
+		section, _, _ := strings.Cut(body, "\n\n")
+		var commands []string
+		for _, line := range strings.Split(section, "\n") {
+			name, _, _ := strings.Cut(strings.TrimSpace(line), " ")
+			commands = append(commands, name)
+		}
+		if !reflect.DeepEqual(commands, group.commands) {
+			t.Errorf("%s contains %v, want %v", group.title, commands, group.commands)
+		}
+	}
+}
+
 func TestCobraUsageErrorsStayOnStderr(t *testing.T) {
 	for _, args := range [][]string{
 		{"unknown"}, {"impact", "extra"}, {"impact", "--unknown"}, {"impact", "--base"},
