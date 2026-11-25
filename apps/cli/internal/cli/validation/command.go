@@ -22,7 +22,7 @@ import (
 func New(opts *cmdutil.Options, name string) *cobra.Command {
 	var components, files []string
 	var base string
-	var planOnly, force, showHistory bool
+	var planOnly, force, showHistory, full bool
 	var concurrency int
 	var formatWorkers, lintWorkers, testWorkers, buildWorkers int
 	workers := []struct {
@@ -34,7 +34,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command := &cobra.Command{
 		Use:   name,
 		Short: "Run Makefile-defined Component " + name + " checks",
-		Long:  "Run explicit Makefile checks. Without --base, check selected Components in full.\nWith --base, plan from impact evidence. File and worker parameters follow the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Add build to execute each selected Component's literal build target alongside lint and test within the concurrency limit. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
+		Long:  "Run explicit Makefile checks. Validate automatically selects checks from the branch diff and falls back to full checks when scope is uncertain. Use validate --full for unconditional scope.\nStandalone lint, test and format use full scope unless a selection is supplied. File and worker parameters follow the documented\nMakefile contract. Each Component selects its first supported local target; missing targets are skipped without root fallback.\nUse validate --check format,lint,test to format first and validate the resulting contents. Add build to execute each selected Component's literal build target alongside lint and test within the concurrency limit. Target output is kept in the report.\nRead the text summary by default; use --json to parse fields.\nTo retain full evidence with a text summary: repocli validate --output result.json.\nDo not also redirect stdout to save the same JSON result again.",
 		Args:  cobra.NoArgs,
 		PreRunE: func(cmd *cobra.Command, _ []string) error {
 			for _, worker := range workers {
@@ -46,7 +46,10 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 					return errors.New("--history cannot be combined with check execution options")
 				}
 			}
-			if showHistory && (planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
+			if full && (base != "" || len(files) > 0 || len(changed) > 0) {
+				return errors.New("--full cannot be combined with --base, --file or --changed-file")
+			}
+			if showHistory && (full || planOnly || force || len(files) > 0 || base != "" || inputsFile != "" || len(checks) > 0 || len(components) > 0) {
 				return errors.New("--history cannot be combined with check execution options")
 			}
 			if opts.Timeout <= 0 {
@@ -96,7 +99,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 				cmdutil.Record(cmd.OutOrStdout(), history)
 				return writeHistorySummaryText(cmd.OutOrStdout(), history)
 			}
-			request := repokit.ValidationRequest{HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, FormatWorkers: formatWorkers, LintWorkers: lintWorkers, TestWorkers: testWorkers, BuildWorkers: buildWorkers, Checks: checks, Base: base, ChangedFiles: changed}
+			request := repokit.ValidationRequest{Automatic: name == "validate" && !full && base == "" && len(files) == 0, Home: opts.Home, HistoryDir: historyDir, Force: force, Repository: opts.Repository, Components: components, Files: files, Concurrency: concurrency, FormatWorkers: formatWorkers, LintWorkers: lintWorkers, TestWorkers: testWorkers, BuildWorkers: buildWorkers, Checks: checks, Base: base, ChangedFiles: changed}
 			if inputsFile != "" {
 				data, err := os.ReadFile(inputsFile)
 				if err != nil {
@@ -166,6 +169,7 @@ func New(opts *cmdutil.Options, name string) *cobra.Command {
 	command.Flags().String("output", "", "save the complete result as JSON; stdout format is unchanged")
 	if name == "validate" {
 		command.AddCommand(newValidationHistoryCommand(opts))
+		command.Flags().BoolVar(&full, "full", false, "check the selected Components in full without impact analysis")
 		command.Flags().StringSliceVar(&checks, "check", nil, "steps to run (format,lint,test,build); format first, then lint/test/build share the concurrency limit; default lint,test")
 	}
 	return command
