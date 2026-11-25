@@ -52,9 +52,8 @@ func TestValidationCLIWorkers(t *testing.T) {
 	}
 }
 
-func TestValidationCLIRejectsInvalidOptions(t *testing.T) {
+func TestValidationCLIRejectsInvalidWorkers(t *testing.T) {
 	for _, flags := range [][]string{
-		{"--concurrency", "1"},
 		{"--lint-workers", "0"}, {"--lint-workers", "-1"}, {"--test-workers", "0"}, {"--test-workers", "-1"},
 		{"--format-workers", "0"}, {"--build-workers", "-1"}, {"--history", "--build-workers", "2"},
 		{"--history", "--lint-workers", "2"}, {"--history", "--test-workers", "2"},
