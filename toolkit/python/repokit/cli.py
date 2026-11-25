@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import math
+import shlex
 import subprocess
+from collections.abc import Sequence
 from typing import Any
 
 from ._process import run_command
@@ -17,9 +19,11 @@ from .budget import current_budget
 from .cli_results import branch_result as branch_result
 from .cli_results import commit_plan_result as commit_plan_result
 from .cli_results import commit_result as commit_result
+from .cli_results import oid as _oid
 from .cli_results import push_result as push_result
 from .cli_results import rebase_result as rebase_result
 from .cli_results import worktree_result as worktree_result
+from .errors import RepoKitError
 from .forge.model import ForgeError, PullRequest
 
 logger = logging.getLogger(__name__)
@@ -67,6 +71,137 @@ def run(
         envelope.get("cost"),
     )
     return envelope
+
+
+def create_commit(
+    repo: str,
+    branch: str,
+    *,
+    head: str,
+    tree: str,
+    index_fingerprint: str,
+    mode: str,
+    files: Sequence[str],
+    message: str,
+    timeout: float = 180,
+) -> dict[str, Any]:
+    """Create the planned tree once. Return only after both commit and index are confirmed."""
+    identity = ["--branch", branch, "--head", head, "--tree", tree]
+    check = shlex.join(["repocli", "git", "commit", "check", "--repo", repo, *identity])
+    args = [
+        "--mode",
+        mode,
+        *identity,
+        "--index-fingerprint",
+        index_fingerprint,
+        "--message",
+        message,
+    ]
+    for path in files:
+        args.extend(["--file", path])
+    try:
+        result = run(repo, ("git", "commit", "create"), args, timeout=timeout)
+        data = commit_result(result, repo, branch, head, tree, index_fingerprint)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        raise RepoKitError(
+            "git.commit_unverified",
+            f"commit result unavailable: {error}",
+            op="git.commit.create",
+            subject=branch,
+            uncertain=True,
+            hint=check,
+        ) from error
+
+    commit = data.get("commit")
+    if (
+        data.get("confirmed") is not True
+        or not _oid(commit)
+        or data.get("actualTree") != tree
+        or data.get("parents") != ([] if head == "unborn" else [head])
+    ):
+        detail = (result.get("error") or {}).get(
+            "message"
+        ) or "expected parent and tree not confirmed"
+        raise RepoKitError(
+            "git.commit_unverified",
+            f"commit not confirmed: {detail}",
+            op="git.commit.create",
+            subject=branch,
+            hint=check + (f"; inspect {data['recoveryPath']}" if data.get("recoveryPath") else ""),
+            uncertain=result["outcome"] != "failed"
+            or bool((result.get("error") or {}).get("uncertain")),
+        )
+    if data.get("indexInstalled") is not True:
+        raise RepoKitError(
+            "git.commit_index_uninstalled",
+            f"commit {commit} confirmed, but index installation is unconfirmed",
+            op="git.commit.create",
+            subject=branch,
+            hint=f"Inspect {data.get('recoveryPath') or 'the index'} before another commit.",
+        )
+    if result["outcome"] != "succeeded":
+        raise RepoKitError(
+            "git.commit_unverified",
+            f"commit {commit} reported with outcome {result['outcome']}",
+            op="git.commit.create",
+            subject=branch,
+            hint=check,
+            uncertain=True,
+        )
+    return data
+
+
+def push_commit(
+    repo: str,
+    branch: str,
+    commit: str,
+    *,
+    remote: str = "origin",
+    target: str = "",
+    set_upstream: bool = False,
+    timeout: float = 300,
+) -> dict[str, Any]:
+    """Publish a frozen commit once. A read-only check can reconcile a missing response."""
+    if not _oid(commit):
+        raise RepoKitError(
+            "git.push_invalid_argument",
+            "push requires a full commit ID",
+            op="git.push",
+            subject=branch,
+        )
+    args = ["--branch", branch, "--commit", commit, "--remote", remote]
+    if target:
+        args.extend(["--target", target])
+    check = shlex.join(["repocli", "git", "push", "--repo", repo, *args, "--check"])
+    if set_upstream:
+        args.append("--set-upstream")
+    try:
+        result = run(repo, ("git", "push"), args, timeout=timeout)
+        data = push_result(result, repo, branch, commit, remote, target=target)
+    except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError) as error:
+        raise RepoKitError(
+            "git.push_unverified",
+            f"push result unavailable: {error}",
+            op="git.push",
+            subject=branch,
+            hint=check,
+            uncertain=True,
+        ) from error
+    if (
+        result["outcome"] != "succeeded"
+        or not data["confirmed"]
+        or data.get("remoteCommit") != commit
+    ):
+        detail = (result.get("error") or {}).get("message") or "remote commit not confirmed"
+        raise RepoKitError(
+            "git.push_unverified",
+            detail,
+            op="git.push",
+            subject=branch,
+            hint=check,
+            uncertain=result["outcome"] != "failed",
+        )
+    return data
 
 
 def _query(repo: str, operation: str, arguments: list[str]) -> object:

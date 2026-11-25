@@ -53,6 +53,10 @@ See [the inspection contract](../../docs/repository.md).
 GitHub/GitLab 的 PR/MR 操作；调用方直接导入库，组织自己的开发流程。
 分析接口保持只读，操作接口接收明确参数，不隐式执行验证或管理任务状态。
 
+使用已安装的 RepoCLI 时，`repokit.cli.create_commit` 消费已规划的 branch、parent、tree 和 index
+指纹，确认提交和 index 安装完成。`repokit.cli.push_commit` 推送指定 SHA 并核对远端分支。
+操作结果无法确认时，`RepoKitError.hint` 提供针对原提交或目标分支的只读核对命令。
+
 详见 [Git 操作](../../docs/git.md)与[PR 契约](../../docs/pr.md)。
 
 ## Repository entries
