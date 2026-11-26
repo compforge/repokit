@@ -13,9 +13,11 @@ import (
 // WorktreeEntry is a registered Git worktree. The first entry can be a bare or
 // separate metadata directory rather than a usable checkout.
 type WorktreeEntry struct {
-	Path   string
-	SHA    string
-	Branch string // Empty for detached HEAD or bare repositories.
+	Path     string
+	SHA      string
+	Branch   string // Empty for detached HEAD or bare repositories.
+	Locked   bool   `json:"-"`
+	Prunable bool   `json:"-"`
 }
 
 // CheckoutInfo describes Git topology, without caller-specific state placement.
@@ -43,6 +45,10 @@ func ListWorktrees(ctx context.Context, repo string) ([]WorktreeEntry, error) {
 				entry.Path = value
 			case "HEAD":
 				entry.SHA = value
+			case "locked":
+				entry.Locked = true
+			case "prunable":
+				entry.Prunable = true
 			case "branch":
 				entry.Branch = strings.TrimPrefix(value, "refs/heads/")
 			}
@@ -106,10 +112,12 @@ func WithEntries(ctx context.Context, repo string, entries []WorktreeEntry) (Che
 // CheckoutEntry is a checkout registration interpreted as a workspace location.
 // Path is empty when the primary checkout cannot be located from shared metadata.
 type CheckoutEntry struct {
-	Path    string
-	SHA     string
-	Branch  string
-	Primary bool
+	Path     string
+	SHA      string
+	Branch   string
+	Primary  bool
+	Locked   bool `json:"-"`
+	Prunable bool `json:"-"`
 }
 
 // ListCheckouts retains unknown locations and excludes bare metadata registrations.
@@ -136,7 +144,7 @@ func ListCheckouts(ctx context.Context, repo string) ([]CheckoutEntry, error) {
 		if i == 0 {
 			path = main
 		}
-		out = append(out, CheckoutEntry{Path: path, SHA: entry.SHA, Branch: entry.Branch, Primary: i == 0})
+		out = append(out, CheckoutEntry{Path: path, SHA: entry.SHA, Branch: entry.Branch, Primary: i == 0, Locked: entry.Locked, Prunable: entry.Prunable})
 	}
 	return out, nil
 }

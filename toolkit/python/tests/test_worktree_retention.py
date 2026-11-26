@@ -1,6 +1,7 @@
 """Destructive retention contracts run exclusively in temporary repositories."""
 
 import json
+import shutil
 from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
@@ -367,3 +368,41 @@ def test_worktree_retention_contract(repo):
         expected.extend(("release_environment", branch) for branch in case["release"])
         assert [(action.action, action.branch) for action in report.actions] == expected
         assert all(action.status == "planned" for action in report.actions)
+
+
+def test_missing_worktrees_reconcile_directory_git_and_home(repo, tmp_path):
+    # +case=Absent paths take no slot. A retry reconciles a Home-only registration.
+    live = linked(repo, "live", prepared=True)
+    lost = linked(repo, "lost")
+    locked = linked(repo, "locked")
+    git(repo, "worktree", "lock", str(locked))
+    git(lost, "checkout", "--detach")
+    admin = Path(state.checkout_info(lost).git_dir)
+    home = tmp_path / "maintenance-home"
+    records = checkout_state.RepositoryState(home).observe(repo)
+    record = next(
+        p.parent
+        for p in records.glob("clones/*/checkouts/*/checkout.json")
+        if json.loads(p.read_text())["path"] == str(lost)
+    )
+    for path in (lost, locked):
+        shutil.rmtree(path)
+    policy = WorktreePolicy(1, 1)
+    for dry in (True, False):
+        result = clean_worktrees(repo, policy=policy, dry_run=dry, home=home)
+        assert not result.errors and result.remaining_count == 1
+        assert {(a.path, a.status, a.reason) for a in result.actions} == {
+            (str(lost), "planned" if dry else "completed", "missing_checkout"),
+            (str(locked), "skipped", "locked"),
+        }
+        assert record.exists() == admin.exists() == dry
+    assert (live / "node_modules").is_dir()
+    assert state.rev_parse(repo, "lost")
+    git(repo, "worktree", "unlock", str(locked))
+    git(repo, "worktree", "remove", str(locked))
+    result = clean_worktrees(repo, policy=policy, home=home)
+    assert not result.actions and not result.errors
+    assert {
+        json.loads(p.read_text())["path"]
+        for p in records.glob("clones/*/checkouts/*/checkout.json")
+    } == {str(repo), str(live)}

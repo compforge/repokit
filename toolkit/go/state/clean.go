@@ -205,6 +205,24 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			}
 		}
 	}
+	// A missing directory never takes a retention slot. This also handles another
+	// process finishing the deletion between discovery and Git's remove.
+	retireAbsent := func(ctx context.Context, e *retentionEntry) bool {
+		if e.Path == "" || ctx.Err() != nil {
+			return false
+		}
+		if _, err := os.Lstat(e.Path); !errors.Is(err, os.ErrNotExist) {
+			return false
+		}
+		status, reason, err := retireMissingWorktree(ctx, repo, e.CheckoutEntry, options.DryRun)
+		if err != nil {
+			failure(e, "remove_worktree", err)
+		} else {
+			action(e, "remove_worktree", status, reason)
+		}
+		e.removed = true
+		return true
+	}
 	for _, entry := range entries {
 		if err := ctx.Err(); err != nil {
 			return report, err
@@ -213,9 +231,10 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			continue
 		}
 		e := &retentionEntry{CheckoutEntry: entry, remaining: options.Timeout}
-		candidates = append(candidates, e)
-		report.BeforeCount++
 		run(e, func(ctx context.Context) {
+			if retireAbsent(ctx, e) {
+				return
+			}
 			if withinDirectory(e.Path, home) {
 				e.excluded = true
 				action(e, "retain", "skipped", "contains_state_home")
@@ -232,7 +251,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			// Read their creation time before deciding which older entries exceed it.
 			reason, observeErr := protectionInInventory(ctx, info.Root, entry, entries)
 			if observeErr != nil {
-				e.excluded = true
+				if retireAbsent(ctx, e) {
+					return
+				}
 				failure(e, "retain", observeErr)
 				return
 			}
@@ -255,7 +276,9 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				}
 			}
 			if observeErr != nil {
-				e.excluded = true
+				if retireAbsent(ctx, e) {
+					return
+				}
 				failure(e, "retain", observeErr)
 			}
 			if reason != "" {
@@ -263,33 +286,41 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				action(e, "retain", "skipped", reason)
 			}
 		})
+		if !e.removed {
+			candidates = append(candidates, e)
+			report.BeforeCount++
+		}
 	}
 	remove := func(ctx context.Context, e *retentionEntry) {
 		if e.excluded || e.Path == "" {
 			return
 		}
 		defer report.recordActionDuration(len(report.Actions), time.Now())
-		protection, err := worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
-		if err != nil {
-			failure(e, "remove_worktree", err)
-			return
+		eligible := func() bool {
+			reason, err := worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
+			if err == nil && reason == "" {
+				return true
+			}
+			if !retireAbsent(ctx, e) {
+				if err != nil {
+					failure(e, "remove_worktree", err)
+				} else {
+					action(e, "remove_worktree", "skipped", reason)
+				}
+			}
+			return false
 		}
-		if protection != "" {
-			action(e, "remove_worktree", "skipped", protection)
+		if !eligible() {
 			return
 		}
 		size, err := directoryBytes(ctx, e.Path)
 		if err != nil {
-			failure(e, "remove_worktree", err)
+			if !retireAbsent(ctx, e) {
+				failure(e, "remove_worktree", err)
+			}
 			return
 		}
-		protection, err = worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
-		if err != nil {
-			failure(e, "remove_worktree", err)
-			return
-		}
-		if protection != "" {
-			action(e, "remove_worktree", "skipped", protection)
+		if !eligible() {
 			return
 		}
 		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
@@ -301,9 +332,11 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		if !options.DryRun {
 			// Eligibility belongs to this service; Git removes the entire checkout
 			// and its registration. One force allows submodules but preserves locks.
-			result := RemoveWorktree(ctx, repo, e.Path, RemoveWorktreeOptions{Home: options.Home, Force: true})
+			result := command.Run(ctx, repo, 30*time.Second, "worktree", "remove", "--force", "--", e.Path)
 			if result.Err != nil {
-				failure(e, "remove_worktree", result.Err)
+				if !retireAbsent(ctx, e) {
+					failure(e, "remove_worktree", result.Err)
+				}
 				return
 			}
 		}
@@ -419,12 +452,76 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	for _, a := range report.Actions {
 		changed = changed || a.Status == "completed"
 	}
+	if !options.DryRun && !changed {
+		// A previous removal may have completed in Git before publishing Home.
+		directory, err := PersistentDirectory(ctx, repo, home)
+		if err != nil {
+			return report, err
+		}
+		stored, err := os.ReadDir(filepath.Join(directory, "clones", Digest(info.CommonDir), "checkouts"))
+		if err != nil && !errors.Is(err, os.ErrNotExist) {
+			return report, err
+		}
+		live := map[string]bool{}
+		for _, entry := range entries {
+			live[Digest(entry.Path)] = true
+		}
+		for _, record := range stored {
+			if record.IsDir() && !live[record.Name()] {
+				changed = true
+				break
+			}
+		}
+	}
 	if !options.DryRun && changed {
 		if _, err := Observe(ctx, repo, options.Home, true); err != nil {
 			report.Errors = append(report.Errors, "repository observation: "+err.Error())
 		}
 	}
 	return report, nil
+}
+
+// retireMissingWorktree runs under the clone lifecycle lock. Recheck Git identity
+// and the missing directory immediately before targeting the registration without force.
+func retireMissingWorktree(ctx context.Context, repo string, entry CheckoutEntry, dry bool) (string, string, error) {
+	entries, err := ListCheckouts(ctx, repo)
+	if err != nil {
+		return "", "", err
+	}
+	for _, live := range entries {
+		if live.Path != entry.Path {
+			continue
+		}
+		if live.Locked {
+			return "skipped", "locked", nil
+		}
+		if live.Primary || !live.Prunable || live.Branch != entry.Branch || live.SHA != entry.SHA {
+			return "skipped", "checkout_identity_changed", nil
+		}
+		if _, err := os.Lstat(live.Path); !errors.Is(err, os.ErrNotExist) {
+			return "skipped", "checkout_identity_changed", err
+		}
+		if dry {
+			return "planned", "missing_checkout", nil
+		}
+		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
+			if err := lease.owned(); err != nil {
+				return "", "", err
+			}
+		}
+		if _, err := worktreeQuery(ctx, repo, "worktree", "remove", "--", live.Path); err != nil {
+			// A concurrent removal is already successful. Other Git errors remain visible.
+			latest, queryErr := ListCheckouts(ctx, repo)
+			if queryErr != nil || slices.ContainsFunc(latest, func(row CheckoutEntry) bool { return row.Path == live.Path }) {
+				return "", "", err
+			}
+		}
+		return "completed", "missing_checkout", nil
+	}
+	if dry {
+		return "skipped", "already_absent", nil
+	}
+	return "completed", "already_absent", nil
 }
 
 func worktreeQuery(ctx context.Context, repo string, args ...string) (string, error) {
