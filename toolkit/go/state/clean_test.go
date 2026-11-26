@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -500,5 +501,99 @@ func TestWorktreeRetentionContract(t *testing.T) {
 		if !slices.Equal(removed, c.Remove) || !slices.Equal(released, c.Release) {
 			t.Fatal(c, report)
 		}
+	}
+}
+
+// +case=Missing paths take no slot. Reconcile finishes both Git-only and Home-only leftovers and is repeatable.
+func TestReconcileMissingWorktrees(t *testing.T) {
+	ctx := context.Background()
+	home := t.TempDir()
+	t.Setenv("REPOKIT_HOME", home)
+	root, create := retentionFixture(t)
+	live := create("live", true)
+	lost := create("lost", false)
+	orphan := create("orphan", false)
+	locked := create("locked", false)
+	info, err := Checkout(ctx, lost)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directory, err := PersistentDirectory(ctx, root, home)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record := func(path string) string {
+		return filepath.Join(directory, "clones", Digest(info.CommonDir), "checkouts", Digest(path))
+	}
+	fixtureGit(t, root, "worktree", "lock", locked)
+	fixtureGit(t, lost, "checkout", "--quiet", "--detach", "HEAD")
+	for _, path := range []string{lost, locked} {
+		if err := os.RemoveAll(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy := WorktreePolicy{MaxCount: 2, MaxPrepared: 2}
+	clean := func(dry bool, wantCount int) WorktreeCleanReport {
+		t.Helper()
+		report, err := CleanWorktrees(ctx, root, WorktreeCleanOptions{Policy: &policy, Home: home, DryRun: dry})
+		if err != nil || len(report.Errors) > 0 || report.BeforeCount != wantCount || report.RemainingCount != wantCount {
+			t.Fatalf("%+v %v", report, err)
+		}
+		return report
+	}
+	for _, dry := range []bool{true, false} {
+		report := clean(dry, 2)
+		status := "completed"
+		if dry {
+			status = "planned"
+		}
+		if !slices.ContainsFunc(report.Actions, func(a WorktreeAction) bool {
+			return a.Path == lost && a.Status == status && a.Action == "remove_worktree" && a.EstimatedBytes == 0
+		}) ||
+			!slices.ContainsFunc(report.Actions, func(a WorktreeAction) bool { return a.Path == locked && a.Status == "skipped" && a.Reason == "locked" }) {
+			t.Fatal(report.Actions)
+		}
+		for _, path := range []string{info.GitDir, record(lost)} {
+			_, err := os.Lstat(path)
+			if (dry && err != nil) || (!dry && !errors.Is(err, os.ErrNotExist)) {
+				t.Fatalf("%s: %v (dry=%v)", path, err, dry)
+			}
+		}
+	}
+	fixtureGit(t, root, "worktree", "unlock", locked)
+	clean(false, 2)
+	// Simulate a Git removal that completed before RepoKit published its result.
+	fixtureGit(t, root, "worktree", "remove", orphan)
+	if _, err := os.Stat(record(orphan)); err != nil {
+		t.Fatal(err)
+	}
+	clean(false, 1)
+	if _, err := os.Stat(record(orphan)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(live, "node_modules")); err != nil {
+		t.Fatal(err)
+	}
+	if report := clean(false, 1); len(report.Actions) != 0 {
+		t.Fatal(report.Actions)
+	}
+	fixtureGit(t, root, "rev-parse", "--verify", "lost")
+}
+
+// +case=An independent Git removal between ranking and deletion satisfies the policy.
+func TestRetentionAcceptsConcurrentRemoval(t *testing.T) {
+	root, create := retentionFixture(t)
+	create("first", false)
+	next := create("next", false)
+	onWorktreeAction(t, func(context.Context, slog.Record) {
+		if _, err := os.Stat(next); err == nil {
+			fixtureGit(t, root, "worktree", "remove", next)
+		}
+	})
+	report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &WorktreePolicy{}})
+	if err != nil || len(report.Errors) != 0 || report.RemainingCount != 0 || !slices.ContainsFunc(report.Actions, func(a WorktreeAction) bool {
+		return a.Path == next && a.Status == "completed"
+	}) {
+		t.Fatal(report, err)
 	}
 }

@@ -240,7 +240,7 @@ def _protection(
         return "checkout_identity_changed"
     if not entry.branch:
         return "detached_checkout"
-    info = state._checkout_info(path, [(e.path or "", e.head, e.branch) for e in entries])
+    info = state._checkout_info(path, entries[0].path if entries else None)
     if (Path(info.git_dir) / "locked").exists():
         return "locked"
     if any(
@@ -254,6 +254,29 @@ def _protection(
     ):
         return "nested_checkout"
     return ""
+
+
+def _retire_missing_worktree(
+    repo: str, entry: state.CheckoutEntry, dry_run: bool
+) -> tuple[str, str]:
+    assert entry.path
+    live = next((row for row in state.list_checkouts(repo) if row.path == entry.path), None)
+    if live is None:
+        return ("skipped" if dry_run else "completed"), "already_absent"
+    if live.locked:
+        return "skipped", "locked"
+    if live.primary or not live.prunable or (live.head, live.branch) != (entry.head, entry.branch):
+        return "skipped", "checkout_identity_changed"
+    try:
+        Path(entry.path).lstat()
+    except FileNotFoundError:
+        if dry_run:
+            return "planned", "missing_checkout"
+        result = operations.git(repo, "worktree", "remove", "--", entry.path)
+        if not result.ok and any(row.path == entry.path for row in state.list_checkouts(repo)):
+            raise OSError(result.err or "worktree registration removal failed")
+        return "completed", "missing_checkout"
+    return "skipped", "checkout_identity_changed"
 
 
 def clean_worktrees(
@@ -295,7 +318,7 @@ def _clean(
     dry_run: bool,
 ) -> WorktreeCleanReport:
     inventory = state.list_checkouts(repo)
-    entries = [entry for entry in inventory if not entry.primary]
+    entries: list[state.CheckoutEntry] = []
     actions: list[WorktreeAction] = []
     errors: list[str] = []
     dates: dict[str, int] = {}
@@ -315,9 +338,28 @@ def _clean(
             reason,
         )
 
+    def retire_absent(entry: state.CheckoutEntry) -> bool:
+        assert entry.path
+        try:
+            Path(entry.path).lstat()
+        except FileNotFoundError:
+            try:
+                status, reason = _retire_missing_worktree(repo, entry, dry_run)
+                action(entry, "remove_worktree", status, reason)
+            except (OSError, ValueError) as exc:
+                errors.append(f"{entry.path}: {exc}")
+                action(entry, "remove_worktree", "failed", str(exc))
+            return True
+        except OSError:
+            # Let the normal eligibility check report errors accessing a live path.
+            pass
+        return False
+
     invoking = Path.cwd().resolve()
-    for entry in entries:
-        if not entry.path:
+    for entry in inventory:
+        if entry.primary or not entry.path:
+            continue
+        if retire_absent(entry):
             continue
         try:
             if home.is_relative_to(entry.path):
@@ -332,9 +374,12 @@ def _clean(
                 excluded.add(entry.path)
                 action(entry, "retain", "skipped", reason)
         except (OSError, ValueError) as exc:
+            if retire_absent(entry):
+                continue
             excluded.add(entry.path)
             errors.append(f"{entry.path}: {exc}")
             action(entry, "retain", "skipped", str(exc))
+        entries.append(entry)
 
     def remove(entry: state.CheckoutEntry) -> None:
         assert entry.path
@@ -343,6 +388,9 @@ def _clean(
         try:
             protection = _protection(repo, entry, current)
             if protection:
+                if retire_absent(entry):
+                    removed.add(entry.path)
+                    return
                 action(entry, "remove_worktree", "skipped", protection)
                 return
             if not dry_run:
@@ -354,6 +402,9 @@ def _clean(
             removed.add(entry.path)
             action(entry, "remove_worktree", "planned" if dry_run else "completed", "max_count")
         except (OSError, ValueError) as exc:
+            if retire_absent(entry):
+                removed.add(entry.path)
+                return
             errors.append(f"{entry.path}: {exc}")
             action(entry, "remove_worktree", "failed", str(exc))
 

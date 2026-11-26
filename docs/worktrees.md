@@ -59,7 +59,7 @@ Configuration lives in `~/.repokit/repositories/<repo-key>/config.json`, shared 
 {"worktree":{"max_count":10,"max_prepared":3,"outputs":[]}}
 ```
 
-Each clone ranks all linked checkouts once by creation time, newest first. The primary checkout
+Each clone ranks existing linked checkouts once by creation time, newest first. The primary checkout
 is excluded. The limits satisfy `0 <= max_prepared <= max_count`.
 
 | Rank | Action |
@@ -67,6 +67,14 @@ is excluded. The limits satisfy `0 <= max_prepared <= max_count`.
 | 1 through `max_prepared` | Keep the entire checkout and skip Depot inspection. An unprepared checkout occupies a slot. |
 | Above `max_prepared` through `max_count` | Keep the checkout and release owned Depot dependency Bins. |
 | Above `max_count` | Remove the entire eligible checkout, including its local contents. |
+
+Cleanup reconciles each clone to these retention windows. The limits are upper bounds.
+Cleanup never creates a checkout or prepares a Bin to fill an empty slot.
+
+A successful removal leaves the directory, its Git worktree registration and RepoKit's checkout
+record absent. A missing linked directory takes no slot. Cleanup retires its prunable Git
+registration and reconciles Home, including after an interrupted removal. Explicitly locked
+registrations are preserved. Repeating cleanup succeeds.
 
 Protection skips the action at that rank. Other checkouts keep their original ranks. These
 windows provide a buffer for concurrent sessions using recent checkouts. Use a Git worktree

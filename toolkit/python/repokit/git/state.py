@@ -220,22 +220,30 @@ def list_worktrees(repo_dir: str | Path) -> list[tuple[str, str, str | None]]:
     The first entry may be a bare/separate Git directory, not a checkout. Use
     checkout_info for topology. Query failures raise rather than imply an empty repo.
     """
-    r = gitcmd.git(repo_dir, "worktree", "list", "--porcelain", "-z")
-    if not r.ok:
-        raise OSError(r.err or "cannot list worktrees")
-    out = []
-    for block in r.out.split("\0\0"):
-        fields = dict(line.split(" ", 1) for line in block.split("\0") if " " in line)
-        if path := fields.get("worktree"):
-            branch = fields.get("branch")
-            out.append(
-                (
-                    path,
-                    fields.get("HEAD", ""),
-                    branch.removeprefix("refs/heads/") if branch else None,
-                )
-            )
-    return out
+    return [
+        (fields["worktree"], fields.get("HEAD", ""), _worktree_branch(fields))
+        for fields in _worktree_records(repo_dir)
+    ]
+
+
+def _worktree_records(repo_dir: str | Path) -> list[dict[str, str]]:
+    result = gitcmd.git(repo_dir, "worktree", "list", "--porcelain", "-z")
+    if not result.ok:
+        raise OSError(result.err or "cannot list worktrees")
+    records = []
+    for block in result.out.split("\0\0"):
+        fields = {}
+        for line in block.split("\0"):
+            key, _, value = line.partition(" ")
+            fields[key] = value
+        if fields.get("worktree"):
+            records.append(fields)
+    return records
+
+
+def _worktree_branch(fields: dict[str, str]) -> str | None:
+    branch = fields.get("branch")
+    return branch.removeprefix("refs/heads/") if branch else None
 
 
 @dataclass(frozen=True)
@@ -250,9 +258,7 @@ class CheckoutInfo:
         return self.git_dir != self.common_dir
 
 
-def _checkout_info(
-    repo_dir: str | Path, entries: list[tuple[str, str, str | None]]
-) -> CheckoutInfo:
+def _checkout_info(repo_dir: str | Path, primary_path: str | None) -> CheckoutInfo:
     """Observe checkout topology, without choosing a caller's state directory.
 
     main_root is the checkout recoverable from shared Git metadata. It can be
@@ -272,9 +278,9 @@ def _checkout_info(
     gd = query(repo_dir, "--git-dir")
     cd = query(repo_dir, "--git-common-dir")
     main = None
-    if entries:
+    if primary_path:
         try:
-            candidate = query(entries[0][0], "--show-toplevel")
+            candidate = query(primary_path, "--show-toplevel")
             # Git can treat a separate metadata directory as the work tree. Its
             # lack of a .git entry distinguishes it from an actual checkout.
             if (Path(candidate) / ".git").exists() and query(candidate, "--git-common-dir") == cd:
@@ -286,7 +292,8 @@ def _checkout_info(
 
 def checkout_info(repo_dir: str | Path) -> CheckoutInfo:
     """Observe live checkout topology without persisting or reusing old inventory."""
-    return _checkout_info(repo_dir, list_worktrees(repo_dir))
+    records = _worktree_records(repo_dir)
+    return _checkout_info(repo_dir, records[0]["worktree"] if records else None)
 
 
 @dataclass(frozen=True)
@@ -297,6 +304,8 @@ class CheckoutEntry:
     head: str
     branch: str | None
     primary: bool
+    locked: bool = False
+    prunable: bool = False
 
 
 def list_checkouts(repo_dir: str | Path) -> list[CheckoutEntry]:
@@ -306,13 +315,20 @@ def list_checkouts(repo_dir: str | Path) -> list[CheckoutEntry]:
     from that primary checkout we can identify it directly; from a linked checkout
     its location stays unknown. Unknown must not be treated as an absent checkout.
     """
-    entries = list_worktrees(repo_dir)
-    info = _checkout_info(repo_dir, entries)
+    records = _worktree_records(repo_dir)
+    info = _checkout_info(repo_dir, records[0]["worktree"] if records else None)
     main = info.root if not info.linked else info.main_root
     return [
-        CheckoutEntry(main if index == 0 else str(Path(path).resolve()), head, branch, index == 0)
-        for index, (path, head, branch) in enumerate(entries)
-        if head  # Bare registration has no HEAD and is not a checkout.
+        CheckoutEntry(
+            main if index == 0 else row["worktree"],
+            row["HEAD"],
+            _worktree_branch(row),
+            index == 0,
+            "locked" in row,
+            "prunable" in row,
+        )
+        for index, row in enumerate(records)
+        if row.get("HEAD")
     ]
 
 
