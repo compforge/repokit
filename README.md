@@ -160,11 +160,11 @@ read the domain report from `data`, the operation result from `outcome`, and tim
 use `--test-dir .` for tests alongside source files. Production source scope is limited to Components owning diff paths. Tests are discovered independently: by default in those Components and repository-level test locations, or under explicit test directories. Referenced test helpers may join the workset without selecting additional production Components. Empty test candidates are valid.
 `--base` defaults to `HEAD` and compares that commit with the working tree.
 
-Test impact is best effort: known-target inferred edges participate in recommendations,
+Test impact is best effort: known-target inferred edges participate in reachability,
 with confidence and basis retained on explanation edges. Granularity is automatic; each
 affected file reports its seed, path confidence and dependency distance. Local extraction
 gaps remain observations; unknown targets do not create edges. An empty
-test list does not prove that no tests are affected. Callers decide how to use the result. Analysis
+test list does not prove that no tests are affected. The separate `testSelection` lists changed tests, tests with direct use of changed declarations, and tests declared as depending on a changed source. Callers decide how to use the result. Analysis
 does not run project commands. See [diff usage](docs/diff-usage.md) for patch input,
 output fields, and analysis limits.
 
@@ -238,7 +238,7 @@ then replans and runs bounded checks through the Go toolkit. By default, validat
 execution uses the frozen commands, scopes and environment, then verifies that inputs
 stayed unchanged. Each Component selects the first supported target candidate in its own
 Makefile. Missing targets are skipped; failures never select another candidate or a root
-fallback. Unsupported file filtering falls back to a full Component check. Reuse inputs
+fallback. A lint target without file filtering runs at Component scope. An incremental test target without file filtering is skipped with a reason. Reuse inputs
 default to the owning Component and its dependency environment; explicit input declarations
 add cross-Component dependencies and shared files. See the [Makefile contract and validation API](docs/validation.md).
 

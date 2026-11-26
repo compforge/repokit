@@ -26,6 +26,7 @@ not execute project commands or decide what a caller should do with the result.
 - `seeds`: automatic before/after query entries, with `id`, `path`, `version`,
   `granularity` (symbol, module, file or package) and the selection `basis`.
 
+- `testSelection`: recommended test files, their direct or project-declared matches, and changed source paths with no match.
 - `sourceFiles`: changed Go, Python, JavaScript, and TypeScript source paths.
   This includes changed test sources and deleted sources. A rename uses its new
   path; the old path and status remain in `changes`.
@@ -44,8 +45,8 @@ not execute project commands or decide what a caller should do with the result.
 - `repository` and `components`: repository identity, component roots and
   languages, declared product memberships, and per-component source/test lists.
 
-For example, if `source.ts` exports `a` and `b`, changing the body of `a` selects
-a test importing `{ a as alias }`, even if it never calls `alias`. A test importing
+For example, if `source.ts` exports `a` and `b`, changing the body of `a` makes the following test reachable in `testFiles`:
+a test importing `{ a as alias }`, even if it never calls `alias`. An unused import alone does not qualify it for `testSelection.files`. A test importing
 only `{ b }` is not selected by that direct dependency. Namespace, default and
 side-effect imports are treated at module granularity. Go imports are treated at
 package granularity. Transitive propagation is deliberately broader: once an

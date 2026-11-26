@@ -42,6 +42,7 @@ type FileImpact struct {
 }
 
 type Result struct {
+	TestSelection   TestSelection `json:"testSelection"`
 	SchemaVersion   int           `json:"schemaVersion"`
 	Changes         []FileChange  `json:"changes"`
 	Scope           string        `json:"scope"`
@@ -71,7 +72,7 @@ type Request struct {
 // +why=File tags are overlapping facts; validation policy belongs to callers.
 // +link=component://docs/diff.md
 func Analyze(ctx context.Context, req Request) (Result, error) {
-	r := Result{SchemaVersion: 4, Scope: "focused", Changes: []FileChange{}, TestFiles: []string{}, SourceFiles: []string{}, AffectedFiles: []FileImpact{}, Seeds: []Seed{}, Reasons: []Reason{}, FallbackReasons: []string{}}
+	r := Result{TestSelection: emptySelection(), SchemaVersion: 4, Scope: "focused", Changes: []FileChange{}, TestFiles: []string{}, SourceFiles: []string{}, AffectedFiles: []FileImpact{}, Seeds: []Seed{}, Reasons: []Reason{}, FallbackReasons: []string{}}
 	if len(req.Changes) == 0 && len(skippedGaps(req)) == 0 {
 		return r, ctx.Err()
 	}
@@ -149,6 +150,7 @@ func Analyze(ctx context.Context, req Request) (Result, error) {
 	if err := r.selectTests(ctx, graphs, builds, req, tests, gaps); err != nil {
 		return r, err
 	}
+	r.TestSelection = recommendTests(ctx, req, r.Changes, graphs, tests)
 	return r, ctx.Err()
 }
 

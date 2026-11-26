@@ -13,6 +13,14 @@ import (
 	"github.com/compforge/repokit/toolkit/go"
 )
 
+func fullCheckArgs(name string, args ...string) []string {
+	command := []string{name}
+	if name == "validate" {
+		command = append(command, "--full")
+	}
+	return append(command, args...)
+}
+
 func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	root := t.TempDir()
@@ -25,7 +33,7 @@ func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 	for _, name := range []string{"lint", "test", "validate"} {
 		t.Run(name, func(t *testing.T) {
 			var out, stderr bytes.Buffer
-			if code := Execute(context.Background(), []string{name, "--repo", root, "--plan", "--json"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(context.Background(), fullCheckArgs(name, "--repo", root, "--plan", "--json"), nil, &out, &stderr); code != 0 {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var plan repokit.ValidationPlan
@@ -41,7 +49,7 @@ func TestValidationCLIPlansAndRunsMake(t *testing.T) {
 			}
 			out.Reset()
 			stderr.Reset()
-			if code := Execute(context.Background(), []string{name, "--repo", root, "--json"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(context.Background(), fullCheckArgs(name, "--repo", root, "--json"), nil, &out, &stderr); code != 0 {
 				t.Fatalf("%d: %s", code, &stderr)
 			}
 			var report repokit.ValidationReport
@@ -138,16 +146,16 @@ func TestValidationCLIFormatCompositionAndReuseReport(t *testing.T) {
 		t.Fatalf("%d %+v", code, report)
 	}
 	previous := filepath.Join(root, "previous.out")
-	code, report := run("validate", "--check", "test,format,lint", "--output", previous)
+	code, report := run("validate", "--full", "--check", "test,format,lint", "--output", previous)
 	if code != 0 || !report.InputsConsistent || len(report.Preparation) != 1 {
 		t.Fatalf("%d %+v", code, report)
 	}
-	code, report = run("validate")
+	code, report = run("validate", "--full")
 	if code != 0 || !report.Components[0].Checks[0].Reused || !report.Components[0].Checks[1].Reused {
 		t.Fatalf("%d %+v", code, report)
 	}
 	put(t, root, "Makefile", "format:\n\t@false\nlint:\n\t@touch unexpected.out\n")
-	code, report = run("validate", "--check", "format,lint")
+	code, report = run("validate", "--full", "--check", "format,lint")
 	if code != 1 || len(report.Components) != 0 {
 		t.Fatalf("%d %+v", code, report)
 	}
@@ -208,12 +216,12 @@ func TestValidationCLIHistoryQueryAndPlanAreNotExecutions(t *testing.T) {
 			t.Fatalf("%d %s %s", code, &out, &stderr)
 		}
 	}
-	run("validate", "--check", "lint", "--plan")
+	run("validate", "--full", "--check", "lint", "--plan")
 	if _, err := os.Stat(history); !os.IsNotExist(err) {
 		t.Fatalf("plan created history: %v", err)
 	}
-	run("validate", "--check", "lint")
-	run("validate", "--check", "lint")
+	run("validate", "--full", "--check", "lint")
+	run("validate", "--full", "--check", "lint")
 	run("validate", "--history")
 	var summary repokit.ValidationHistory
 	if err := json.Unmarshal(resultData(t, out.Bytes()), &summary); err != nil {
@@ -242,12 +250,12 @@ func TestValidationCLIWithoutHome(t *testing.T) {
 	for _, name := range []string{"format", "lint", "test", "validate"} {
 		t.Run(name, func(t *testing.T) {
 			var out, stderr bytes.Buffer
-			if code := Execute(context.Background(), []string{name, "--repo", root, "--plan"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(context.Background(), fullCheckArgs(name, "--repo", root, "--plan"), nil, &out, &stderr); code != 0 {
 				t.Fatalf("plan exit=%d: %s", code, &stderr)
 			}
 			out.Reset()
 			stderr.Reset()
-			if code := Execute(context.Background(), []string{name, "--repo", root, "--json", "--force"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(context.Background(), fullCheckArgs(name, "--repo", root, "--json", "--force"), nil, &out, &stderr); code != 0 {
 				t.Fatalf("run exit=%d: %s", code, &stderr)
 			}
 			var report repokit.ValidationReport

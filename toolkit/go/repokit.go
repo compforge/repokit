@@ -56,6 +56,10 @@ type SourceFile = analysis.SourceFile
 // ImpactReport contains impact evidence and test recommendations, not a test verdict.
 type ImpactReport = analysis.Report
 
+// TestSelection and TestMatch describe recommended runnable files and their source evidence.
+type TestSelection = impact.TestSelection
+type TestMatch = impact.TestMatch
+
 // Uncertainty describes a scoped static-analysis observation or coverage gap.
 type Uncertainty = impact.Uncertainty
 

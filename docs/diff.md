@@ -79,7 +79,17 @@ Known references to excluded production sources remain visible as `source_scope`
 observations with `disposition: out_of_scope`; their definitions are not parsed.
 
 `affectedFiles` includes reached existing files plus directly changed existing files;
-`testFiles` projects those routes onto the Testset, including default discovery.
+`testFiles` projects those routes onto the Testset, including default discovery. This list retains all dependency-reachable tests.
+
+`testSelection.files` recommends runnable test files independently. It includes changed
+test files, direct calls to changed functions or methods, and direct use of changed data
+declarations with exact or scoped evidence. A Component can declare a literal test target
+with source prerequisites in its Makefile, for example `tests/test_api.py: src/api.py`.
+Only discovered test files qualify. Imports, weak name matches, order-only prerequisites
+and transitive routes alone do not select tests. `testSelection.reasons` identifies the
+source and version for each match, including the relation and location for graph matches.
+`unmatchedSources` records changed source paths without a direct match. A match establishes
+a file-level association and cannot establish which branch a test executes.
 A scoped graph does not promise repository-wide dependency closure.
 
 ## Test discovery

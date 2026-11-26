@@ -27,6 +27,8 @@ type Layout struct {
 // +spec=File lists, counts and gaps share the same version-aware ownership projection.
 // +link=component://docs/diff.md
 type ImpactSummary struct {
+	ChangedSourceFiles []string       `json:"changedSourceFiles"`
+	RecommendedTests   []string       `json:"recommendedTests"`
 	AffectedFileCounts map[cg.Tag]int `json:"affectedFileCounts"`
 	Affected           bool           `json:"affected"`
 	ChangedFiles       []string       `json:"changedFiles"`

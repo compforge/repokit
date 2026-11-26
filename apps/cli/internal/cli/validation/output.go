@@ -97,6 +97,9 @@ func WriteText(w io.Writer, report repokit.ValidationReport) error {
 			fmt.Fprintf(&b, "  phase %s: %.3fs\n", phase.Name, phase.DurationSeconds)
 		}
 	}
+	if report.Impact != nil && len(report.Impact.TestSelection.UnmatchedSources) > 0 {
+		fmt.Fprintf(&b, "Changed sources without a direct test: %s\n", strings.Join(report.Impact.TestSelection.UnmatchedSources, ", "))
+	}
 	for _, d := range r.Diagnostics {
 		fmt.Fprintf(&b, "[%s] %s %s: %s (evidence %s)\n", d.Severity, d.Code, d.Subject, d.Message, d.Evidence)
 	}

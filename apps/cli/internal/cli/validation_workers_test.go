@@ -23,7 +23,7 @@ func TestValidationCLIWorkers(t *testing.T) {
 				args = append(args, "--test-workers", "4")
 			}
 			if command == "validate" {
-				args = append(args, "--check", "format,lint,test")
+				args = append(args, "--full", "--check", "format,lint,test")
 			}
 			var out, stderr bytes.Buffer
 			if code := Execute(context.Background(), args, nil, &out, &stderr); code != 0 {

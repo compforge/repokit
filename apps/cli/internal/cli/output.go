@@ -67,6 +67,9 @@ func writeReport(stdout io.Writer, result repokit.ImpactReport, asJSON bool) err
 		}
 		fmt.Fprintf(&buffer, "  %s [%s]: %s\n", location, strings.Join(fields, ", "), diagnostic.Message)
 	}
+	for _, file := range result.TestSelection.UnmatchedSources {
+		fmt.Fprintf(&buffer, "  no direct test: %s\n", file)
+	}
 	writeObservations(&buffer, result.Observations)
 	_, err := io.WriteString(stdout, buffer.String())
 	return err
@@ -86,7 +89,7 @@ func writeImpactSummary(buffer *strings.Builder, summary repokit.ImpactSummary) 
 		paths []string
 	}{
 		{"changed", summary.ChangedFiles}, {"affected", summary.AffectedFiles},
-		{"source", summary.SourceFiles}, {"test", summary.TestFiles},
+		{"source", summary.SourceFiles}, {"reachable test", summary.TestFiles}, {"recommended test", summary.RecommendedTests},
 	} {
 		for _, path := range group.paths {
 			fmt.Fprintf(buffer, "    %s %s\n", group.label, path)
