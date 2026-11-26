@@ -94,7 +94,7 @@ JSON 使用统一 envelope，`data.bins` 保留 action、executed、exitCode、s
 与未完成删除，安装 recipe、指纹、执行过程及报告留在 depot。
 
 worktree retention 负责环境回收，见 [worktrees](worktrees.md)。Depot 声明本身不授权删除：
-仍需回执或项目 outputs 策略、Git ignore/tracked 检查、checkout 保护及删除恢复 journal。
+中间档依赖回收核验 Depot 回执或未完成删除的目录身份、tracked 文件和 checkout 保护。显式 Bin 清理还可回收项目 outputs 声明的 Git ignored 目录。
 共享目录按物理位置处理；tracked 文件、符号链接、嵌套 checkout 不因为存在 Bin 声明而变得可删除。
 
 ## 验证输入与复用

@@ -57,7 +57,7 @@ def test_unknown_dates_are_oldest_and_dry_run_predicts_survivors(repo):
     policy = WorktreePolicy(2, 1)
     preview = clean_worktrees(repo, policy=policy, dry_run=True)
     assert not preview.errors
-    assert (preview.remaining_count, preview.remaining_prepared) == (2, 1)
+    assert (preview.remaining_count, preview.remaining_prepared) == (2, None)
     assert [(a.path, a.action) for a in preview.actions] == [
         (str(old), "remove_worktree"),
         (str(middle), "release_environment"),
@@ -75,12 +75,10 @@ def test_unknown_dates_are_oldest_and_dry_run_predicts_survivors(repo):
 @pytest.mark.parametrize(
     "content", ["dirty", "staged", "untracked", "ignored", "invalid_environment"]
 )
-@pytest.mark.parametrize("merged", [False, True])
-def test_eligible_checkout_discards_all_contents(repo, tmp_path, content, merged):
-    # +case=`Merged or excess worktrees are deleted regardless of contents or environment validity.`
+def test_eligible_checkout_discards_all_contents(repo, content):
+    # +case=`Excess worktrees are deleted regardless of contents or environment validity.`
     path = linked(repo, "discard", prepared=True)
-    policy = WorktreePolicy(10 if merged else 0, 0)
-    context = context_for(repo, tmp_path, "discard") if merged else None
+    policy = WorktreePolicy(0, 0)
     if content in ("dirty", "staged"):
         (path / "package.json").write_text("{}")
         if content == "staged":
@@ -94,7 +92,7 @@ def test_eligible_checkout_discards_all_contents(repo, tmp_path, content, merged
         (path / "not-ignored").mkdir()
         policy = replace(policy, outputs=("not-ignored",))
     for dry_run in (True, False):
-        report = clean_worktrees(repo, context=context, policy=policy, dry_run=dry_run)
+        report = clean_worktrees(repo, policy=policy, dry_run=dry_run)
         assert not report.errors
         assert report.remaining_count == 0 and report.remaining_prepared == 0
         assert len(report.actions) == 1 and report.actions[0].action == "remove_worktree"
@@ -128,32 +126,32 @@ def context_for(repo, tmp_path, branch, pr_state="merged", sha=None):
     )
 
 
-@pytest.mark.parametrize("pr_state", ["closed", "open", "merged"])
-def test_only_merged_is_terminal(repo, tmp_path, pr_state):
-    path = linked(repo, "proposal")
-    context = context_for(repo, tmp_path, "proposal", pr_state)
-    report = clean_worktrees(repo, context=context)
-    assert not report.errors
-    assert path.exists() == (pr_state != "merged")
-    assert state.rev_parse(repo, "proposal")
+def test_newest_slot_skips_inventory_and_middle_releases_self_ignored_uv(repo):
+    from repokit.state import worktrees
 
-
-def test_merged_checkout_removed_with_new_commits_preserved(repo, tmp_path):
-    path = linked(repo, "proposal")
-    context = context_for(repo, tmp_path, "proposal")
-    git(path, "commit", "--allow-empty", "-m", "new work")
-    head = state.get_head_sha(path)
-    report = clean_worktrees(repo, context=context)
-    assert not report.errors and report.actions[0].reason == "merged"
-    assert not path.exists() and state.rev_parse(repo, "proposal") == head
-
-
-def test_failed_verification_does_not_fall_back_to_age_removal(repo, tmp_path):
-    path = linked(repo, "proposal")
-    context = context_for(repo, tmp_path, "proposal")
-    with patch.object(context, "verify", side_effect=ForgeError("offline")):
-        report = clean_worktrees(repo, context=context, policy=WorktreePolicy(0, 0))
-    assert path.exists() and report.errors
+    examples = repo / "examples"
+    examples.mkdir()
+    (examples / "pyproject.toml").write_text("[project]\nname='sample'\nversion='0.1.0'\n")
+    (examples / "uv.lock").write_text("version = 1\n")
+    git(repo, "add", "examples")
+    git(repo, "commit", "-m", "uv fixture")
+    middle = linked(repo, "middle")
+    newest = linked(repo, "newest")
+    env = middle / "examples" / ".venv"
+    env.mkdir()
+    (env / ".gitignore").write_text("*")
+    (env / ".repokit-dependencies.json").write_text('{"manager":"uv","fingerprint":"owned"}')
+    (middle / "notes").write_text("uncommitted")
+    for dry_run in (True, False):
+        with patch.object(worktrees, "_environments", wraps=worktrees._environments) as inspect:
+            report = clean_worktrees(repo, policy=WorktreePolicy(2, 1), dry_run=dry_run)
+        assert not report.errors
+        assert [(a.path, a.action) for a in report.actions] == [
+            (str(middle), "release_environment")
+        ]
+        assert {call.args[0] for call in inspect.call_args_list} == {str(middle)}
+        assert env.exists() == dry_run
+    assert newest.exists() and (middle / "notes").read_text() == "uncommitted"
 
 
 def test_symlink_environment_never_erases_destination(repo, tmp_path):
@@ -166,17 +164,15 @@ def test_symlink_environment_never_erases_destination(repo, tmp_path):
     assert not path.exists() and outside.exists() and not report.errors
 
 
-def test_declared_outputs_only_and_tracked_files_are_protected(repo):
-    path = linked(repo, "outputs")
+def test_middle_tier_preserves_declared_outputs_and_tracked_bin_files(repo):
+    path = linked(repo, "outputs", prepared=True)
     (path / "dist").mkdir()
     (path / "dist" / "data").write_text("build output")
-    clean_worktrees(repo, policy=WorktreePolicy(1, 0, ("dist",)))
-    assert path.exists() and not (path / "dist").exists()
-    (path / "dist").mkdir()
-    (path / "dist" / "source").write_text("tracked")
-    git(path, "add", "-f", "dist/source")
+    (path / "node_modules" / "source").write_text("tracked")
+    git(path, "add", "-f", "node_modules/source")
     report = clean_worktrees(repo, policy=WorktreePolicy(1, 0, ("dist",)))
-    assert (path / "dist" / "source").exists() and report.errors
+    assert (path / "dist" / "data").exists()
+    assert (path / "node_modules" / "source").exists() and report.errors
 
 
 def test_invalid_policy_and_shared_repo_config(repo):
@@ -208,7 +204,7 @@ def test_protected_old_checkout_does_not_evict_newest_retained_set(repo):
     report = clean_worktrees(repo, policy=WorktreePolicy(1, 1))
     assert old.exists() and new.exists()
     assert (new / "node_modules").exists()
-    assert (report.remaining_count, report.remaining_prepared) == (2, 2)
+    assert (report.remaining_count, report.remaining_prepared) == (2, None)
 
 
 def test_unmanaged_dependencies_count_toward_prepared_limit(repo):
@@ -216,31 +212,31 @@ def test_unmanaged_dependencies_count_toward_prepared_limit(repo):
     newest = linked(repo, "managed", prepared=True)
     (old / "node_modules" / ".repokit-dependencies.json").unlink()
     report = clean_worktrees(repo, policy=WorktreePolicy(2, 1))
-    assert report.remaining_prepared == 2
+    assert report.remaining_prepared is None
     assert (newest / "node_modules").exists()
     assert any(a.reason == "unmanaged_environment" for a in report.actions)
 
 
 @pytest.mark.parametrize("change", ["branch", "head", "detached"])
-def test_checkout_identity_rechecked_after_pr_verification(repo, tmp_path, change):
+def test_checkout_identity_rechecked_before_removal(repo, change):
+    from repokit.state import worktrees
+
     path = linked(repo, "proposal")
-    context = context_for(repo, tmp_path, "proposal")
-    verify = context.verify
+    observe = worktrees._protection
 
-    def changed(row):
-        result = verify(row)
-        if change == "branch":
-            git(path, "switch", "-c", "new-work")
-        elif change == "head":
-            git(path, "commit", "--allow-empty", "-m", "new work")
-        else:
-            git(path, "switch", "--detach")
-        return result
+    def changed(repo, entry, current, inventory=None):
+        if inventory is None:
+            if change == "branch":
+                git(path, "switch", "-c", "new-work")
+            elif change == "head":
+                git(path, "commit", "--allow-empty", "-m", "new work")
+            else:
+                git(path, "switch", "--detach")
+        return observe(repo, entry, current, inventory)
 
-    with patch.object(context, "verify", side_effect=changed):
-        report = clean_worktrees(repo, context=context)
-    assert path.exists()
-    assert report.actions[0].reason == "checkout_identity_changed"
+    with patch.object(worktrees, "_protection", side_effect=changed):
+        report = clean_worktrees(repo, policy=WorktreePolicy(0, 0))
+    assert path.exists() and report.actions[0].reason == "checkout_identity_changed"
 
 
 def test_successful_pr_write_does_not_refresh_the_repository(repo, tmp_path):
@@ -347,11 +343,27 @@ def test_completed_release_journal_recovers_without_touching_replacement(repo):
     journal.write_text(json.dumps({"node_modules": [identity.st_dev, identity.st_ino]}))
     shutil.rmtree(directory)
     original = journal.read_text()
-    assert not clean_worktrees(repo, policy=WorktreePolicy(1, 1), dry_run=True).errors
+    assert not clean_worktrees(repo, policy=WorktreePolicy(1, 0), dry_run=True).errors
     assert journal.read_text() == original
-    assert not clean_worktrees(repo, policy=WorktreePolicy(1, 1)).errors
+    assert not clean_worktrees(repo, policy=WorktreePolicy(1, 0)).errors
     assert json.loads(journal.read_text()) == {}
     directory.mkdir()
     (directory / "user-data").write_text("preserve")
     assert worktrees._pending_releases(path, recover=True) == {}
     assert (directory / "user-data").exists()
+
+
+def test_worktree_retention_contract(repo):
+    contract = json.loads(
+        (Path(__file__).resolve().parents[3] / "conformance/worktree-retention.json").read_text()
+    )
+    for branch in contract["checkoutsOldestFirst"]:
+        linked(repo, branch, prepared=branch in contract["prepared"])
+    for case in contract["cases"]:
+        policy = WorktreePolicy(case["max_count"], case["max_prepared"])
+        report = clean_worktrees(repo, policy=policy, dry_run=True)
+        assert not report.errors
+        expected = [("remove_worktree", branch) for branch in case["remove"]]
+        expected.extend(("release_environment", branch) for branch in case["release"])
+        assert [(action.action, action.branch) for action in report.actions] == expected
+        assert all(action.status == "planned" for action in report.actions)

@@ -100,8 +100,8 @@ func TestRepositoryCommandRecordsSelectedCheckoutAccess(t *testing.T) {
 
 }
 
-// +case=A PR connection error appears on stderr, rather than only the final generic cleanup failure.
-func TestCleanTextReportsPRConnectionError(t *testing.T) {
+// +case=Global and single-clone worktree maintenance require no Forge credentials.
+func TestCleanWorktreesWithoutForgeCredentials(t *testing.T) {
 	repo := fixture(t)
 	home := t.TempDir()
 	t.Setenv("GH_TOKEN", "")
@@ -110,29 +110,13 @@ func TestCleanTextReportsPRConnectionError(t *testing.T) {
 	if _, err := state.Observe(context.Background(), repo, home, false); err != nil {
 		t.Fatal(err)
 	}
-	for _, structured := range []bool{false, true} {
-		args := []string{"clean", "--repo", repo, "--home", home, "--dry-run"}
-		if structured {
-			args = append(args, "--json")
-		}
+	for _, entry := range [][]string{{"clean"}, {"worktree", "clean"}} {
+		args := append(entry, "--repo", repo, "--home", home, "--dry-run", "--json")
 		var out, stderr bytes.Buffer
 		code := Execute(context.Background(), args, nil, &out, &stderr)
-		if code != 1 {
-			t.Fatal(code, out.String(), stderr.String())
-		}
-		if structured {
-			var result commandResult
-			if err := json.Unmarshal(out.Bytes(), &result); err != nil {
-				t.Fatal(err)
-			}
-			if result.Outcome != "partial" || len(result.Diagnostics) != 1 || !strings.Contains(result.Diagnostics[0].Message, "no github credential") {
-				t.Fatal(result)
-			}
-			if strings.Contains(stderr.String(), "error:") {
-				t.Fatal("text errors leaked into JSON mode", stderr.String())
-			}
-		} else if !strings.Contains(stderr.String(), "PR status unavailable") || !strings.Contains(stderr.String(), "no github credential") || !strings.Contains(stderr.String(), repo) || !strings.Contains(stderr.String(), "cleanup incomplete") {
-			t.Fatal("missing cleanup cause", stderr.String())
+		var result commandResult
+		if err := json.Unmarshal(out.Bytes(), &result); err != nil || code != 0 || result.Outcome != "succeeded" {
+			t.Fatal(err, code, out.String(), stderr.String())
 		}
 	}
 }

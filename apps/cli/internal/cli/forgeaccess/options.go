@@ -10,7 +10,6 @@ import (
 	repoconfig "github.com/compforge/repokit/toolkit/go/config"
 	"github.com/compforge/repokit/toolkit/go/errs"
 	"github.com/compforge/repokit/toolkit/go/forge"
-	repostate "github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
 
@@ -28,7 +27,7 @@ func (o *Options) Flags(cmd *cobra.Command) {
 	flags := cmd.PersistentFlags()
 	flags.StringVar(&o.provider, "provider", "", "Forge provider: github or gitlab")
 	flags.StringVar(&o.apiHost, "api-host", "", "Forge API URL override")
-	flags.StringArrayVar(&o.Targets, "target-repository", nil, "target repository path; repeat for worktree cleanup")
+	flags.StringArrayVar(&o.Targets, "target-repository", nil, "target repository path")
 }
 func (o *Options) Validate(opts *cmdutil.Options) error {
 	if opts.Timeout <= 0 {
@@ -77,19 +76,6 @@ func (o *Options) client(host, stateRoot string) (*forge.Client, error) {
 		return nil, err
 	}
 	return client, nil
-}
-
-// WorktreePullRequests adapts the shared Forge connection for both cleanup commands.
-// Local repositories have no merged-PR stage; connection failures still allow count retention.
-func (o *Options) WorktreePullRequests(ctx context.Context, repo, home string) (repostate.WorktreePullRequests, error) {
-	prContext, err := o.Context(ctx, repo, home)
-	if errors.Is(err, ErrNoOrigin) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	return prContext, nil
 }
 
 // MergedPR reads Forge directly; a cache record is only a resource locator.

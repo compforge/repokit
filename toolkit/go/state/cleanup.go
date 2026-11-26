@@ -31,8 +31,6 @@ type CleanOptions struct {
 	CurrentDirectory string
 	// WorktreeTimeout bounds active cleanup work for each worktree. Repository cache reclamation has no local deadline.
 	WorktreeTimeout time.Duration
-	// PullRequests resolves the same live PR capability used by direct worktree cleanup.
-	PullRequests func(context.Context, string) (WorktreePullRequests, error)
 }
 type CleanAction struct {
 	Repository string `json:"repository"`
@@ -307,15 +305,6 @@ func (report *CleanReport) cleanRepository(ctx context.Context, directory string
 				}
 				clones[access.CommonDir] = true
 				request := WorktreeCleanOptions{Timeout: options.WorktreeTimeout, Home: report.Home, DryRun: options.DryRun, ProtectedPaths: protected}
-				if options.PullRequests != nil {
-					request.PullRequests, e = options.PullRequests(ctx, control)
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
-					if e != nil {
-						report.Errors = append(report.Errors, fmt.Sprintf("%s: PR status unavailable: %v", control, e))
-					}
-				}
 				result, e := CleanWorktrees(ctx, control, request)
 				report.Counts = append(report.Counts, ResourceCount{Resource: "checkout", Repository: key, Clone: Digest(info.CommonDir), Before: result.BeforeCount, After: result.RemainingCount, MaxCount: result.MaxCount, OverBudget: result.OverCount})
 				for _, a := range result.Actions {

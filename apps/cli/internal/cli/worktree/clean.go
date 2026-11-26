@@ -3,9 +3,10 @@ package worktree
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	cmdutil "github.com/compforge/repokit/apps/cli/internal/cli/command"
-	"github.com/compforge/repokit/apps/cli/internal/cli/forgeaccess"
 	"github.com/compforge/repokit/toolkit/go/state"
 	"github.com/spf13/cobra"
 )
@@ -13,10 +14,9 @@ import (
 func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 	var dryRun bool
 	var count, prepared int
-	var connection forgeaccess.Options
-	cmd := &cobra.Command{Use: "clean", Short: "Remove old worktrees and release old dependency environments", Long: "Remove merged or excess worktrees with all local contents, including uncommitted and ignored files. Branch refs remain; primary/current checkouts and Git locks remain protected. Release managed environments from surviving worktrees according to the prepared limit.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
-		if err := connection.Validate(opts); err != nil {
-			return err
+	cmd := &cobra.Command{Use: "clean", Short: "Remove old worktrees and release old dependency environments", Long: "Rank linked worktrees by creation time. Keep the newest max_prepared intact, release owned Depot dependencies through max_count, and remove older worktrees with all local contents. Branch refs remain. Current checkouts and Git locks are protected.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		if opts.Timeout <= 0 {
+			return errors.New("--timeout must be positive")
 		}
 		ctx := cmd.Context()
 		policy, err := state.LoadWorktreePolicy(ctx, opts.Repository, opts.Home)
@@ -36,15 +36,15 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 		if err != nil {
 			return cmdutil.ExecutionFailure(err)
 		}
-		request := state.WorktreeCleanOptions{Timeout: opts.Timeout, Policy: &policy, DryRun: dryRun, Home: home}
-		prContext, connectionErr := connection.WorktreePullRequests(ctx, opts.Repository, opts.Home)
-		if connectionErr == nil {
-			request.PullRequests = prContext
+		cwd, err := os.Getwd()
+		if err == nil {
+			cwd, err = filepath.EvalSymlinks(cwd)
 		}
+		if err != nil {
+			return cmdutil.ExecutionFailure(err)
+		}
+		request := state.WorktreeCleanOptions{ProtectedPaths: []string{cwd}, Timeout: opts.Timeout, Policy: &policy, DryRun: dryRun, Home: home}
 		report, err := state.CleanWorktrees(ctx, opts.Repository, request)
-		if connectionErr != nil && !errors.Is(connectionErr, forgeaccess.ErrNoOrigin) {
-			report.Errors = append(report.Errors, "PR status unavailable: "+connectionErr.Error())
-		}
 		if !opts.JSON {
 			cmdutil.Record(cmd.OutOrStdout(), report)
 		}
@@ -72,7 +72,6 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 	cmd.Flags().DurationVar(&opts.Timeout, "timeout", opts.Timeout, "cumulative cleanup time budget per worktree")
 	cmd.Flags().BoolVar(&dryRun, "dry-run", false, "show decisions without deleting resources")
 	cmd.Flags().IntVar(&count, "max-count", 10, "maximum linked worktrees (repository config by default)")
-	cmd.Flags().IntVar(&prepared, "max-prepared", 3, "maximum prepared worktrees (repository config by default)")
-	connection.Flags(cmd)
+	cmd.Flags().IntVar(&prepared, "max-prepared", 3, "number of newest linked worktrees to retain intact (repository config by default)")
 	return cmd
 }

@@ -37,7 +37,7 @@ func CleanBins(ctx context.Context, repo string, options BinCleanOptions) (Workt
 	if err := policy.Validate(); err != nil {
 		return report, err
 	}
-	directories, unmanaged, err := worktreeEnvironments(ctx, info.Root, policy, !options.DryRun)
+	directories, unmanaged, err := worktreeEnvironments(ctx, info.Root, &policy, !options.DryRun)
 	if err != nil {
 		return report, err
 	}

@@ -62,7 +62,7 @@ func (c *Context) verifyOrigin(ctx context.Context) error {
 }
 
 // MergedPullRequest reuses the same PR query and exact source identity checks as creation.
-// +spec=`Closed is not terminal. A unique merged source-branch association permits cleanup even after local commits; open or ambiguous associations do not.`
+// +spec=Only a unique merged source-branch association yields a PR number.
 func (c *Context) MergedPullRequest(ctx context.Context, branch string) (number int, err error) {
 	defer func() { err = errs.Wrap(err, "forge.merged_lookup_failed", "forge.merged_lookup", branch) }()
 	if err := c.verifyOrigin(ctx); err != nil {
