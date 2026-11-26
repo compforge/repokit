@@ -47,7 +47,7 @@ func TestValidationCLILeavesTopologyUntouched(t *testing.T) {
 				t.Fatal(err)
 			}
 			var out, stderr bytes.Buffer
-			if code := Execute(ctx, []string{name, "--repo", root, "--home", home, "--json"}, nil, &out, &stderr); code != 0 {
+			if code := Execute(ctx, fullCheckArgs(name, "--repo", root, "--home", home, "--json"), nil, &out, &stderr); code != 0 {
 				t.Fatalf("exit=%d %s %s", code, &out, &stderr)
 			}
 			var result commandResult

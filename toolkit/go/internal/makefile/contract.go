@@ -12,9 +12,10 @@ import (
 )
 
 type Contract struct {
-	Targets   map[string]bool
-	Variables map[string]bool
-	Problem   string
+	Prerequisites map[string][]string
+	Targets       map[string]bool
+	Variables     map[string]bool
+	Problem       string
 }
 
 // Reuse the existing syntax runtime. Parsing never evaluates Make functions,
@@ -59,15 +60,34 @@ func Parse(ctx context.Context, source []byte) Contract {
 		if rule.Type(language) != "rule" {
 			continue
 		}
-		for j := 0; j < rule.NamedChildCount(); j++ {
-			node := rule.NamedChild(j)
-			if node.Type(language) != "targets" {
-				continue
-			}
-			for _, target := range strings.Fields(strings.ReplaceAll(node.Text(source), "\\\n", " ")) {
-				if !strings.ContainsAny(target, "$%\\") {
-					contract.Targets[target] = true
+		var targets, prerequisites []string
+	children:
+		for j := 0; j < rule.ChildCount(); j++ {
+			node := rule.Child(j)
+			switch node.Type(language) {
+			case "|", "recipe":
+				break children
+			case "targets":
+				for _, target := range strings.Fields(strings.ReplaceAll(node.Text(source), "\\\n", " ")) {
+					if !strings.ContainsAny(target, "$%\\") {
+						contract.Targets[target] = true
+						targets = append(targets, target)
+					}
 				}
+			case "prerequisites":
+				for _, word := range strings.Fields(strings.ReplaceAll(node.Text(source), "\\\n", " ")) {
+					if !strings.ContainsAny(word, "$%\\*?[]") {
+						prerequisites = append(prerequisites, word)
+					}
+				}
+			}
+		}
+		if len(prerequisites) > 0 {
+			if contract.Prerequisites == nil {
+				contract.Prerequisites = make(map[string][]string)
+			}
+			for _, target := range targets {
+				contract.Prerequisites[target] = append(contract.Prerequisites[target], prerequisites...)
 			}
 		}
 	}

@@ -38,7 +38,7 @@ func TestValidationCLIFileOwners(t *testing.T) {
 	}
 }
 
-// +case=Automatic scope includes branch and worktree changes, keeps check-specific Makefile contracts and falls back when Git cannot establish the comparison.
+// +case=Automatic scope includes branch and worktree changes, keeps check-specific Makefile contracts and reports an unavailable baseline.
 func TestValidationCLIAutomaticScope(t *testing.T) {
 	root, home := fixture(t), t.TempDir()
 	put(t, root, "Makefile", "lint:\n\t@true\ntest:\n\t@echo $(TEST_FILES)\n")
@@ -58,7 +58,7 @@ func TestValidationCLIAutomaticScope(t *testing.T) {
 		return plan.Components[0].Checks
 	}
 	got := checks()
-	if got[1].Scope != "full" || !strings.Contains(got[1].Reason, "baseline unavailable") {
+	if got[1].Scope != "unavailable" || !strings.Contains(got[1].Reason, "baseline unavailable") {
 		t.Fatalf("unknown baseline: %+v", got[1])
 	}
 	gitCommand(t, root, "update-ref", "refs/remotes/origin/main", "HEAD")
@@ -81,7 +81,35 @@ func TestValidationCLIAutomaticScope(t *testing.T) {
 		t.Fatalf("explicit full: %+v", got)
 	}
 	put(t, root, "Makefile", "lint:\n\t@true\ntest:\n\t@echo running $(TEST_FILES)\n")
-	if got := checks(); got[1].Scope != "full" || !strings.Contains(got[1].Reason, "incomplete impact") {
+	if got := checks(); got[1].Scope != "focused" || !slices.Equal(got[1].Files, []string{"first_test.go", "next_test.go"}) {
 		t.Fatalf("configuration change: %+v", got)
+	}
+	put(t, root, "Makefile", "lint:\n\t@true\ntest:\n\t@false\n")
+	if got := checks(); got[1].Scope != "skipped" || len(got[1].Command) != 0 || !strings.Contains(got[1].Reason, "TEST_FILES") {
+		t.Fatalf("target cannot run focused tests: %+v", got[1])
+	}
+}
+
+// +case=A project can select a test through a literal Make prerequisite even without a graph route.
+func TestValidationDeclaredTestDependency(t *testing.T) {
+	root, home := fixture(t), t.TempDir()
+	put(t, root, "model.py", "value = 1\n")
+	put(t, root, "tests/test_api.py", "assert True\n")
+	put(t, root, "tests/test_other.py", "assert True\n")
+	put(t, root, "Makefile", "lint:\n\t@echo $(LINT_FILES)\ntest:\n\t@echo $(TEST_FILES)\ntests/test_api.py: model.py\ntests/test_other.py: | model.py\n")
+	gitCommand(t, root, "add", ".")
+	gitCommand(t, root, "commit", "-qm", "declare source dependency")
+	put(t, root, "model.py", "value = 2\n")
+	var out, stderr bytes.Buffer
+	if code := Execute(t.Context(), []string{"validate", "--repo", root, "--home", home, "--base", "HEAD", "--plan", "--json"}, nil, &out, &stderr); code != 0 {
+		t.Fatalf("%d: %s %s", code, &out, &stderr)
+	}
+	var plan repokit.ValidationPlan
+	if err := json.Unmarshal(resultData(t, out.Bytes()), &plan); err != nil {
+		t.Fatal(err)
+	}
+	checks := plan.Components[0].Checks
+	if !slices.Equal(checks[0].Files, []string{"model.py"}) || !slices.Equal(checks[1].Files, []string{"tests/test_api.py"}) || len(plan.Impact.TestSelection.Reasons) != 1 || plan.Impact.TestSelection.Reasons[0].Kind != "make_prerequisite" {
+		t.Fatalf("checks: %+v selection: %+v", checks, plan.Impact.TestSelection)
 	}
 }

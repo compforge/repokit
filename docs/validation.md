@@ -196,7 +196,7 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 
 ## 选择检查范围
 
-`repocli validate` 默认以当前分支与目标的 merge base 比较工作区，涵盖已提交、已暂存和未暂存的改动及未跟踪文件。目标优先使用 RepoKit 分支创建记录中的基线，其次使用本地 `origin/HEAD`。规划只读本地 Git 引用。无法确定唯一基线或分析失败时，在所选 Component 内执行全量并说明原因。影响范围可靠时，各检查独立按 Makefile 契约选文件；确认无关的检查可以跳过。
+`repocli validate` 默认以当前分支与目标的 merge base 比较工作区，涵盖已提交、已暂存和未暂存的改动及未跟踪文件。目标优先使用 RepoKit 分支创建记录中的基线，其次使用本地 `origin/HEAD`。规划只读本地 Git 引用。无法建立比较时，增量 lint/test 记为 unavailable 并报告原因。影响范围可靠时，各检查独立按 Makefile 契约选文件；确认无关的检查可以跳过。
 
 `validate --full` 显式选择全量。独立 format/lint/test 命令及未启用自动选择的 SDK 请求沿用原有全量默认。未指定 Component 时边界包含全部已发现 Component。
 显式空 Component 列表表示不选任何 Component，未知 Component 是参数错误。
@@ -221,13 +221,9 @@ Go 与 Python 使用同源 tree-sitter-make grammar，解析最多 2 MiB、最�
 跨组件检查由项目 Makefile 显式编排；repocli 不推断 recipe 覆盖关系、不补测、不增加其他组件。
 
 调用方可提供当前工作区的 `ImpactReport`。规划器核对 checkout、input 和 snapshot，拒绝把旧报告、
-index 或 commit 报告套在当前工作区。默认在 affectedFileCounts 中出现 source/test/config/manifest/lockfile
-时选择该 Component；调用方可以提供自己的 tags。lint 使用该 Component 的 affectedFiles，test 使用 testFiles。
-自动模式下，可能影响检查的分析缺口使涉及的 Component 回退全量。仅普通文档的未建模依赖不扩大代码检查范围。显式 impact 保留原有标签和范围选择语义。
+index 或 commit 报告套在当前工作区。每个 Component 报告两份可执行候选。lint 使用 `changedSourceFiles`（当前快照中变更的普通源码和测试文件），test 使用 `recommendedTests`。项目未支持 `LINT_FILES` 时，lint 会说明原因并执行完整 target。没有对应测试、测试文件无法安全传递，或项目未支持 `TEST_FILES` 时，增量 test 记为 skipped，空名单不会启动 Make。完整套件使用 `--full`。
 
-删除、重命名前侧的路径仍按真实归属检查：候选已经不存在或当前属于别的 Component 时，当前检查
-回退全量并记录原因。没有返回候选文件、项目不支持文件过滤、路径无法安全传给 Make 时，也回退全量。
-不为已不存在的 Component 或 unowned 路径伪造执行目标。
+`impact.testSelection` 保留入选理由和未匹配的源码路径。部分影响分析缺口随报告返回，已有候选仍可运行。删除与重命名可通过旧快照提供测试依据，执行只接受当前存在的测试。旧版 ImpactReport 缺少新增的候选字段时沿用原有 affectedFiles/testFiles 及全量回退语义。format 和 build 保留各自的范围策略。
 
 手工 `files` 与 impact 是两种互斥的选择来源。文件必须是规范的仓库相对路径；进入 Make 前转换为
 Component 相对路径并去重排序。包含空格、shell/Make 元字符或穿过符号链接的路径不进入文件参数。

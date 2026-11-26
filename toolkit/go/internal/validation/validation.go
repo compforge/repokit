@@ -318,6 +318,7 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 		for _, check := range checks {
 			spec := CheckSpec{InputVersion: 3, Check: check, RequestedComponents: []string{component.Root}, Scope: "full", Command: []string{}, Files: []string{}, Reason: "full Component check", Environment: hex.EncodeToString(digest[:])}
 			candidates := slices.Clone(filesByComponent[component.Root])
+			incrementalTest := false
 			if req.Impact != nil {
 				var impact *project.ComponentImpact
 				for i := range req.Impact.Components {
@@ -347,10 +348,25 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				if check == "build" {
 					relevant = req.Components != nil || impact.Affected
 				}
-				if auto && check == "test" && len(impact.TestFiles) > 0 {
-					relevant = true
-				}
-				if gap := firstValidationGap(documentation, impact.FallbackReasons, req.Impact.Unowned.FallbackReasons); auto && gap != "" {
+				incrementalTest = check == "test" && impact.RecommendedTests != nil
+				incrementalLint := check == "lint" && impact.ChangedSourceFiles != nil
+				if incrementalLint || incrementalTest {
+					candidates = impact.ChangedSourceFiles
+					spec.Reason = "no changed source or test files"
+					if incrementalTest {
+						candidates = impact.RecommendedTests
+						relevant = relevant || slices.Contains(tags, "test")
+						spec.Reason = "no directly matched test files"
+					}
+					if !relevant || len(candidates) == 0 {
+						spec.Scope = "skipped"
+						if !relevant && len(candidates) > 0 {
+							spec.Reason = "no selected validation tags"
+						}
+						appendValidationCheck(&plan, component, spec)
+						continue
+					}
+				} else if gap := firstValidationGap(documentation, impact.FallbackReasons, req.Impact.Unowned.FallbackReasons); auto && gap != "" {
 					spec.Reason = "incomplete impact; full Component check: " + gap
 				} else if !relevant {
 					spec.Scope = "skipped"
@@ -368,6 +384,11 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 					spec.Reason = "affected Component; canonical full check"
 				}
 			} else if fallback != "" {
+				if check == "lint" || check == "test" {
+					spec.Scope, spec.Reason = "unavailable", fallback
+					appendValidationCheck(&plan, component, spec)
+					continue
+				}
 				spec.Reason = fallback + "; full Component check"
 			}
 			target := validationTarget(contract, check)
@@ -391,6 +412,14 @@ func PlanValidation(ctx context.Context, req ValidationRequest) (result Validati
 				variable = "LINT_FILES"
 			}
 			files, reason := validationFiles(plan.Checkout, component.Root, layout.Layout, candidates)
+			if incrementalTest && (reason != "" || !contract.Variables[variable]) {
+				spec.Scope, spec.Reason = "skipped", reason
+				if reason == "" {
+					spec.Reason = "Makefile does not support focused tests (TEST_FILES); use --full to run the suite"
+				}
+				appendValidationCheck(&plan, component, spec)
+				continue
+			}
 			if len(candidates) > 0 {
 				if reason != "" {
 					spec.Reason = reason + "; canonical full check"

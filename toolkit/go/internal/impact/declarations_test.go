@@ -58,3 +58,15 @@ func TestUncoveredExpressionUsesFileSeed(t *testing.T) {
 		t.Fatalf("invented expression declaration: %+v", r.Changes[0])
 	}
 }
+
+// +case=A test calling the changed function is recommended even when its shortest impact route is an import.
+func TestDirectTestSelection(t *testing.T) {
+	result := runChange(t, map[string]string{
+		"src/value.ts":        "export function value() {return 1;}\nexport function other(){return 0;}\n",
+		"tests/value.test.ts": "import {value} from '../src/value';\nexport function testValue(){return value();}\n",
+		"tests/other.test.ts": "import {value, other} from '../src/value';\nexport function testOther(){return other();}\n",
+	}, "src/value.ts", "return 1", "return 2")
+	if !reflect.DeepEqual(result.TestSelection.Files, []string{"tests/value.test.ts"}) || len(result.TestSelection.UnmatchedSources) != 0 {
+		t.Fatalf("selection: %+v", result.TestSelection)
+	}
+}

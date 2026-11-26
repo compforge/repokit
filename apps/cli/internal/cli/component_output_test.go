@@ -40,7 +40,7 @@ func TestUnownedImpactAppearsInJSONAndText(t *testing.T) {
 	if code := Execute(context.Background(), args, strings.NewReader(""), &out, &stderr); code != 0 {
 		t.Fatal(code, stderr.String())
 	}
-	if !strings.Contains(out.String(), "unowned, affected=true") || !strings.Contains(out.String(), "    test tests/test_shared.py") {
+	if !strings.Contains(out.String(), "unowned, affected=true") || !strings.Contains(out.String(), "    reachable test tests/test_shared.py") {
 		t.Fatal(out.String())
 	}
 }

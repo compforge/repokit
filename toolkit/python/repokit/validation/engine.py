@@ -260,6 +260,7 @@ def plan_validation(
         for check in names:
             candidates = tuple(files_by_component.get(component.root, ()))
             scope, reason = "full", "full Component check"
+            incremental_test = False
             if impact is not None:
                 group = _impact_component(impact, component.root)
                 counts = group.get("affectedFileCounts")
@@ -268,7 +269,25 @@ def plan_validation(
                     for tag, count in counts.items()
                 ):
                     raise ValueError("invalid affectedFileCounts")
-                if not any(counts.get(tag, 0) > 0 for tag in tags):
+                key = "changedSourceFiles" if check == "lint" else "recommendedTests"
+                incremental = key in group
+                incremental_test = incremental and check == "test"
+                candidates = _strings(
+                    group[key]
+                    if incremental
+                    else group.get("affectedFiles" if check == "lint" else "testFiles")
+                )
+                relevant = any(counts.get(tag, 0) > 0 for tag in tags)
+                if incremental_test and "test" in tags:
+                    relevant = True
+                if not relevant or (incremental and not candidates):
+                    reason = "no selected validation tags"
+                    if incremental and not candidates:
+                        reason = (
+                            "no directly matched test files"
+                            if incremental_test
+                            else "no changed source or test files"
+                        )
                     _append_check(
                         groups,
                         component,
@@ -277,15 +296,12 @@ def plan_validation(
                             "skipped",
                             (),
                             (),
-                            "no selected validation tags",
+                            reason,
                             environment_digest,
                             (component.root,),
                         ),
                     )
                     continue
-                candidates = _strings(
-                    group.get("affectedFiles" if check == "lint" else "testFiles")
-                )
                 reason = "affected Component; canonical full check"
             target = contract.target(check)
             missing_reason = f"Makefile does not declare a supported {check} target"
@@ -313,6 +329,27 @@ def plan_validation(
                         raise ValueError(f"{variable} contract missing")
                 except ValueError as error:
                     chosen = ()
+                    if incremental_test:
+                        reason = (
+                            str(error)
+                            if variable in contract.variables
+                            else "Makefile does not support focused tests (TEST_FILES); "
+                            "use --full to run the suite"
+                        )
+                        _append_check(
+                            groups,
+                            component,
+                            CheckSpec(
+                                check,
+                                "skipped",
+                                (),
+                                (),
+                                reason,
+                                environment_digest,
+                                (component.root,),
+                            ),
+                        )
+                        continue
                     reason = f"{error}; canonical full check"
                 else:
                     scope, reason = "focused", f"selected files under Makefile {variable} contract"

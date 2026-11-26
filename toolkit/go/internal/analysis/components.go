@@ -25,7 +25,7 @@ type impactBucket struct {
 func newImpactBucket() *impactBucket {
 	return &impactBucket{
 		summary: project.ImpactSummary{
-			AffectedFileCounts: map[cg.Tag]int{}, ChangedFiles: []string{}, AffectedFiles: []string{},
+			ChangedSourceFiles: []string{}, RecommendedTests: []string{}, AffectedFileCounts: map[cg.Tag]int{}, ChangedFiles: []string{}, AffectedFiles: []string{},
 			SourceFiles: []string{}, TestFiles: []string{}, Scope: "focused", Complete: true,
 		},
 		tags: map[string]map[cg.Tag]bool{},
@@ -53,7 +53,7 @@ func (b *impactBucket) gap(message string) {
 
 func (b *impactBucket) finish() project.ImpactSummary {
 	for _, paths := range []*[]string{&b.summary.ChangedFiles, &b.summary.AffectedFiles,
-		&b.summary.SourceFiles, &b.summary.TestFiles, &b.summary.FallbackReasons} {
+		&b.summary.SourceFiles, &b.summary.TestFiles, &b.summary.ChangedSourceFiles, &b.summary.RecommendedTests, &b.summary.FallbackReasons} {
 		slices.Sort(*paths)
 		*paths = slices.Compact(*paths)
 	}
@@ -102,6 +102,10 @@ func componentResults(before, after project.Layout, c *comparison, result impact
 		if change.Status != "deleted" {
 			bucket := owner(change.Path, "after")
 			bucket.summary.ChangedFiles = append(bucket.summary.ChangedFiles, change.Path)
+			tags := project.FileTags(cg.Document{Path: change.Path, Gitlink: c.after.Modules[change.Path], Symlink: c.after.Links[change.Path]})
+			if c.after.Links[change.Path] == "" && c.after.Modules[change.Path] == "" && (slices.Contains(tags, cg.SourceTag) || slices.Contains(tags, cg.TestTag)) {
+				bucket.summary.ChangedSourceFiles = append(bucket.summary.ChangedSourceFiles, change.Path)
+			}
 			if sources[change.Path] {
 				bucket.summary.SourceFiles = append(bucket.summary.SourceFiles, change.Path)
 			}
@@ -133,6 +137,10 @@ func componentResults(before, after project.Layout, c *comparison, result impact
 		bucket := owner(name, "after")
 		bucket.summary.TestFiles = append(bucket.summary.TestFiles, name)
 		bucket.summary.Affected = true
+	}
+	for _, test := range result.TestSelection.Files {
+		bucket := owner(test, "after")
+		bucket.summary.RecommendedTests = append(bucket.summary.RecommendedTests, test)
 	}
 	repositoryGaps := []string{}
 	for _, issue := range result.Uncertainties {

@@ -275,3 +275,32 @@ def test_environment_identity_contract(tmp_path, monkeypatch, explicit):
     report = execute_validation(plan)
     assert report.passed and report.inputs_consistent
     assert report.components[0].checks[0].stdout == ("per-invocation" if explicit else "unset")
+
+
+def test_recommended_tests_require_file_contract(tmp_path: Path) -> None:
+    from repokit import snapshot
+
+    root = fixture(tmp_path, "lint:\n\t@echo $(LINT_FILES)\ntest:\n\t@false\n")
+    (root / "source.py").write_text("value = 2\n")
+    (root / "test_source.py").write_text("assert True\n")
+    group = {
+        "root": ".",
+        "snapshot": "after",
+        "affectedFileCounts": {"source": 1},
+        "changedSourceFiles": ["source.py"],
+        "recommendedTests": ["test_source.py"],
+    }
+    impact = {
+        "snapshot": snapshot(root).digest,
+        "input": "working_tree",
+        "checkout": str(root),
+        "components": [group],
+    }
+    checks = plan_validation(root, impact=impact).components[0].checks
+    assert checks[0].files == ("source.py",)
+    assert checks[1].scope == "skipped" and not checks[1].command
+    group["recommendedTests"] = []
+    assert (
+        plan_validation(root, impact=impact).components[0].checks[1].reason
+        == "no directly matched test files"
+    )

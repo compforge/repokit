@@ -19,6 +19,9 @@ func writePlanText(w io.Writer, plan repokit.ValidationPlan) error {
 	fmt.Fprintf(&b, "Checkout: %s\nSnapshot: %s\nConcurrency: %d\n", plan.Checkout, plan.Snapshot, plan.Concurrency)
 	if plan.Impact != nil {
 		fmt.Fprintf(&b, "Impact: base=%s complete=%t\n", plan.Impact.Base, plan.Impact.Complete)
+		if len(plan.Impact.TestSelection.UnmatchedSources) > 0 {
+			fmt.Fprintf(&b, "Changed sources without a direct test: %s\n", strings.Join(plan.Impact.TestSelection.UnmatchedSources, ", "))
+		}
 		for _, d := range plan.Impact.Diagnostics {
 			fmt.Fprintf(&b, "  %s\n", d.Message)
 		}
