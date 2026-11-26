@@ -16,7 +16,7 @@ import (
 	"github.com/compforge/repokit/toolkit/go/state"
 )
 
-// +case=PR and both cleanup entries consume the same RepoKit configuration without ambient tokens.
+// +case=PR and global cleanup consume the same RepoKit configuration without ambient tokens.
 func TestForgeConfigurationAcrossCLIEntries(t *testing.T) {
 	for _, name := range []string{"GH_TOKEN", "GITHUB_TOKEN", "GITLAB_TOKEN"} {
 		t.Setenv(name, "")
@@ -43,7 +43,7 @@ func TestForgeConfigurationAcrossCLIEntries(t *testing.T) {
 		fmt.Fprint(w, `{"number":1,"title":"fixture","state":"open","html_url":"https://github.com/acme/repo/pull/1","head":{"sha":"abc","ref":"topic","repo":{"full_name":"acme/repo"}},"base":{"ref":"main","repo":{"full_name":"acme/repo"}}}`)
 	}))
 	defer server.Close()
-	for _, args := range [][]string{{"pr", "show", "1"}, {"worktree", "clean", "--dry-run"}, {"clean", "--dry-run"}} {
+	for _, args := range [][]string{{"pr", "show", "1"}, {"clean", "--dry-run"}} {
 		args = append(args, "--repo", repo, "--home", home, "--api-host", server.URL, "--json")
 		var out, stderr bytes.Buffer
 		code := Execute(context.Background(), args, nil, &out, &stderr)

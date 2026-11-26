@@ -19,7 +19,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 	var dry bool
 	var connection forgeaccess.Options
 	command := &cobra.Command{Use: "clean", Short: "Apply worktree retention and reclaim inactive repository state",
-		Long: "Apply worktree retention and reclaim inactive repository state. Without --repo, scan all recorded repositories in the selected home. Worktrees use the repository retention policy. Eligible worktrees are removed with all local contents, including uncommitted and ignored files; branch refs remain. Primary/current checkouts and Git locks remain protected. Missing repository access times count as oldest.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+		Long: "Apply worktree retention and reclaim inactive repository state. Without --repo, scan all recorded repositories in the selected home. Each clone keeps its newest max_prepared worktrees intact, releases Depot dependencies up to max_count, and removes older worktrees. Eligible worktrees are removed with all local contents, including uncommitted and ignored files; branch refs remain. Primary/current checkouts and Git locks remain protected. Missing repository access times count as oldest.", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 			if days < 1 || days > 36500 {
 				return errors.New("--inactive-days must be between 1 and 36500")
 			}
@@ -37,9 +37,7 @@ func newCleanCommand(opts *cmdutil.Options) *cobra.Command {
 			}
 			report, err := repokit.Clean(ctx, state.CleanOptions{MergedPR: func(ctx context.Context, repository common.Repository, number int) (bool, error) {
 				return connection.MergedPR(ctx, repository, number, opts.Home)
-			}, Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, WorktreeTimeout: opts.Timeout, PullRequests: func(ctx context.Context, repo string) (state.WorktreePullRequests, error) {
-				return connection.WorktreePullRequests(ctx, repo, opts.Home)
-			}})
+			}, Home: opts.Home, Repository: selected, InactiveDays: days, DryRun: dry, CurrentDirectory: cwd, WorktreeTimeout: opts.Timeout})
 			if opts.JSON {
 				_ = cmdutil.JSON(cmd.OutOrStdout(), report)
 			} else {

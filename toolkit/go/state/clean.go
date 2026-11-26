@@ -101,18 +101,11 @@ type WorktreeCleanReport struct {
 	DryRun            bool             `json:"dry_run"`
 }
 
-// WorktreePullRequests supplies live, source-verified PR facts for a local branch.
-// Both inventory and pre-removal verification use the same repository PR capability.
-type WorktreePullRequests interface {
-	MergedPullRequest(context.Context, string) (int, error)
-}
-
 type WorktreeCleanOptions struct {
 	// Timeout is the cumulative active processing budget per worktree. Zero uses only the caller context.
 	Timeout        time.Duration
 	Policy         *WorktreePolicy
 	DryRun         bool
-	PullRequests   WorktreePullRequests
 	Home           string
 	ProtectedPaths []string
 	// SkipBusy avoids waiting for a concurrent Git lifecycle operation.
@@ -121,19 +114,19 @@ type WorktreeCleanOptions struct {
 
 type retentionEntry struct {
 	CheckoutEntry
-	created      int64
-	remaining    time.Duration
-	environments []string
-	unmanaged    bool
-	excluded     bool
-	removed      bool
+	created   int64
+	remaining time.Duration
+	inspected bool
+	prepared  bool
+	excluded  bool
+	removed   bool
 }
 
-// CleanWorktrees removes merged checkouts, then old excess checkouts and environments.
+// CleanWorktrees applies both limits to the same creation-time ranking.
 //
 // +spec=`Unknown creation times sort oldest. Protected old entries do not displace the newest retained set. Eligible checkouts are removed whole, including submodule clones; primary repositories and shared branch refs are retained.`
 // +spec=Eligible checkouts are force-removed with dirty, untracked and ignored contents; environment ownership only gates partial environment release.
-// +spec=Each worktree has an independent cumulative processing budget across planning, PR verification and removal or environment release; time spent on other worktrees does not consume it.
+// +spec=Each worktree has an independent cumulative processing budget across planning and removal or environment release; time spent on other worktrees does not consume it.
 // +spec=Caller cancellation stops remaining worktrees and returns confirmed actions without reporting untouched entries as failures.
 // +link=component://docs/worktrees.md
 func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptions) (result WorktreeCleanReport, err error) {
@@ -172,14 +165,20 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 	if err != nil {
 		return report, err
 	}
+	home, err := ResolveHome(options.Home)
+	if err != nil {
+		return report, err
+	}
+	if canonical, err := filepath.EvalSymlinks(home); err == nil {
+		home = canonical
+	}
 	var candidates []*retentionEntry
-	known := true
-	action := func(e *retentionEntry, kind, status, reason string, number int) {
-		report.Actions = append(report.Actions, WorktreeAction{Action: kind, Status: status, Reason: reason, Path: e.Path, Branch: e.Branch, PRNumber: number})
+	action := func(e *retentionEntry, kind, status, reason string) {
+		report.Actions = append(report.Actions, WorktreeAction{Action: kind, Status: status, Reason: reason, Path: e.Path, Branch: e.Branch})
 		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
 			report.Actions[len(report.Actions)-1].LastAccessAt = lease.record.Checkouts[Digest(e.Path)].LastAccessAt
 		}
-		slog.Info("worktree maintenance", "action", kind, "status", status, "path", e.Path, "reason", reason)
+		slog.InfoContext(ctx, "worktree maintenance", "action", kind, "status", status, "path", e.Path, "reason", reason)
 	}
 	failure := func(e *retentionEntry, kind string, err error) {
 		if ctx.Err() != nil {
@@ -187,7 +186,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		e.excluded = true
 		report.Errors = append(report.Errors, fmt.Sprintf("%s: %v", e.Path, err))
-		action(e, kind, "failed", err.Error(), 0)
+		action(e, kind, "failed", err.Error())
 	}
 	// Each pass charges only time spent processing this checkout, not queueing behind others.
 	run := func(e *retentionEntry, fn func(context.Context)) {
@@ -217,33 +216,22 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		candidates = append(candidates, e)
 		report.BeforeCount++
 		run(e, func(ctx context.Context) {
-			home, homeErr := ResolveHome(options.Home)
-			if homeErr != nil {
-				failure(e, "retain", homeErr)
-				return
-			}
-			if canonical, e := filepath.EvalSymlinks(home); e == nil {
-				home = canonical
-			}
 			if withinDirectory(e.Path, home) {
 				e.excluded = true
-				action(e, "retain", "skipped", "contains_state_home", 0)
-				return
-			}
-			for _, path := range options.ProtectedPaths {
-				if withinDirectory(e.Path, path) {
-					e.excluded = true
-					break
+				action(e, "retain", "skipped", "contains_state_home")
+			} else {
+				for _, path := range options.ProtectedPaths {
+					if withinDirectory(e.Path, path) {
+						e.excluded = true
+						action(e, "retain", "skipped", "current_checkout")
+						break
+					}
 				}
-			}
-			if e.excluded {
-				action(e, "retain", "skipped", "current_checkout", 0)
 			}
 			// Protected paths still participate in the newest retention window.
 			// Read their creation time before deciding which older entries exceed it.
 			reason, observeErr := protectionInInventory(ctx, info.Root, entry, entries)
 			if observeErr != nil {
-				known = false
 				e.excluded = true
 				failure(e, "retain", observeErr)
 				return
@@ -272,11 +260,11 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			}
 			if reason != "" {
 				e.excluded = true
-				action(e, "retain", "skipped", reason, 0)
+				action(e, "retain", "skipped", reason)
 			}
 		})
 	}
-	remove := func(ctx context.Context, e *retentionEntry, reason string, number int) {
+	remove := func(ctx context.Context, e *retentionEntry) {
 		if e.excluded || e.Path == "" {
 			return
 		}
@@ -287,7 +275,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			return
 		}
 		if protection != "" {
-			action(e, "remove_worktree", "skipped", protection, number)
+			action(e, "remove_worktree", "skipped", protection)
 			return
 		}
 		size, err := directoryBytes(ctx, e.Path)
@@ -301,7 +289,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 			return
 		}
 		if protection != "" {
-			action(e, "remove_worktree", "skipped", protection, number)
+			action(e, "remove_worktree", "skipped", protection)
 			return
 		}
 		if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
@@ -324,39 +312,8 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		if options.DryRun {
 			status = "planned"
 		}
-		action(e, "remove_worktree", status, reason, number)
+		action(e, "remove_worktree", status, "max_count")
 		report.Actions[len(report.Actions)-1].EstimatedBytes = size
-	}
-	if options.PullRequests != nil {
-		for _, e := range candidates {
-			if err := ctx.Err(); err != nil {
-				return report, err
-			}
-			if e.excluded {
-				continue
-			}
-			run(e, func(ctx context.Context) {
-				number, err := options.PullRequests.MergedPullRequest(ctx, e.Branch)
-				if err != nil {
-					e.excluded = true
-					failure(e, "retain", err)
-					return
-				}
-				if number == 0 {
-					return
-				}
-				verified, err := options.PullRequests.MergedPullRequest(ctx, e.Branch)
-				if err != nil || verified != number {
-					e.excluded = true
-					if err == nil {
-						err = errors.New("merged PR identity changed")
-					}
-					failure(e, "retain", err)
-					return
-				}
-				remove(ctx, e, "merged", number)
-			})
-		}
 	}
 	slices.SortFunc(candidates, func(a, b *retentionEntry) int {
 		if a.created < b.created {
@@ -367,45 +324,16 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 		}
 		return strings.Compare(a.Path, b.Path)
 	})
-	survivors := make([]*retentionEntry, 0, len(candidates))
-	for _, e := range candidates {
-		if !e.removed {
-			survivors = append(survivors, e)
-		}
-	}
-	for _, e := range survivors[:max(0, len(survivors)-policy.MaxCount)] {
+	// +spec=Both windows count all linked checkouts, including unprepared and protected entries.
+	removeEnd := max(0, len(candidates)-policy.MaxCount)
+	releaseEnd := max(0, len(candidates)-policy.MaxPrepared)
+	for _, e := range candidates[:removeEnd] {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
-		run(e, func(ctx context.Context) { remove(ctx, e, "max_count", 0) })
+		run(e, func(ctx context.Context) { remove(ctx, e) })
 	}
-	prepared := make([]*retentionEntry, 0, len(survivors))
-	for _, e := range survivors {
-		if err := ctx.Err(); err != nil {
-			return report, err
-		}
-		if e.removed {
-			continue
-		}
-		if options.Timeout > 0 && e.remaining <= 0 {
-			known = false
-			continue
-		}
-		run(e, func(ctx context.Context) {
-			var err error
-			e.environments, e.unmanaged, err = worktreeEnvironments(ctx, e.Path, *policy, !options.DryRun)
-			if err != nil {
-				known = false
-				e.excluded = true
-				failure(e, "inspect_environment", err)
-				return
-			}
-		})
-		if len(e.environments) > 0 || e.unmanaged {
-			prepared = append(prepared, e)
-		}
-	}
-	for _, e := range prepared[:max(0, len(prepared)-policy.MaxPrepared)] {
+	for _, e := range candidates[removeEnd:releaseEnd] {
 		if err := ctx.Err(); err != nil {
 			return report, err
 		}
@@ -420,19 +348,20 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				return
 			}
 			if reason != "" {
-				action(e, "release_environment", "skipped", reason, 0)
+				action(e, "release_environment", "skipped", reason)
 				return
 			}
-			directories, unmanaged, err := worktreeEnvironments(ctx, e.Path, *policy, !options.DryRun)
-			if err == nil && !slices.Equal(directories, e.environments) {
-				err = errors.New("environment inventory changed")
-			}
+			directories, unmanaged, err := worktreeEnvironments(ctx, e.Path, nil, !options.DryRun)
 			if err != nil {
-				failure(e, "release_environment", err)
+				failure(e, "inspect_environment", err)
 				return
 			}
+			e.inspected = true
+			e.prepared = unmanaged || len(directories) > 0
 			if len(directories) == 0 {
-				action(e, "release_environment", "skipped", "unmanaged_environment", 0)
+				if unmanaged {
+					action(e, "release_environment", "skipped", "unmanaged_environment")
+				}
 				return
 			}
 			reason, err = worktreeProtection(ctx, repo, info.Root, e.CheckoutEntry)
@@ -441,20 +370,7 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 				return
 			}
 			if reason != "" {
-				action(e, "release_environment", "skipped", reason, 0)
-				return
-			}
-			var size int64
-			for _, directory := range directories {
-				n, e := directoryBytes(ctx, directory)
-				if e != nil {
-					err = e
-					break
-				}
-				size += n
-			}
-			if err != nil {
-				failure(e, "release_environment", err)
+				action(e, "release_environment", "skipped", reason)
 				return
 			}
 			if lease, ok := ctx.Value(activityLeaseKey{}).(*activityLease); ok {
@@ -463,29 +379,32 @@ func CleanWorktrees(ctx context.Context, repo string, options WorktreeCleanOptio
 					return
 				}
 			}
-			_, err = releaseBins(ctx, e.Path, directories, options.DryRun)
+			size, err := releaseBins(ctx, e.Path, directories, options.DryRun)
 			if err != nil {
 				failure(e, "release_environment", err)
 				return
 			}
-			e.environments = nil
-			e.unmanaged = unmanaged
+			e.prepared = unmanaged
 			status := "completed"
 			if options.DryRun {
 				status = "planned"
 			}
-			action(e, "release_environment", status, "max_prepared", 0)
+			action(e, "release_environment", status, "max_prepared")
 			report.Actions[len(report.Actions)-1].EstimatedBytes = size
 		})
 	}
 	if err := ctx.Err(); err != nil {
 		return report, err
 	}
+	known := true
 	countPrepared := 0
 	for _, e := range candidates {
 		if !e.removed {
 			report.RemainingCount++
-			if len(e.environments) > 0 || e.unmanaged {
+			if !e.inspected || e.excluded {
+				known = false
+			}
+			if e.prepared {
 				countPrepared++
 			}
 		}

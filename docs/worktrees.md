@@ -59,27 +59,23 @@ Configuration lives in `~/.repokit/repositories/<repo-key>/config.json`, shared 
 {"worktree":{"max_count":10,"max_prepared":3,"outputs":[]}}
 ```
 
-`0 <= max_prepared <= max_count`. Primary checkouts are excluded from both counts. Each explicit cleanup run:
+Each clone ranks all linked checkouts once by creation time, newest first. The primary checkout
+is excluded. The limits satisfy `0 <= max_prepared <= max_count`.
 
-1. Removes eligible checkouts of verified **merged** PRs, even below the count limits.
-2. Removes the oldest remaining linked checkouts until `max_count` is reached.
-3. Recounts surviving prepared checkouts and releases their oldest environments until
-   `max_prepared` is reached. This is an independent count, not a fixed number of removals.
+| Rank | Action |
+|---|---|
+| 1 through `max_prepared` | Keep the entire checkout and skip Depot inspection. An unprepared checkout occupies a slot. |
+| Above `max_prepared` through `max_count` | Keep the checkout and release owned Depot dependency Bins. |
+| Above `max_count` | Remove the entire eligible checkout, including its local contents. |
 
-The newest retained set provides a buffer for concurrent development sessions, which are
-expected to work in recently created checkouts. Cleanup does not discover Codex or other
-Harness sessions. Explicit cleanup treats merged checkouts as finished work and reclaims them independently of this
-buffer; callers must start a new worktree for subsequent work. Dirty contents do not extend
-retention beyond the count policy. Use an explicit Git worktree lock to pin a checkout.
+Protection skips the action at that rank. Other checkouts keep their original ranks. These
+windows provide a buffer for concurrent sessions using recent checkouts. Use a Git worktree
+lock to pin an older checkout. Worktree maintenance uses local Git and Depot evidence only.
 
 Creation time is recorded by the Python and Go worktree creation APIs in the checkout's Git
 administration directory (`repokit-created.json`, schema 1, `created_at` in Unix nanoseconds).
 Missing creation times sort **before all recorded times**; equal/unknown times sort by path.
 No commit timestamp or filesystem mtime is substituted. CLI overrides apply only to that run.
-
-Only merged is terminal for cleanup. Closed unmerged PRs receive ordinary count retention.
-Count retention is independent of PR state: it can remove an old open/no-PR checkout,
-while preserving its branch. A failed merged verification skips that checkout for the round.
 
 ## Protection and environment ownership
 
@@ -91,16 +87,11 @@ prioritizes disk reclamation; it does not save or archive uncommitted contents. 
 and their commits remain. Explicit worktree locks remain protected because removal never uses
 double force. Environment ownership and inventory errors do not block whole-checkout removal;
 these checks apply only when releasing environments from surviving checkouts.
-PR-triggered removal verifies a unique merged PR for the source repository and branch. Local
-commits after the merge do not block reclamation. Open or ambiguous PR associations do not
-qualify for merged cleanup. Checkout identity is rechecked before removal.
-
-Environment release can leave dirty sources intact. It uses the existing Component/workspace
-dependency inventory, accepts only ignored checkout-local directories with RepoKit dependency
-receipts, and additionally accepts exact relative directories declared in `outputs`. Such output
-declarations assert that their contents are regenerable; they must not contain tracked files,
-symlinked installation roots or nested Git repositories. Unmanaged dependency environments count
-toward the prepared limit but are retained. Shared package-manager caches are never removed.
+Environment release uses the Component/workspace Depot dependency inventory and receipts.
+A Bin such as a uv virtual environment can carry its own ignore rules. Its receipt establishes
+ownership, and the release checks the checkout boundary, tracked files, symlinks and nested Git
+repositories. Unmanaged Bins, ordinary working files and project build outputs remain in the
+checkout. Explicit Bin cleanup can additionally release ignored directories declared in `outputs`.
 Preparation and cleanup share a repository process lease; preparation waits within its deadline
 and Python cleanup skips a busy repository. Go explicit cleanup waits until the caller cancels; automatic ensure maintenance skips a busy lease. Explicit Git worktree locks
 are the interoperable way to pin an otherwise clean checkout during use by another process.
@@ -115,8 +106,7 @@ at the mutation boundary. Partial environment deletion is reported and can be re
 The native Python cleanup operation is `repokit.state.clean_worktrees`. PR writes refresh only
 the affected observations and never trigger filesystem maintenance. Choose cleanup explicitly
 with `repocli clean` or `repocli worktree clean`; both share the same reclamation service.
-`worktree ensure` also calls that service automatically for clone-local capacity maintenance,
-without merged-PR removal (see below).
+`worktree ensure` also calls that service automatically for clone-local capacity maintenance (see below).
 
 The Go implementation lives in `toolkit/go/state`; the CLI directly calls this package.
 Python provides a toolkit only: the `repokit-worktree` console entry point has been removed.
@@ -126,15 +116,9 @@ repocli worktree clean --repo /path/to/repository --dry-run --json
 repocli worktree clean --repo /path/to/repository --max-count 10 --max-prepared 3
 ```
 
-PR operations use the native `toolkit/go/forge` client. Both PR operations and cleanup query that
-same capability, verifying the source repository, branch and exact head. Cleanup always queries current platform facts. Go PR display can use the explicit
-[repository observation store](home.md); cached display metadata never authorizes cleanup.
-Credentials come from `GH_TOKEN`/`GITHUB_TOKEN` or `GITLAB_TOKEN`; `--provider`, `--api-host`
-and repeatable `--target-repository owner/repo` supply explicit connection/target scope.
-No fork parent or another application's credential configuration is inferred. Without credentials,
-count retention still works and PR observation is reported unavailable. `--dry-run` projects both
-stages without deleting resources. The [CLI result envelope](cli-output.md) puts actions,
-errors and projected/actual remaining counts in `data`. Errors return nonzero.
+Dry-run projects the same actions and paths as execution. The [CLI result envelope](cli-output.md)
+puts actions, errors and remaining counts in `data`. The prepared count is unknown (`null`)
+when any surviving checkout skipped Depot inspection. Errors return nonzero.
 
 Both implementations keep `repokit-releases.json` in the checkout's Git administration directory.
 Each pending relative directory is bound to its device/inode identity before deletion. This
@@ -143,7 +127,7 @@ a replacement directory is retained with an error. Python preparation refuses a 
 Go cancels Git process groups and waits for the Git process before releasing the repository lease;
 in-process environment removal checks cancellation between entries and preserves the journal.
 
-Deletion journals are stored outside disposable environments. A normal cleanup retires records
+Deletion journals are stored outside disposable environments. Inspection of a middle-tier checkout retires records
 whose directory is already absent, completing an interrupted deletion before later preparation.
 Dry-run only observes these records. A different directory identity at the same path remains
 protected; recovery never authorizes deleting a replacement directory.
@@ -166,7 +150,7 @@ succeeds but preparation fails or remains unverified, outcome is `partial`, `con
 ## Cleanup time budget
 
 Both cleanup commands interpret `--timeout` (default `2m`) as a cumulative processing budget
-for each worktree. Inspection, PR verification, size estimation and removal or environment
+for each worktree. Inspection, size estimation and removal or environment
 release share that worktree's budget; processing other checkouts does not consume it.
 A timed-out worktree is reported individually and does not stop the next one. Repository cache
 reclamation has no local time budget. Caller cancellation stops the entire sweep and preserves
@@ -175,12 +159,9 @@ confirmed actions. Dry-run uses the same budget as execution.
 ## Automatic capacity maintenance
 
 After a confirmed `worktree ensure` creation or reuse and optional preparation, Go `worktree.Ensure`
-synchronously calls the existing worktree cleanup owner for that clone. It fixes the newest
-`max_count` / `max_prepared` retention windows and only considers older entries. It supplies no PR
-resolver: a merged PR cannot make a worktree inside the window eligible. The source checkout,
-ensured checkout and CLI's invoking directory remain protected, including their environments.
-Other clones, PR/comment caches and validation history are not swept; removed checkout registrations
-are reconciled normally. Explicit `worktree clean` and global `clean` retain their existing behavior.
+synchronously applies the same clone-local retention tiers as explicit cleanup. The source
+checkout, ensured checkout and invoking directory are protected, including their environments.
+Maintenance only affects the selected clone and reconciles removed checkout registrations.
 
 Creation and preparation release their leases before maintenance acquires the same lifecycle lock.
 A busy lifecycle lock skips maintenance immediately. The command's `--timeout` bounds creation and

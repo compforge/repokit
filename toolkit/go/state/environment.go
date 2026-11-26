@@ -140,7 +140,7 @@ func removeEnvironmentContents(ctx context.Context, path string) error {
 	return os.Remove(path)
 }
 
-func worktreeEnvironments(ctx context.Context, root string, policy WorktreePolicy, recover bool) ([]string, bool, error) {
+func worktreeEnvironments(ctx context.Context, root string, explicitPolicy *WorktreePolicy, recover bool) ([]string, bool, error) {
 	resources, err := depotdata.Resources(ctx, root)
 	if err != nil {
 		return nil, false, err
@@ -151,22 +151,37 @@ func worktreeEnvironments(ctx context.Context, root string, policy WorktreePolic
 	}
 	managed := map[string]bool{}
 	unmanaged := map[string]bool{}
-	for relative := range pending {
-		managed[filepath.Join(root, relative)] = true
-	}
 	for _, resource := range resources {
-		if resource.Managed {
+		relative, err := filepath.Rel(root, resource.Path)
+		if err != nil {
+			return nil, false, err
+		}
+		_, releasing := pending[relative]
+		if resource.Managed || releasing {
 			managed[resource.Path] = true
 		} else {
 			unmanaged[resource.Path] = true
 		}
 	}
-	for _, relative := range policy.Outputs {
+	var outputs []string
+	if explicitPolicy != nil {
+		outputs = explicitPolicy.Outputs
+		// Explicit Bin cleanup also finishes previously authorized releases after a policy change.
+		for relative := range pending {
+			managed[filepath.Join(root, relative)] = true
+		}
+	}
+	for _, relative := range outputs {
 		directory := filepath.Join(root, relative)
 		if _, err := os.Lstat(directory); errors.Is(err, os.ErrNotExist) {
 			continue
 		} else if err != nil {
 			return nil, false, err
+		}
+		if !managed[directory] {
+			if _, err := worktreeQuery(ctx, root, "check-ignore", "--quiet", "--", relative); err != nil {
+				return nil, false, fmt.Errorf("environment is not ignored: %s: %w", relative, err)
+			}
 		}
 		managed[directory] = true
 	}
@@ -190,9 +205,6 @@ func worktreeEnvironments(ctx context.Context, root string, policy WorktreePolic
 		}
 		if tracked != "" {
 			return nil, false, fmt.Errorf("environment contains tracked files: %s", relative)
-		}
-		if _, err = worktreeQuery(ctx, root, "check-ignore", "--quiet", "--", relative); err != nil {
-			return nil, false, fmt.Errorf("environment is not ignored: %s: %w", relative, err)
 		}
 		err = filepath.WalkDir(directory, func(path string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {

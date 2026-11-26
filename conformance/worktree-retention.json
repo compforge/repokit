@@ -1,0 +1,10 @@
+{
+  "checkoutsOldestFirst": ["old", "middle", "newest"],
+  "prepared": ["old", "middle"],
+  "cases": [
+    {"max_count": 2, "max_prepared": 1, "remove": ["old"], "release": ["middle"]},
+    {"max_count": 2, "max_prepared": 2, "remove": ["old"], "release": []},
+    {"max_count": 3, "max_prepared": 0, "remove": [], "release": ["old", "middle"]},
+    {"max_count": 0, "max_prepared": 0, "remove": ["old", "middle", "newest"], "release": []}
+  ]
+}

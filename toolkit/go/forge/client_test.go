@@ -294,7 +294,7 @@ func TestMalformedListIsNotAnEmptyResult(t *testing.T) {
 	}
 }
 
-// +case=`Only one exact merged association, verified by numbered GET, authorizes cleanup.`
+// +case=`An exact merged association is verified by numbered GET.`
 func TestMergedPullRequestEvidence(t *testing.T) {
 	root := t.TempDir()
 	out, err := exec.Command("git", "init", "-q", root).CombinedOutput()

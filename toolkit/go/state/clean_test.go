@@ -4,10 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"github.com/compforge/repokit/toolkit/go/internal/git/process/command"
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 	"time"
 )
@@ -63,7 +63,7 @@ func TestRetentionProjectsBothLimitsAndMissingDatesOldest(t *testing.T) {
 	policy := WorktreePolicy{MaxCount: 2, MaxPrepared: 1}
 	for _, dry := range []bool{true, false} {
 		report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &policy, DryRun: dry})
-		if err != nil || len(report.Errors) > 0 || report.RemainingCount != 2 || report.RemainingPrepared == nil || *report.RemainingPrepared != 1 {
+		if err != nil || len(report.Errors) > 0 || report.RemainingCount != 2 || report.RemainingPrepared != nil {
 			t.Fatalf("%+v %v", report, err)
 		}
 		if len(report.Actions) != 2 || report.Actions[0].Path != old || report.Actions[1].Path != middle {
@@ -179,7 +179,7 @@ func TestCompletedReleaseJournalRecoveryPreservesDryRun(t *testing.T) {
 	if err := os.RemoveAll(directory); err != nil {
 		t.Fatal(err)
 	}
-	policy := WorktreePolicy{MaxCount: 1, MaxPrepared: 1}
+	policy := WorktreePolicy{MaxCount: 1, MaxPrepared: 0}
 	for _, dry := range []bool{true, false} {
 		report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &policy, DryRun: dry})
 		if err != nil || len(report.Errors) > 0 {
@@ -299,73 +299,67 @@ func TestCleanupRemovesWholeWorktree(t *testing.T) {
 
 // +case=Whole-checkout deletion does not depend on dependency receipts, ignored status, or environment validity; symlink targets remain untouched.
 func TestCleanupDiscardsContentsWithoutEnvironmentInventory(t *testing.T) {
-	for _, merged := range []bool{false, true} {
-		for _, mode := range []string{"ignored", "staged", "unmanaged", "invalid_environment", "symlink"} {
-			t.Run(fmt.Sprintf("merged=%t/%s", merged, mode), func(t *testing.T) {
-				root, create := retentionFixture(t)
-				linked := create("discard", false)
-				outside := t.TempDir()
-				sentinel := filepath.Join(outside, "keep")
-				if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+	for _, mode := range []string{"ignored", "staged", "unmanaged", "invalid_environment", "symlink"} {
+		t.Run(mode, func(t *testing.T) {
+			root, create := retentionFixture(t)
+			linked := create("discard", false)
+			outside := t.TempDir()
+			sentinel := filepath.Join(outside, "keep")
+			if err := os.WriteFile(sentinel, []byte("keep"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
+			switch mode {
+			case "ignored":
+				if err := os.Mkdir(filepath.Join(linked, ".private"), 0700); err != nil {
 					t.Fatal(err)
 				}
-				policy := WorktreePolicy{MaxCount: 0, MaxPrepared: 0}
-				switch mode {
-				case "ignored":
-					if err := os.Mkdir(filepath.Join(linked, ".private"), 0700); err != nil {
-						t.Fatal(err)
-					}
-					if err := os.WriteFile(filepath.Join(linked, ".private", "local"), []byte("discard"), 0600); err != nil {
-						t.Fatal(err)
-					}
-				case "staged":
-					if err := os.WriteFile(filepath.Join(linked, "package.json"), []byte("{}"), 0600); err != nil {
-						t.Fatal(err)
-					}
-					if _, err := worktreeQuery(context.Background(), linked, "add", "package.json"); err != nil {
-						t.Fatal(err)
-					}
-				case "unmanaged":
-					if err := os.Mkdir(filepath.Join(linked, "node_modules"), 0700); err != nil {
-						t.Fatal(err)
-					}
-				case "invalid_environment":
-					if err := os.Mkdir(filepath.Join(linked, "not-ignored"), 0700); err != nil {
-						t.Fatal(err)
-					}
-					policy.Outputs = []string{"not-ignored"}
-				case "symlink":
-					if err := os.Symlink(outside, filepath.Join(linked, "node_modules")); err != nil {
-						t.Fatal(err)
-					}
+				if err := os.WriteFile(filepath.Join(linked, ".private", "local"), []byte("discard"), 0600); err != nil {
+					t.Fatal(err)
 				}
-				options := WorktreeCleanOptions{Policy: &policy}
-				if merged {
-					policy.MaxCount = 10
-					options.PullRequests = &cleanupMergedPR{}
+			case "staged":
+				if err := os.WriteFile(filepath.Join(linked, "package.json"), []byte("{}"), 0600); err != nil {
+					t.Fatal(err)
 				}
-				for _, dry := range []bool{true, false} {
-					options.DryRun = dry
-					report, err := CleanWorktrees(context.Background(), root, options)
-					if err != nil || len(report.Errors) != 0 || report.RemainingCount != 0 {
-						t.Fatal(report, err)
-					}
-					if len(report.Actions) != 1 || report.Actions[0].Action != "remove_worktree" {
-						t.Fatal(report)
-					}
-					_, err = os.Stat(linked)
-					if dry && err != nil || !dry && !os.IsNotExist(err) {
-						t.Fatal("unexpected checkout existence", dry, err)
-					}
+				if _, err := worktreeQuery(context.Background(), linked, "add", "package.json"); err != nil {
+					t.Fatal(err)
 				}
-				if _, err := os.Stat(sentinel); err != nil {
-					t.Fatal("symlink destination removed", err)
+			case "unmanaged":
+				if err := os.Mkdir(filepath.Join(linked, "node_modules"), 0700); err != nil {
+					t.Fatal(err)
 				}
-				if _, err := worktreeQuery(context.Background(), root, "rev-parse", "refs/heads/discard"); err != nil {
-					t.Fatal("branch deleted", err)
+			case "invalid_environment":
+				if err := os.Mkdir(filepath.Join(linked, "not-ignored"), 0700); err != nil {
+					t.Fatal(err)
 				}
-			})
-		}
+				policy.Outputs = []string{"not-ignored"}
+			case "symlink":
+				if err := os.Symlink(outside, filepath.Join(linked, "node_modules")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			options := WorktreeCleanOptions{Policy: &policy}
+			for _, dry := range []bool{true, false} {
+				options.DryRun = dry
+				report, err := CleanWorktrees(context.Background(), root, options)
+				if err != nil || len(report.Errors) != 0 || report.RemainingCount != 0 {
+					t.Fatal(report, err)
+				}
+				if len(report.Actions) != 1 || report.Actions[0].Action != "remove_worktree" {
+					t.Fatal(report)
+				}
+				_, err = os.Stat(linked)
+				if dry && err != nil || !dry && !os.IsNotExist(err) {
+					t.Fatal("unexpected checkout existence", dry, err)
+				}
+			}
+			if _, err := os.Stat(sentinel); err != nil {
+				t.Fatal("symlink destination removed", err)
+			}
+			if _, err := worktreeQuery(context.Background(), root, "rev-parse", "refs/heads/discard"); err != nil {
+				t.Fatal("branch deleted", err)
+			}
+		})
 	}
 }
 
@@ -377,7 +371,7 @@ func TestRetentionProtectedNewestKeepsCreationOrder(t *testing.T) {
 	newest := create("newest", true)
 	policy := WorktreePolicy{MaxCount: 2, MaxPrepared: 1}
 	report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &policy, ProtectedPaths: []string{newest}, SkipBusy: true})
-	if err != nil || len(report.Errors) > 0 || report.RemainingCount != 2 || report.RemainingPrepared == nil || *report.RemainingPrepared != 1 {
+	if err != nil || len(report.Errors) > 0 || report.RemainingCount != 2 || report.RemainingPrepared != nil {
 		t.Fatalf("%+v %v", report, err)
 	}
 	if _, err := os.Stat(old); !errors.Is(err, os.ErrNotExist) {
@@ -413,5 +407,98 @@ func TestRetentionSkipBusy(t *testing.T) {
 	}
 	if _, err := os.Stat(path); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// +case=A recent empty checkout occupies a full-retention slot. Only owned Depot dependencies in the middle tier are released.
+func TestMiddleTierReleasesSelfIgnoredUVBin(t *testing.T) {
+	root, create := retentionFixture(t)
+	if err := os.Mkdir(filepath.Join(root, "examples"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for name, data := range map[string]string{"pyproject.toml": "[project]\nname='sample'\nversion='0.1.0'\n", "uv.lock": "version = 1\n"} {
+		if err := os.WriteFile(filepath.Join(root, "examples", name), []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixtureGit(t, root, "add", "examples")
+	fixtureGit(t, root, "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "commit", "-qm", "uv fixture")
+	middle := create("middle", false)
+	newest := create("newest", false)
+	bin := filepath.Join(middle, "examples", ".venv")
+	output := filepath.Join(middle, ".private")
+	for _, dir := range []string{bin, output} {
+		if err := os.Mkdir(dir, 0700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for path, data := range map[string]string{
+		filepath.Join(bin, ".repokit-dependencies.json"): `{"manager":"uv","fingerprint":"owned"}`,
+		filepath.Join(bin, ".gitignore"):                 "*",
+		filepath.Join(middle, "notes"):                   "uncommitted",
+	} {
+		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	policy := WorktreePolicy{MaxCount: 2, MaxPrepared: 1, Outputs: []string{".private"}}
+	for _, dry := range []bool{true, false} {
+		report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{Policy: &policy, DryRun: dry})
+		if err != nil || len(report.Errors) != 0 || len(report.Actions) != 1 || report.Actions[0].Path != middle || report.Actions[0].Action != "release_environment" {
+			t.Fatal(report, err)
+		}
+		if _, err := os.Stat(bin); dry && err != nil || !dry && !os.IsNotExist(err) {
+			t.Fatal(dry, err)
+		}
+	}
+	for _, path := range []string{newest, output, filepath.Join(middle, "notes")} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestWorktreeRetentionContract(t *testing.T) {
+	var contract struct {
+		CheckoutsOldestFirst []string
+		Prepared             []string
+		Cases                []struct {
+			WorktreePolicy
+			Remove, Release []string
+		}
+	}
+	data, err := os.ReadFile("../../../conformance/worktree-retention.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(data, &contract); err != nil {
+		t.Fatal(err)
+	}
+	root, create := retentionFixture(t)
+	for _, branch := range contract.CheckoutsOldestFirst {
+		create(branch, slices.Contains(contract.Prepared, branch))
+	}
+	for _, c := range contract.Cases {
+		report, err := CleanWorktrees(context.Background(), root, WorktreeCleanOptions{DryRun: true, Policy: &c.WorktreePolicy})
+		if err != nil || len(report.Errors) != 0 {
+			t.Fatal(report, err)
+		}
+		var removed, released []string
+		for _, a := range report.Actions {
+			if a.Status != "planned" {
+				t.Fatal(a)
+			}
+			switch a.Action {
+			case "remove_worktree":
+				removed = append(removed, a.Branch)
+			case "release_environment":
+				released = append(released, a.Branch)
+			default:
+				t.Fatal(a)
+			}
+		}
+		if !slices.Equal(removed, c.Remove) || !slices.Equal(released, c.Release) {
+			t.Fatal(c, report)
+		}
 	}
 }
